@@ -19,4 +19,5 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     boms = relationship("BOM", back_populates="user")
+    projects = relationship("Project", back_populates="user")
     rfqs = relationship("RFQ", back_populates="user")

@@ -4,12 +4,12 @@ PGI Manufacturing Intelligence Platform — FastAPI Application
 Run: uvicorn app.main:app --reload
 """
 import logging
-from app.schemas import project
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.core.config import settings
 from app.core.database import init_db
-from app.routes import auth, bom, analysis, rfq, tracking  # add projects
+from app.routes import auth, bom, analysis, rfq, tracking, projects
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,14 +37,12 @@ def startup():
     logging.getLogger("main").info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
 
 
-# ── Routes ──
-from app.routes import auth, bom, analysis, rfq, tracking
-
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(bom.router, prefix=settings.API_PREFIX)
 app.include_router(analysis.router, prefix=settings.API_PREFIX)
 app.include_router(rfq.router, prefix=settings.API_PREFIX)
 app.include_router(tracking.router, prefix=settings.API_PREFIX)
+app.include_router(projects.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/")
@@ -60,6 +58,7 @@ def root():
             "analysis": f"{settings.API_PREFIX}/analysis",
             "rfq": f"{settings.API_PREFIX}/rfq",
             "tracking": f"{settings.API_PREFIX}/tracking",
+            "projects": f"{settings.API_PREFIX}/projects",
         },
     }
 

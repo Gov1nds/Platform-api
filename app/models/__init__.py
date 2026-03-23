@@ -1,4 +1,5 @@
 from app.models.user import User
+from app.models.project import Project
 from app.models.bom import BOM, BOMPart, BOMStatus
 from app.models.analysis import AnalysisResult, CostSavings
 from app.models.vendor import Vendor

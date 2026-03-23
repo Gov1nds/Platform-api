@@ -1,10 +1,12 @@
 """Tracking Service — production milestones + execution feedback."""
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Optional, List
 from sqlalchemy.orm import Session
+
 from app.models.tracking import ProductionTracking, ExecutionFeedback, TrackingStage
 from app.models.rfq import RFQ, RFQStatus
 from app.models.memory import SupplierMemory
+from app.services import project_service
 
 logger = logging.getLogger("tracking_service")
 
@@ -26,7 +28,6 @@ STAGE_MESSAGES = {
 
 
 def create_tracking(db: Session, rfq_id: str) -> ProductionTracking:
-    """Initialize tracking at T0."""
     tracking = ProductionTracking(
         rfq_id=rfq_id,
         stage=TrackingStage.T0.value,
@@ -39,13 +40,12 @@ def create_tracking(db: Session, rfq_id: str) -> ProductionTracking:
     if rfq:
         rfq.status = RFQStatus.in_production.value
 
-    db.commit()
+    db.flush()
     db.refresh(tracking)
     return tracking
 
 
 def advance_stage(db: Session, rfq_id: str, updated_by: str = "system") -> Optional[ProductionTracking]:
-    """Advance to next production stage."""
     tracking = (
         db.query(ProductionTracking)
         .filter(ProductionTracking.rfq_id == rfq_id)
@@ -59,11 +59,10 @@ def advance_stage(db: Session, rfq_id: str, updated_by: str = "system") -> Optio
     current_idx = stages.index(tracking.stage) if tracking.stage in stages else 0
 
     if current_idx >= len(stages) - 1:
-        # Already at T4 — mark RFQ as completed
         rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
         if rfq:
             rfq.status = RFQStatus.completed.value
-            db.commit()
+            project_service.sync_project_completion(db, rfq)
         return tracking
 
     next_stage = stages[current_idx + 1]
@@ -75,13 +74,12 @@ def advance_stage(db: Session, rfq_id: str, updated_by: str = "system") -> Optio
         updated_by=updated_by,
     )
     db.add(new_tracking)
-    db.commit()
+    db.flush()
     db.refresh(new_tracking)
     return new_tracking
 
 
 def get_tracking(db: Session, rfq_id: str) -> List[ProductionTracking]:
-    """Get all tracking entries for an RFQ."""
     return (
         db.query(ProductionTracking)
         .filter(ProductionTracking.rfq_id == rfq_id)
@@ -97,16 +95,15 @@ def submit_feedback(
     actual_lead_time: Optional[float] = None,
     feedback_notes: str = "",
 ) -> ExecutionFeedback:
-    """Submit execution feedback and update supplier memory."""
     rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
 
     predicted_cost = rfq.total_estimated_cost or 0
-    predicted_lead = 14.0  # default
+    predicted_lead = 14.0
 
-    cost_delta = (actual_cost - predicted_cost) if actual_cost else None
-    lead_delta = (actual_lead_time - predicted_lead) if actual_lead_time else None
+    cost_delta = (actual_cost - predicted_cost) if actual_cost is not None else None
+    lead_delta = (actual_lead_time - predicted_lead) if actual_lead_time is not None else None
 
     fb = ExecutionFeedback(
         rfq_id=rfq_id,
@@ -120,18 +117,20 @@ def submit_feedback(
     )
     db.add(fb)
 
-    # Update supplier memory
     if rfq.selected_vendor_id:
         _update_memory(db, rfq.selected_vendor_id, cost_delta, lead_delta)
 
-    db.commit()
+    db.flush()
     db.refresh(fb)
-    logger.info(f"Feedback recorded for RFQ {rfq_id}: cost_delta={cost_delta}, lead_delta={lead_delta}")
+    logger.info("Feedback recorded for RFQ %s: cost_delta=%s, lead_delta=%s", rfq_id, cost_delta, lead_delta)
     return fb
 
 
+def get_rfq_for_feedback(db: Session, rfq_id: str) -> Optional[RFQ]:
+    return db.query(RFQ).filter(RFQ.id == rfq_id).first()
+
+
 def _update_memory(db: Session, vendor_id: str, cost_delta: Optional[float], lead_delta: Optional[float]):
-    """Update supplier memory based on feedback."""
     mem = db.query(SupplierMemory).filter(SupplierMemory.vendor_id == vendor_id).first()
     if not mem:
         return

@@ -1,7 +1,7 @@
 """BOM and BOMPart models."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Enum as SAEnum, JSON
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 import enum
@@ -32,6 +32,7 @@ class BOM(Base):
     user = relationship("User", back_populates="boms")
     parts = relationship("BOMPart", back_populates="bom", cascade="all, delete-orphan")
     analysis = relationship("AnalysisResult", back_populates="bom", uselist=False, cascade="all, delete-orphan")
+    project = relationship("Project", back_populates="bom", uselist=False, cascade="all, delete-orphan")
     rfqs = relationship("RFQ", back_populates="bom")
 
 

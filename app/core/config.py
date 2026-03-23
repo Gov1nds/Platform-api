@@ -6,13 +6,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _normalize_database_url(value: str | None) -> str:
+    default_sqlite = "sqlite:///./pgi_platform.db"
+    url = value or default_sqlite
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    return url
+
+
 class Settings:
     PROJECT_NAME: str = "PGI Manufacturing Intelligence Platform"
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api/v1"
 
     # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL")
+    DATABASE_URL: str = _normalize_database_url(os.getenv("DATABASE_URL"))
 
     # JWT
     SECRET_KEY: str = os.getenv("SECRET_KEY", "pgi-dev-secret-change-in-production-2024")
@@ -33,10 +41,10 @@ class Settings:
     # Analyzer path (legacy)
     ANALYZER_PATH: str = os.getenv("ANALYZER_PATH", "")
 
-    # BOM Analyzer microservice (Railway internal networking)
+    # BOM Analyzer microservice
     BOM_ANALYZER_URL: str = os.getenv(
         "BOM_ANALYZER_URL",
-        "http://bom-intelligence-engine.railway.internal:8000"
+        "http://bom-intelligence-engine.railway.internal:8000",
     )
     INTERNAL_API_KEY: str = os.getenv("INTERNAL_API_KEY", "")
 
@@ -48,9 +56,7 @@ class Settings:
 settings = Settings()
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
-# Project statuses
 PROJECT_STATUSES = [
-    "uploaded", "analyzed", "quoting",
-    "quoted", "approved", "in_production",
-    "qc_inspection", "shipped", "completed"
+    "uploaded", "analyzed", "quoting", "quoted", "approved",
+    "in_production", "qc_inspection", "shipped", "completed",
 ]

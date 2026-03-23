@@ -37,6 +37,7 @@ def get_db():
 def init_db():
     """Create all tables."""
     import app.models.user
+    import app.models.project
     import app.models.bom
     import app.models.analysis
     import app.models.vendor
