@@ -1,11 +1,12 @@
 """
-Analyzer Service v3 — HTTP Bridge to BOM Analyzer Microservice.
+Analyzer Service — HTTP Bridge to BOM Analyzer Microservice.
 
-BOM Engine v3 returns: { components, summary, _meta }
-(No longer returns section_1 through section_7 reports)
+Handles BOTH response formats:
+  - v3: { "components": [...], "summary": {...} }
+  - v2: { "section_1_executive_summary": {...}, "section_2_component_breakdown": [...], ... }
 
-All communication to BOM Analyzer happens via HTTP.
-Includes retry logic, health checks, and response validation.
+If v2 response is detected, it transforms it into v3 format so the rest
+of Platform API (bom_service, routes/bom) can work with a single schema.
 """
 
 import logging
@@ -25,14 +26,7 @@ async def call_analyzer(
 ) -> Dict[str, Any]:
     """
     Forward raw BOM file to BOM Analyzer service.
-
-    Returns normalized + classified components with extracted specs.
-    Response shape:
-    {
-        "components": [ { item_id, description, category, specs, ... }, ... ],
-        "summary": { total_items, categories: { standard, custom, raw_material, unknown } },
-        "_meta": { total_time_s, version }
-    }
+    Returns normalized data — auto-detects v2 or v3 response format.
     """
     url = f"{settings.BOM_ANALYZER_URL}/api/analyze-bom"
     headers = {}
@@ -63,28 +57,81 @@ async def call_analyzer(
 
     result = resp.json()
 
-    # ── Validate v3 response schema ──
-    if "components" not in result:
-        # Backward compat: if old v2 engine returns section_1, reject it
-        if "section_1_executive_summary" in result:
-            logger.error(
-                "BOM Analyzer returned v2 format (section_1). "
-                "Please upgrade BOM Engine to v3."
-            )
-            raise RuntimeError(
-                "BOM Analyzer version mismatch — expected v3 format"
-            )
-        raise RuntimeError("Invalid analyzer response — missing 'components'")
+    # ── v3 format: already has "components" ──
+    if "components" in result:
+        logger.info(f"Analyzer returned v3 format: {len(result['components'])} components")
+        return result
 
-    if not isinstance(result["components"], list):
-        raise RuntimeError("Invalid analyzer response — 'components' must be a list")
+    # ── v2 format: has "section_1_executive_summary" — transform to v3 ──
+    if "section_2_component_breakdown" in result:
+        logger.info("Analyzer returned v2 format — transforming to v3")
+        components = _transform_v2_to_v3(result)
+        return {
+            "components": components,
+            "summary": {
+                "total_items": len(components),
+                "categories": _count_categories(components),
+            },
+            "_meta": result.get("_meta", {}),
+            "_v2_full_report": result,  # keep original for enriched output
+        }
 
-    logger.info(
-        f"Analyzer returned {len(result['components'])} components "
-        f"in {result.get('_meta', {}).get('total_time_s', '?')}s"
-    )
+    raise RuntimeError("Invalid analyzer response — unrecognized format")
 
-    return result
+
+def _transform_v2_to_v3(v2_result: Dict) -> list:
+    """
+    Transform v2 section_2_component_breakdown items into v3 component format.
+    """
+    s2 = v2_result.get("section_2_component_breakdown", [])
+    components = []
+
+    for item in s2:
+        comp = {
+            # Identity
+            "item_id": item.get("item_id", ""),
+            "raw_text": item.get("description", ""),
+            "standard_text": item.get("description", ""),
+            "description": item.get("description", ""),
+            "quantity": item.get("quantity", 1),
+            "part_number": item.get("mpn", ""),
+            "mpn": item.get("mpn", ""),
+            "manufacturer": item.get("manufacturer", ""),
+            "material": item.get("material", ""),
+            "notes": item.get("notes", ""),
+            "unit": "each",
+            # Classification
+            "category": item.get("category", "standard"),
+            "classification_path": item.get("classification_path", "3_1"),
+            "classification_confidence": item.get("confidence", 0),
+            "classification_reason": item.get("classification_reason", ""),
+            "has_mpn": bool(item.get("mpn")),
+            "has_brand": bool(item.get("manufacturer")),
+            "is_generic": item.get("is_generic", False),
+            "is_raw": item.get("is_raw", False),
+            "is_custom": item.get("is_custom", False),
+            # Manufacturing attributes
+            "material_form": item.get("material_form"),
+            "geometry": item.get("geometry"),
+            "tolerance": item.get("tolerance"),
+            "secondary_ops": item.get("secondary_ops", []),
+            # Specs
+            "specs": item.get("specs", {}),
+        }
+        components.append(comp)
+
+    return components
+
+
+def _count_categories(components: list) -> Dict[str, int]:
+    counts = {"standard": 0, "custom": 0, "raw_material": 0, "unknown": 0}
+    for c in components:
+        cat = c.get("category", "unknown")
+        if cat in counts:
+            counts[cat] += 1
+        else:
+            counts["unknown"] += 1
+    return counts
 
 
 async def health_check() -> Dict[str, Any]:

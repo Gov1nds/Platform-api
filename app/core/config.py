@@ -5,16 +5,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class Settings:
     PROJECT_NAME: str = "PGI Manufacturing Intelligence Platform"
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api/v1"
 
     # Database
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL",
-        "sqlite:///./pgi_platform.db"
-    )
+    DATABASE_URL: str = os.getenv("DATABASE_URL")
 
     # JWT
     SECRET_KEY: str = os.getenv("SECRET_KEY", "pgi-dev-secret-change-in-production-2024")
@@ -32,25 +30,23 @@ class Settings:
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "./uploads")
     MAX_FILE_SIZE_MB: int = 20
 
-    # Analyzer path
+    # Analyzer path (legacy)
     ANALYZER_PATH: str = os.getenv("ANALYZER_PATH", "")
+
+    # BOM Analyzer microservice (Railway internal networking)
+    BOM_ANALYZER_URL: str = os.getenv(
+        "BOM_ANALYZER_URL",
+        "http://bom-intelligence-engine.railway.internal:8000"
+    )
+    INTERNAL_API_KEY: str = os.getenv("INTERNAL_API_KEY", "")
 
     @property
     def is_sqlite(self) -> bool:
-        return "sqlite" in self.DATABASE_URL
+        return "sqlite" in (self.DATABASE_URL or "")
+
 
 settings = Settings()
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
-# Add to Settings class:
-BOM_ANALYZER_URL: str = os.getenv(
-    "BOM_ANALYZER_URL",
-    "http://localhost:8000"  # default for local dev
-)
-# Add these to the Settings class in app/core/config.py:
-
-# BOM Analyzer microservice
-BOM_ANALYZER_URL: str = os.getenv("BOM_ANALYZER_URL", "http://localhost:8000")
-INTERNAL_API_KEY: str = os.getenv("INTERNAL_API_KEY", "")
 
 # Project statuses
 PROJECT_STATUSES = [
