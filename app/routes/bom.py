@@ -1,4 +1,12 @@
-"""BOM routes — full DB integration, HTTP analyzer bridge, guest/auth split."""
+"""
+BOM Routes v3 — Full DB integration, HTTP analyzer bridge, guest/auth split.
+
+CHANGES from v2:
+  - Uses create_bom_from_analyzer() instead of local parsing
+  - Transforms BOM Engine v3 output into section_2 format for strategy engine
+  - Removed duplicate CSV parsing dependency
+"""
+
 import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -36,37 +44,18 @@ async def bom_upload(
 
     Flow:
       1. Read file bytes
-      2. Parse locally → store BOM + parts in DB
-      3. Forward raw file to BOM Analyzer via HTTP
-      4. Run strategy engine on analyzer output
+      2. Send file to BOM Engine → get normalized + classified components
+      3. Store BOM + parts in DB from Engine output (NO local parsing)
+      4. Run pricing + strategy + procurement on Platform API side
       5. Store AnalysisResult + CostSavings in DB
       6. Return preview (guest) or full report (authenticated)
     """
 
-    # ── 1. Read file ──────────────────────────────────────
+    # ── 1. Read file ──────────────────────────────────────────
     content = await file.read()
     filename = file.filename or "upload.csv"
 
-    # ── 2. Parse for DB storage ───────────────────────────
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = content.decode("latin-1")
-
-    raw_rows = bom_service.parse_csv_content(text)
-    if not raw_rows:
-        raise HTTPException(status_code=400, detail="No data rows found in file")
-
-    vendor_service.seed_vendors(db)
-
-    bom = bom_service.create_bom(
-        db, raw_rows,
-        file_name=filename,
-        file_type=filename.split(".")[-1],
-        user_id=user.id if user else None,
-    )
-
-    # ── 3. Call BOM Analyzer service via HTTP ─────────────
+    # ── 2. Call BOM Engine (parse + classify + specs ONLY) ────
     try:
         analyzer_output = await analyzer_service.call_analyzer(
             file_bytes=content,
@@ -75,33 +64,59 @@ async def bom_upload(
             target_currency=target_currency,
         )
     except RuntimeError as e:
-        # Analyzer failed — mark BOM as uploaded (not analyzed) and report error
-        logger.error(f"Analyzer call failed for BOM {bom.id}: {e}")
+        logger.error(f"Analyzer call failed: {e}")
         raise HTTPException(status_code=502, detail=str(e))
 
-    # ── 4. Enrich + Strategy ──────────────────────────────
+    # ── 3. Store BOM + parts from Engine output ───────────────
+    vendor_service.seed_vendors(db)
+
+    bom = bom_service.create_bom_from_analyzer(
+        db,
+        analyzer_output,
+        file_name=filename,
+        file_type=filename.rsplit(".", 1)[-1] if "." in filename else "csv",
+        user_id=user.id if user else None,
+    )
+
+    # ── 4. Run pricing + strategy (Platform API intelligence) ─
+    #
+    # Transform BOM Engine components into the section_2 format
+    # that strategy_service.build_strategy_output() expects.
+    # This is a lightweight adapter — no logic duplication.
+    #
+    section_2 = _components_to_section_2(analyzer_output["components"])
+    analysis_input = {"section_2_component_breakdown": section_2}
+
+    # Fetch external pricing for standard parts
     parts = bom_service.get_bom_parts_as_dicts(db, bom.id)
     external_pricing = pricing_service.fetch_external_pricing(parts)
+
+    # Enrich with DB-first pricing
     enriched = pricing_service.enrich_analysis_with_pricing(
-        analyzer_output, db, external_pricing
+        analysis_input, db, external_pricing
     )
 
     if priority not in ("cost", "speed"):
         priority = "cost"
 
+    # Run global procurement strategy
     vendor_memories = vendor_service.get_vendor_memories(db)
     strategy = build_strategy_output(
-        analyzer_output, delivery_location, vendor_memories,
+        analysis_input,
+        delivery_location,
+        vendor_memories,
         pricing_history=[],
         external_pricing=external_pricing,
         db=db,
         priority=priority,
     )
+
+    # Generate execution-ready procurement plan
     procurement = generate_procurement_plan(
         strategy, target_currency, max_suppliers=5
     )
 
-    # ── 5. Store EVERYTHING in DB ─────────────────────────
+    # ── 5. Store EVERYTHING in DB ─────────────────────────────
     ps = strategy.get("procurement_strategy", {})
     cs = ps.get("cost_summary", {})
     rec = strategy.get("recommended_strategy", {})
@@ -110,7 +125,7 @@ async def bom_upload(
     analysis = AnalysisResult(
         bom_id=bom.id,
         user_id=user.id if user else None,
-        raw_analyzer_output=analyzer_output,
+        raw_analyzer_output=analyzer_output,  # store raw Engine output
         strategy_output=strategy,
         enriched_output={
             "analyzer": enriched,
@@ -144,7 +159,7 @@ async def bom_upload(
     bom.status = BOMStatus.analyzed.value
     db.commit()
 
-    # ── 6. Return based on auth state ─────────────────────
+    # ── 6. Return based on auth state ─────────────────────────
     if user:
         return BOMUploadResponse(
             bom_id=bom.id,
@@ -152,7 +167,7 @@ async def bom_upload(
             total_parts=bom.total_parts,
             status=bom.status,
             preview=_build_full_response(
-                analyzer_output, strategy, procurement, bom, priority
+                analysis_input, strategy, procurement, bom, priority
             ),
         )
     else:
@@ -162,7 +177,7 @@ async def bom_upload(
             total_parts=bom.total_parts,
             status=bom.status,
             preview=_build_preview_response(
-                analyzer_output, strategy, bom, priority
+                analysis_input, strategy, bom, priority
             ),
         )
 
@@ -186,7 +201,7 @@ def bom_unlock(
     if not bom:
         raise HTTPException(status_code=404, detail="BOM not found")
 
-    # Auth check: either owner or valid session token
+    # Auth check
     authorized = False
     if user and bom.user_id == user.id:
         authorized = True
@@ -214,6 +229,43 @@ def bom_unlock(
 
 
 # ═══════════════════════════════════════════════════════════
+# Adapter: BOM Engine v3 output → strategy_service input
+# ═══════════════════════════════════════════════════════════
+
+def _components_to_section_2(components: list) -> list:
+    """
+    Transform BOM Engine v3's flat component list into the
+    section_2_component_breakdown format that strategy_service expects.
+
+    This is a pure data mapping — no business logic, no duplication.
+    The strategy_service.evaluate_part() function reads these fields.
+    """
+    section_2 = []
+    for comp in components:
+        section_2.append({
+            # Identity
+            "item_id": comp.get("item_id", ""),
+            "description": comp.get("description", ""),
+            "quantity": comp.get("quantity", 1),
+            "material": comp.get("material", ""),
+            "mpn": comp.get("mpn", ""),
+            "manufacturer": comp.get("manufacturer", ""),
+            "notes": comp.get("notes", ""),
+            # Classification
+            "category": comp.get("category", "standard"),
+            "classification_confidence": comp.get("classification_confidence", 0),
+            # Manufacturing attributes
+            "geometry": comp.get("geometry"),
+            "tolerance": comp.get("tolerance"),
+            "material_form": comp.get("material_form"),
+            "secondary_ops": comp.get("secondary_ops", []),
+            # Specs (used by pricing for parametric estimation)
+            "specs": comp.get("specs", {}),
+        })
+    return section_2
+
+
+# ═══════════════════════════════════════════════════════════
 # Response builders — preview vs full
 # ═══════════════════════════════════════════════════════════
 
@@ -222,16 +274,16 @@ def _build_preview_response(analyzer, strategy, bom, priority):
     Guest response: limited data only.
     Shows enough to demonstrate value, hides detailed breakdown.
     """
-    s1 = analyzer.get("section_1_executive_summary", {})
     ps = strategy.get("procurement_strategy", {})
     rec = strategy.get("recommended_strategy", {})
+    cs = ps.get("cost_summary", {})
 
     return {
         "is_preview": True,
         # Shown to guest
-        "cost_range": s1.get("cost_range", {}),
-        "total_cost": s1.get("total_cost"),
-        "lead_time": s1.get("lead_time", {}),
+        "cost_range": cs.get("range", [0, 0]),
+        "total_cost": cs.get("average", 0),
+        "lead_time": ps.get("timeline", {}),
         "risk_level": ps.get("risk_analysis", {}).get("risk_level", "MEDIUM"),
         "total_parts": bom.total_parts,
         "priority": priority,
@@ -239,15 +291,17 @@ def _build_preview_response(analyzer, strategy, bom, priority):
         "region_distribution": strategy.get("region_distribution", {}),
         "decision_summary": strategy.get("decision_summary", "")[:200],
         # CTA
-        "unlock_message": "Sign up to see full BOM breakdown, cost optimization, and procurement plan",
+        "unlock_message": (
+            "Sign up to see full BOM breakdown, "
+            "cost optimization, and procurement plan"
+        ),
     }
 
 
 def _build_full_response(analyzer, strategy, procurement, bom, priority):
     """
     Authenticated response: everything.
-    analyzer_report contains the same section_1 through section_6
-    structure that the frontend report renderer already expects.
+    Contains strategy, procurement plan, and all analysis data.
     """
     return {
         "is_preview": False,

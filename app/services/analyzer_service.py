@@ -1,9 +1,13 @@
 """
-Analyzer Service v2 — HTTP Bridge to BOM Analyzer Microservice.
+Analyzer Service v3 — HTTP Bridge to BOM Analyzer Microservice.
+
+BOM Engine v3 returns: { components, summary, _meta }
+(No longer returns section_1 through section_7 reports)
 
 All communication to BOM Analyzer happens via HTTP.
 Includes retry logic, health checks, and response validation.
 """
+
 import logging
 import httpx
 from typing import Dict, Any
@@ -21,7 +25,14 @@ async def call_analyzer(
 ) -> Dict[str, Any]:
     """
     Forward raw BOM file to BOM Analyzer service.
-    Returns the full 7-section analysis report.
+
+    Returns normalized + classified components with extracted specs.
+    Response shape:
+    {
+        "components": [ { item_id, description, category, specs, ... }, ... ],
+        "summary": { total_items, categories: { standard, custom, raw_material, unknown } },
+        "_meta": { total_time_s, version }
+    }
     """
     url = f"{settings.BOM_ANALYZER_URL}/api/analyze-bom"
     headers = {}
@@ -51,13 +62,33 @@ async def call_analyzer(
             raise RuntimeError("Analysis service unavailable")
 
     result = resp.json()
-    if "section_1_executive_summary" not in result:
-        raise RuntimeError("Invalid analyzer response")
+
+    # ── Validate v3 response schema ──
+    if "components" not in result:
+        # Backward compat: if old v2 engine returns section_1, reject it
+        if "section_1_executive_summary" in result:
+            logger.error(
+                "BOM Analyzer returned v2 format (section_1). "
+                "Please upgrade BOM Engine to v3."
+            )
+            raise RuntimeError(
+                "BOM Analyzer version mismatch — expected v3 format"
+            )
+        raise RuntimeError("Invalid analyzer response — missing 'components'")
+
+    if not isinstance(result["components"], list):
+        raise RuntimeError("Invalid analyzer response — 'components' must be a list")
+
+    logger.info(
+        f"Analyzer returned {len(result['components'])} components "
+        f"in {result.get('_meta', {}).get('total_time_s', '?')}s"
+    )
 
     return result
 
 
 async def health_check() -> Dict[str, Any]:
+    """Check if BOM Analyzer is reachable."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{settings.BOM_ANALYZER_URL}/health")
