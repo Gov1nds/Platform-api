@@ -84,8 +84,14 @@ async def bom_upload(
     # that strategy_service.build_strategy_output() expects.
     # This is a lightweight adapter — no logic duplication.
     #
-    section_2 = _components_to_section_2(analyzer_output["components"])
-    analysis_input = {"section_2_component_breakdown": section_2}
+    v2_report = analyzer_output.get("_v2_full_report")
+    if v2_report and "section_2_component_breakdown" in v2_report:
+        # v2 engine: use original section_2 which strategy_service already understands
+        strategy_input = v2_report
+    else:
+        # v3 engine (or transformed v2): build section_2 from components
+        section_2 = _components_to_section_2(analyzer_output["components"])
+        strategy_input = {"section_2_component_breakdown": section_2}
 
     # Fetch external pricing for standard parts
     parts = bom_service.get_bom_parts_as_dicts(db, bom.id)
@@ -93,7 +99,7 @@ async def bom_upload(
 
     # Enrich with DB-first pricing
     enriched = pricing_service.enrich_analysis_with_pricing(
-        analysis_input, db, external_pricing
+        strategy_input, db, external_pricing
     )
 
     if priority not in ("cost", "speed"):
@@ -102,13 +108,14 @@ async def bom_upload(
     # Run global procurement strategy
     vendor_memories = vendor_service.get_vendor_memories(db)
     strategy = build_strategy_output(
-        analysis_input,
+        strategy_input,
         delivery_location,
         vendor_memories,
         pricing_history=[],
         external_pricing=external_pricing,
         db=db,
         priority=priority,
+        target_currency=target_currency,
     )
 
     # Generate execution-ready procurement plan
@@ -122,10 +129,13 @@ async def bom_upload(
     rec = strategy.get("recommended_strategy", {})
     cost_range = cs.get("range", [0, 0])
 
+    # For DB storage and response: use v2 full report if available
+    stored_analyzer = v2_report if v2_report else strategy_input
+
     analysis = AnalysisResult(
         bom_id=bom.id,
         user_id=user.id if user else None,
-        raw_analyzer_output=analyzer_output,  # store raw Engine output
+        raw_analyzer_output=stored_analyzer,
         strategy_output=strategy,
         enriched_output={
             "analyzer": enriched,
@@ -167,7 +177,7 @@ async def bom_upload(
             total_parts=bom.total_parts,
             status=bom.status,
             preview=_build_full_response(
-                analysis_input, strategy, procurement, bom, priority
+                stored_analyzer, strategy, procurement, bom, priority
             ),
         )
     else:
@@ -177,7 +187,7 @@ async def bom_upload(
             total_parts=bom.total_parts,
             status=bom.status,
             preview=_build_preview_response(
-                analysis_input, strategy, bom, priority
+                stored_analyzer, strategy, bom, priority
             ),
         )
 

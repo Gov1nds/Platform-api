@@ -261,7 +261,7 @@ def compute_score(avg_cost, lead_time, uncertainty, quality, quantity_fit,
 # ══════════════════════════════════════════════════════════
 
 def evaluate_part(part, delivery_country, vendor_memories, db: Session,
-                  priority="cost", external_price=None):
+                  priority="cost", external_price=None, regions=None):
     from app.services.pricing_service import get_price
 
     name = part.get("description", part.get("part_name", "Unknown"))
@@ -283,7 +283,8 @@ def evaluate_part(part, delivery_country, vendor_memories, db: Session,
     complexity = "high" if category == "custom" and quantity > 100 else ("medium" if category == "custom" else "low")
 
     candidates = []
-    for region, profile in REGION_PROFILES.items():
+    eval_regions = regions if regions is not None else REGION_PROFILES
+    for region, profile in eval_regions.items():
         # ── CAPABILITY FILTER ──
         if not _capability_match(region, process):
             continue  # reject incompatible supplier
@@ -431,21 +432,21 @@ def global_optimize(part_decisions: List[Dict], delivery_country: str) -> Dict:
 # EXPLANATION ENGINE
 # ══════════════════════════════════════════════════════════
 
-def generate_explanation(global_result, part_decisions, region_distribution, delivery_country, priority):
+def generate_explanation(global_result, part_decisions, region_distribution, delivery_country, priority, currency="USD"):
     reasons = []
     sav = global_result.get("true_savings_vs_local", 0)
     opt_cost = global_result.get("optimized_cost", 0)
     naive_cost = global_result.get("naive_local_cost", 0)
 
     if sav > 0:
-        reasons.append(f"{sav}% total savings vs all-local strategy (${naive_cost:,.0f} → ${opt_cost:,.0f})")
+        reasons.append(f"{sav}% total savings vs all-local strategy ({currency} {naive_cost:,.0f} → {currency} {opt_cost:,.0f})")
 
     total_qty = sum(pd["quantity"] for pd in part_decisions)
     if total_qty >= QTY_OVERRIDE:
-        offshore = [pd for pd in part_decisions if pd["best_region"] not in ("Local", "USA", "EU (Germany)")]
+        offshore = [pd for pd in part_decisions if pd["best_region"] not in ("Local", "USA", "EU (Germany)", delivery_country)]
         if offshore:
             avg_log = sum(pd["logistics_per_unit"] for pd in offshore) / max(len(offshore), 1)
-            reasons.append(f"At {total_qty:,} units, offshore handles {len(offshore)} parts — avg logistics ${avg_log:.3f}/unit")
+            reasons.append(f"At {total_qty:,} units, offshore handles {len(offshore)} parts — avg logistics {currency} {avg_log:.3f}/unit")
 
     if priority == "speed":
         avg_lead = sum(pd["best_lead_days"] for pd in part_decisions) / max(len(part_decisions), 1)
@@ -465,7 +466,7 @@ def generate_explanation(global_result, part_decisions, region_distribution, del
         reasons.append(f"Best global optimization for {len(part_decisions)} parts")
 
     summary = (f"Global strategy: {global_result['best_strategy_name'].replace('_', ' ')}. "
-               f"{len(part_decisions)} parts, ${opt_cost:,.2f} total. "
+               f"{len(part_decisions)} parts, {currency} {opt_cost:,.2f} total. "
                f"Saves {sav}% vs all-local.")
 
     return {"reasons": reasons, "decision_summary": summary}
@@ -480,7 +481,8 @@ def build_strategy_output(analyzer_output: Dict, delivery_location: str = "India
                           pricing_history: Optional[List] = None,
                           external_pricing: Optional[Dict] = None,
                           db: Session = None,
-                          priority: str = "cost") -> Dict:
+                          priority: str = "cost",
+                          target_currency: str = "USD") -> Dict:
     """
     MAIN ENTRY. DB-integrated, globally optimized.
     priority: "cost" or "speed"
@@ -502,6 +504,15 @@ def build_strategy_output(analyzer_output: Dict, delivery_location: str = "India
     bom_summary = {"total_parts": len(s2), "total_quantity": total_quantity,
                    "categories": dict(categories), "priority": priority}
 
+    # ═══ Merge "Local" into delivery country region ═══
+    # If user is in India, "Local" and "India" are the same — don't double-count.
+    # Replace "Local" profile with the delivery country's profile when they match.
+    if delivery_country in REGION_PROFILES and delivery_country != "Local":
+        # User's country has a dedicated profile — skip the generic "Local"
+        active_regions = {k: v for k, v in REGION_PROFILES.items() if k != "Local"}
+    else:
+        active_regions = REGION_PROFILES
+
     # ═══ Per-part evaluation (with DB pricing) ═══
     part_decisions = []
     for item in s2:
@@ -510,7 +521,8 @@ def build_strategy_output(analyzer_output: Dict, delivery_location: str = "India
         ext_price = ext.get("best_price") if ext else None
 
         pd = evaluate_part(item, delivery_country, vendor_memories, db,
-                           priority=priority, external_price=ext_price)
+                           priority=priority, external_price=ext_price,
+                           regions=active_regions)
         part_decisions.append(pd)
 
     # ═══ Region distribution ═══
@@ -525,7 +537,7 @@ def build_strategy_output(analyzer_output: Dict, delivery_location: str = "India
 
     # ═══ Explanation ═══
     explanation = generate_explanation(global_result, part_decisions, region_distribution,
-                                       delivery_country, priority)
+                                       delivery_country, priority, currency=target_currency)
 
     # ═══ Risk aggregation ═══
     avg_unc = sum(pd["risk"]["uncertainty"] for pd in part_decisions) / max(len(part_decisions), 1)
