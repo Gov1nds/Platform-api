@@ -7,22 +7,22 @@ from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token
 from app.schemas.user import UserRegister, UserLogin, TokenResponse, UserResponse
 from app.models.user import User
-
+from sqlalchemy import text
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # 🔥 HELPER FUNCTION (MOVE TO TOP FOR CLARITY)
-def attach_guest_boms(db: Session, user_id: str, session_token: str | None):
+def attach_guest_boms(db, user_id: str, session_token: str):
     if not session_token:
         return
 
     db.execute(
-        """
-        UPDATE boms
-        SET user_id = :user_id
-        WHERE session_token = :session_token
-        AND user_id IS NULL
-        """,
+        text("""
+            UPDATE boms
+            SET user_id = :user_id
+            WHERE session_token = :session_token
+            AND user_id IS NULL
+        """),
         {"user_id": user_id, "session_token": session_token},
     )
     db.commit()
