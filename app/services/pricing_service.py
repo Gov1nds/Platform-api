@@ -361,7 +361,6 @@ def enrich_analysis_with_pricing(analyzer_output: Dict, db: Session,
 
     return analyzer_output
 
-
 def fetch_external_pricing(parts: List[Dict]) -> Dict[str, Dict]:
     """Query external APIs for standard parts."""
     results = {}
