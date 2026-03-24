@@ -27,14 +27,14 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "https://platform-api-production-d66b.up.railway.app",  # safe add
     ],
-    allow_credentials=True,
+    allow_credentials=False,  # 🔥 IMPORTANT CHANGE
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
+@app.options("/{full_path:path}")
+async def preflight_handler():
+    return {"status": "ok"}
 @app.on_event("startup")
 def startup():
     init_db()
