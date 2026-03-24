@@ -38,3 +38,7 @@ def update_project_status(project_id: str, status_update: StatusUpdate, user: Us
     db.commit()
     db.refresh(project)
     return project_service.serialize_detail(project)
+@router.get("", response_model=list[ProjectSummary])
+def list_projects(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    projects = project_service.list_projects_for_user(db, user.id)
+    return [project_service.serialize_summary(p) for p in projects]

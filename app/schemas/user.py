@@ -1,17 +1,20 @@
 """User schemas."""
+
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
 
 class UserRegister(BaseModel):
-    email: str
+    email: EmailStr
     password: str
     full_name: Optional[str] = None
+    session_token: Optional[str] = None   # 🔥 FIXED
 
 
 class UserLogin(BaseModel):
-    email: str
+    email: EmailStr
     password: str
+    session_token: Optional[str] = None   # 🔥 FIXED
 
 
 class UserResponse(BaseModel):

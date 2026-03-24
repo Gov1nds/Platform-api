@@ -5,6 +5,7 @@ from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 import enum
+from sqlalchemy import Index
 
 
 class BOMStatus(str, enum.Enum):
@@ -18,7 +19,7 @@ class BOM(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    session_token = Column(String(64), nullable=True, index=True)
+    session_token = Column(String(128), nullable=True, index=True)
     name = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
     file_name = Column(String(255), nullable=True)
@@ -34,7 +35,9 @@ class BOM(Base):
     analysis = relationship("AnalysisResult", back_populates="bom", uselist=False, cascade="all, delete-orphan")
     project = relationship("Project", back_populates="bom", uselist=False, cascade="all, delete-orphan")
     rfqs = relationship("RFQ", back_populates="bom")
-
+__table_args__ = (
+    Index("idx_bom_user_session", "user_id", "session_token"),
+)
 
 class BOMPart(Base):
     __tablename__ = "bom_parts"

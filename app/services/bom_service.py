@@ -54,6 +54,8 @@ def create_bom_from_analyzer(
         raw_data=components,  # store full normalized+classified data
         total_parts=len(components),
         status=BOMStatus.uploaded.value,
+        user_id=None,
+        session_token=session_token,
     )
     db.add(bom)
     db.flush()

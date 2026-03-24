@@ -28,6 +28,7 @@ async def bom_upload(
     target_currency: str = Form("USD"),
     priority: str = Form("cost"),
     user: Optional[User] = Depends(get_current_user),
+    session_token: str = Form(None),
     db: Session = Depends(get_db),
 ):
     content = await file.read()
