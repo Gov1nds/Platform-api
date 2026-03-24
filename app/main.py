@@ -24,14 +24,14 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # 🔥 allow all
-    allow_credentials=False,      # 🔥 MUST be false
+    allow_origins=[
+        "https://www.pgihub.com",
+        "https://pgihub.com",
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-@app.options("/{full_path:path}")
-async def preflight_handler():
-    return {"status": "ok"}
 @app.on_event("startup")
 def startup():
     init_db()
