@@ -1,76 +1,82 @@
-"""
-PGI Manufacturing Intelligence Platform — FastAPI Application
+"""Database engine, session factory, and Base."""
 
-Run: uvicorn app.main:app --reload
-"""
-import logging
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker, declarative_base
 from app.core.config import settings
-from app.core.database import init_db, SessionLocal  # ✅ FIXED
-from app.routes import auth, bom, analysis, rfq, tracking, projects
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+# -------------------------------------------------------------------
+# Engine Configuration
+# -------------------------------------------------------------------
+connect_args = {}
 
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.VERSION,
-    description="Manufacturing Intelligence Platform — BOM Analysis, Procurement Strategy, RFQ Execution",
-)
+if settings.is_sqlite:
+    connect_args["check_same_thread"] = False
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://www.pgihub.com",
-        "https://pgihub.com",
-        "http://localhost:5173",
-        "http://localhost:3000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+engine = create_engine(
+    settings.DATABASE_URL,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+    echo=False,
 )
 
 
-@app.on_event("startup")
-def startup():
-    init_db()
+# -------------------------------------------------------------------
+# SQLite Optimizations
+# -------------------------------------------------------------------
+if settings.is_sqlite:
 
-    from app.services import vendor_service  # lazy import (good practice)
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
+
+# -------------------------------------------------------------------
+# Session & Base
+# -------------------------------------------------------------------
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
+
+Base = declarative_base()
+
+
+# -------------------------------------------------------------------
+# Dependency (FastAPI)
+# -------------------------------------------------------------------
+def get_db():
     db = SessionLocal()
     try:
-        vendor_service.seed_vendors(db)
+        yield db
     finally:
         db.close()
 
-    logging.getLogger("main").info(
-        f"{settings.PROJECT_NAME} v{settings.VERSION} started"
-    )
 
+# -------------------------------------------------------------------
+# Initialize Database
+# -------------------------------------------------------------------
+def init_db():
+    """
+    Create all tables.
 
-app.include_router(auth.router, prefix=settings.API_PREFIX)
-app.include_router(bom.router, prefix=settings.API_PREFIX)
-app.include_router(analysis.router, prefix=settings.API_PREFIX)
-app.include_router(rfq.router, prefix=settings.API_PREFIX)
-app.include_router(tracking.router, prefix=settings.API_PREFIX)
-app.include_router(projects.router, prefix=settings.API_PREFIX)
+    NOTE:
+    - This uses SQLAlchemy metadata.
+    - Replace with Alembic migrations in production.
+    """
 
+    # Import models to register them with SQLAlchemy
+    import app.models.user
+    import app.models.project
+    import app.models.bom
+    import app.models.analysis
+    import app.models.vendor
+    import app.models.pricing
+    import app.models.rfq
+    import app.models.tracking
+    import app.models.memory
 
-@app.get("/")
-def root():
-    return {
-        "service": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-        "status": "operational",
-        "docs": "/docs",
-    }
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+    Base.metadata.create_all(bind=engine)
