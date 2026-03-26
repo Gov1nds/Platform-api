@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.core.database import init_db, SessionLocal
+from app.core.database import init_db, SessionLocal  # ✅ FIXED
 from app.routes import auth, bom, analysis, rfq, tracking, projects
 
 logging.basicConfig(
@@ -27,8 +27,8 @@ app.add_middleware(
     allow_origins=[
         "https://www.pgihub.com",
         "https://pgihub.com",
-        "http://localhost:5173",       # dev
-        "http://localhost:3000",       # dev
+        "http://localhost:5173",
+        "http://localhost:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -39,14 +39,18 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_db()
-    # FIXED: Seed vendors at startup instead of per-upload
-    from app.services import vendor_service
+
+    from app.services import vendor_service  # lazy import (good practice)
+
     db = SessionLocal()
     try:
         vendor_service.seed_vendors(db)
     finally:
         db.close()
-    logging.getLogger("main").info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
+
+    logging.getLogger("main").info(
+        f"{settings.PROJECT_NAME} v{settings.VERSION} started"
+    )
 
 
 app.include_router(auth.router, prefix=settings.API_PREFIX)
