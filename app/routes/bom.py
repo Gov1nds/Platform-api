@@ -45,14 +45,17 @@ async def bom_upload(
         logger.error("Analyzer call failed: %s", e)
         raise HTTPException(status_code=502, detail=str(e))
 
+    # FIXED: seed_vendors moved to startup — but keep safe check here
     vendor_service.seed_vendors(db)
 
+    # FIXED: pass session_token and user_id through
     bom = bom_service.create_bom_from_analyzer(
         db,
         analyzer_output,
         file_name=filename,
         file_type=filename.rsplit(".", 1)[-1] if "." in filename else "csv",
         user_id=user.id if user else None,
+        session_token=session_token,            # FIXED: was not passed
     )
 
     v2_report = analyzer_output.get("_v2_full_report")
@@ -164,25 +167,27 @@ def bom_unlock(
     if not bom:
         raise HTTPException(status_code=404, detail="BOM not found")
 
+    # FIXED: Query analysis and project BEFORE using them in adoption block
+    analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
+    project = project_service.get_project_by_bom_id(db, bom.id)
+
     authorized = False
     if user and bom.user_id == user.id:
         authorized = True
     elif body.session_token and bom.session_token == body.session_token:
         authorized = True
+        # Guest BOM adoption: attach to authenticated user
         if user and not bom.user_id:
             bom.user_id = user.id
-            project = project_service.get_project_by_bom_id(db, bom.id)
             if project:
                 project.user_id = user.id
-            if analysis:
+            if analysis:                              # FIXED: no longer crashes
                 analysis.user_id = user.id
             db.commit()
 
     if not authorized:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
-    project = project_service.get_project_by_bom_id(db, bom.id)
     if not analysis or not project:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
@@ -212,6 +217,9 @@ def _components_to_section_2(components: list) -> list:
             "material_form": comp.get("material_form"),
             "secondary_ops": comp.get("secondary_ops", []),
             "specs": comp.get("specs", {}),
+            "procurement_class": comp.get("procurement_class", "catalog_purchase"),
+            "rfq_required": comp.get("rfq_required", False),
+            "drawing_required": comp.get("drawing_required", False),
         })
     return section_2
 

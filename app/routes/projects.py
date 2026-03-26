@@ -16,13 +16,16 @@ def list_projects(user: User = Depends(require_user), db: Session = Depends(get_
     projects = project_service.list_projects_for_user(db, user.id)
     return [project_service.serialize_summary(p) for p in projects]
 
+# FIXED: Duplicate @router.get("") REMOVED — was defined twice
+
 
 @router.get("/{project_id}", response_model=ProjectDetail)
 def get_project(project_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
     project = project_service.get_project_by_id(db, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if project.user_id and project.user_id != user.id:
+    # FIXED: Reject if user_id is NULL or doesn't match — was allowing NULL user_id through
+    if not project.user_id or project.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
     return project_service.serialize_detail(project)
 
@@ -32,13 +35,10 @@ def update_project_status(project_id: str, status_update: StatusUpdate, user: Us
     project = project_service.get_project_by_id(db, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if project.user_id and project.user_id != user.id:
+    # FIXED: same access control fix
+    if not project.user_id or project.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
     project.status = status_update.status or project.status
     db.commit()
     db.refresh(project)
     return project_service.serialize_detail(project)
-@router.get("", response_model=list[ProjectSummary])
-def list_projects(user: User = Depends(require_user), db: Session = Depends(get_db)):
-    projects = project_service.list_projects_for_user(db, user.id)
-    return [project_service.serialize_summary(p) for p in projects]

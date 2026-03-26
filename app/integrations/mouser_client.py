@@ -1,4 +1,4 @@
-"""Mouser API client."""
+"""Mouser API client — FIXED: simulated results marked as is_simulated."""
 import logging
 from typing import Dict, Any, Optional, List
 from app.integrations.base_client import SupplierAPIClient
@@ -18,6 +18,7 @@ class MouserClient(SupplierAPIClient):
             return cached
 
         if not self.is_configured():
+            # FIXED: mark simulated results so they're never persisted as real data
             return self._simulated_search(query, quantity)
 
         try:
@@ -39,6 +40,7 @@ class MouserClient(SupplierAPIClient):
                         "lead_days": 14,
                         "supplier": "Mouser",
                         "url": p.get("ProductDetailUrl", ""),
+                        "is_simulated": False,  # Real API data
                     }
                     for p in parts[:5]
                 ]
@@ -63,7 +65,9 @@ class MouserClient(SupplierAPIClient):
         return 0.0
 
     def _simulated_search(self, query: str, qty: int) -> List[Dict]:
+        # FIXED: marked as simulated so pricing_service never saves these to DB
         return [{
             "mpn": query, "manufacturer": "Simulated", "description": query,
             "price": 0.50, "stock": 1000, "lead_days": 14, "supplier": "Mouser (sim)",
+            "is_simulated": True,  # CRITICAL: prevents DB persistence
         }]

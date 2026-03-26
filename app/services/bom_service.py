@@ -1,11 +1,10 @@
 """
-BOM Service v3 — Store BOMs from BOM Engine output.
+BOM Service v4 — Store BOMs from BOM Engine output.
 
-REMOVED: parse_csv_content(), parse_bom_rows() — duplicate parsing logic.
-BOM Engine is the SINGLE SOURCE OF TRUTH for parsing + normalization.
-
-Platform API receives pre-parsed, normalized, classified components
-from BOM Engine and stores them directly in PostgreSQL.
+FIXES:
+  - Uses provided user_id (was hardcoded to None)
+  - Uses provided session_token (was generating a new one)
+  - Stores procurement_class, rfq_required, drawing_required, classification_confidence
 """
 
 import uuid
@@ -23,35 +22,22 @@ def create_bom_from_analyzer(
     file_name: str = "",
     file_type: str = "csv",
     user_id: Optional[str] = None,
+    session_token: Optional[str] = None,
 ) -> BOM:
     """
     Create BOM + BOMPart records from BOM Engine's normalized output.
 
-    No local parsing — BOM Engine handles all:
-      - CSV/XLSX parsing
-      - Column detection (UBNE)
-      - Text normalization
-      - Classification
-      - Spec extraction
-
-    Args:
-        db: Database session
-        analyzer_output: Full response from BOM Engine v3
-            { "components": [...], "summary": {...}, "_meta": {...} }
-        file_name: Original filename
-        file_type: File extension (csv, xlsx)
-        user_id: Optional authenticated user ID
+    FIXED: Now actually uses user_id and session_token parameters.
     """
     components = analyzer_output.get("components", [])
-    session_token = uuid.uuid4().hex
 
     bom = BOM(
-        user_id=None,
-        session_token=session_token,
+        user_id=user_id,                                    # FIXED: was None
+        session_token=session_token or uuid.uuid4().hex,    # FIXED: uses provided token
         name=file_name or "Uploaded BOM",
         file_name=file_name,
         file_type=file_type,
-        raw_data=components,  # store full normalized+classified data
+        raw_data=components,
         total_parts=len(components),
         status=BOMStatus.uploaded.value,
     )
@@ -70,24 +56,27 @@ def create_bom_from_analyzer(
             notes=comp.get("notes", ""),
             specs=comp.get("specs", {}),
             geometry_type=comp.get("geometry"),
+            # NEW fields
+            classification_confidence=comp.get("classification_confidence", 0.0),
+            procurement_class=comp.get("procurement_class", "catalog_purchase"),
+            rfq_required=comp.get("rfq_required", False),
+            drawing_required=comp.get("drawing_required", False),
         ))
 
     db.commit()
     db.refresh(bom)
     logger.info(
-        f"BOM created: {bom.id} with {len(components)} parts "
-        f"(categories: {analyzer_output.get('summary', {}).get('categories', {})})"
+        f"BOM created: {bom.id} | user_id={user_id} | session={session_token and session_token[:8]}... | "
+        f"{len(components)} parts (categories: {analyzer_output.get('summary', {}).get('categories', {})})"
     )
     return bom
 
 
 def get_bom(db: Session, bom_id: str) -> Optional[BOM]:
-    """Get a BOM by ID."""
     return db.query(BOM).filter(BOM.id == bom_id).first()
 
 
 def get_bom_parts_as_dicts(db: Session, bom_id: str) -> List[Dict[str, Any]]:
-    """Get BOM parts as list of dicts for downstream services."""
     parts = db.query(BOMPart).filter(BOMPart.bom_id == bom_id).all()
     return [
         {
@@ -99,13 +88,15 @@ def get_bom_parts_as_dicts(db: Session, bom_id: str) -> List[Dict[str, Any]]:
             "notes": p.notes or "",
             "category": p.category or "",
             "specs": p.specs or {},
+            "procurement_class": p.procurement_class or "catalog_purchase",
+            "rfq_required": p.rfq_required or False,
+            "drawing_required": p.drawing_required or False,
         }
         for p in parts
     ]
 
 
 def update_bom_status(db: Session, bom_id: str, status: str):
-    """Update BOM status."""
     bom = db.query(BOM).filter(BOM.id == bom_id).first()
     if bom:
         bom.status = status

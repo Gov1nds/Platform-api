@@ -1,10 +1,11 @@
-"""Tracking Service — production milestones + execution feedback."""
+"""Tracking Service — FIXED: predicted lead time from analysis, not hardcoded."""
 import logging
 from typing import Optional, List
 from sqlalchemy.orm import Session
 
 from app.models.tracking import ProductionTracking, ExecutionFeedback, TrackingStage
 from app.models.rfq import RFQ, RFQStatus
+from app.models.analysis import AnalysisResult
 from app.models.memory import SupplierMemory
 from app.services import project_service
 
@@ -35,11 +36,9 @@ def create_tracking(db: Session, rfq_id: str) -> ProductionTracking:
         progress_percent=0,
     )
     db.add(tracking)
-
     rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
     if rfq:
         rfq.status = RFQStatus.in_production.value
-
     db.flush()
     db.refresh(tracking)
     return tracking
@@ -88,6 +87,20 @@ def get_tracking(db: Session, rfq_id: str) -> List[ProductionTracking]:
     )
 
 
+def _get_predicted_lead_time(db: Session, rfq_id: str) -> float:
+    """FIXED: Get predicted lead time from analysis/strategy, not hardcoded 14."""
+    rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
+    if rfq and rfq.bom_id:
+        analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == rfq.bom_id).first()
+        if analysis and analysis.lead_time:
+            return float(analysis.lead_time)
+        if analysis and analysis.strategy_output:
+            rec = analysis.strategy_output.get("recommended_strategy", {})
+            if rec.get("lead_time"):
+                return float(rec["lead_time"])
+    return 14.0  # fallback only if no analysis data exists
+
+
 def submit_feedback(
     db: Session,
     rfq_id: str,
@@ -100,7 +113,8 @@ def submit_feedback(
         raise ValueError(f"RFQ not found: {rfq_id}")
 
     predicted_cost = rfq.total_estimated_cost or 0
-    predicted_lead = 14.0
+    # FIXED: get predicted lead from analysis, not hardcoded 14
+    predicted_lead = _get_predicted_lead_time(db, rfq_id)
 
     cost_delta = (actual_cost - predicted_cost) if actual_cost is not None else None
     lead_delta = (actual_lead_time - predicted_lead) if actual_lead_time is not None else None

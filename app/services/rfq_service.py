@@ -1,4 +1,4 @@
-"""RFQ Service — full lifecycle management."""
+"""RFQ Service — FIXED: only quote-required parts, correct currency, bom_part linkage."""
 import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
@@ -26,26 +26,51 @@ def create_rfq_from_analysis(
     if not bom:
         raise ValueError(f"BOM not found: {bom_or_project_id}")
 
+    if not project:
+        project = db.query(Project).filter(Project.bom_id == bom.id).first()
+
     analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
+
+    # FIXED: Use project currency instead of hardcoded USD
+    currency = "USD"
+    if project and project.currency:
+        currency = project.currency
+    elif project and project.analyzer_report:
+        currency = project.analyzer_report.get("section_1_executive_summary", {}).get("currency", "USD")
 
     rfq = RFQ(
         user_id=user_id or bom.user_id,
         bom_id=bom.id,
+        project_id=project.id if project else None,
         status=RFQStatus.created.value,
         total_estimated_cost=analysis.average_cost if analysis else None,
-        currency="USD",
+        currency=currency,  # FIXED: was hardcoded "USD"
         notes=notes or "Auto-generated from BOM analysis",
     )
     db.add(rfq)
     db.flush()
 
+    # FIXED: Only include parts that require quotation, not ALL parts
     parts = db.query(BOMPart).filter(BOMPart.bom_id == bom.id).all()
-    for p in parts:
+    rfq_parts = [
+        p for p in parts
+        if p.rfq_required
+        or p.category in ("custom_mechanical", "sheet_metal", "custom", "raw_material")
+        or p.procurement_class == "rfq_required"
+    ]
+
+    if not rfq_parts:
+        # Fallback: if no parts are marked rfq_required, include custom/unknown
+        rfq_parts = [p for p in parts if p.category in ("custom", "custom_mechanical", "sheet_metal", "unknown")]
+
+    for p in rfq_parts:
         db.add(RFQItem(
             rfq_id=rfq.id,
+            bom_part_id=p.id,       # FIXED: was missing — now links to BOMPart
             part_name=p.part_name,
             quantity=p.quantity,
             material=p.material,
+            drawing_required=p.drawing_required or False,
         ))
 
     if project:
@@ -54,7 +79,7 @@ def create_rfq_from_analysis(
 
     db.flush()
     db.refresh(rfq)
-    logger.info("RFQ created: %s with %d items", rfq.id, len(parts))
+    logger.info("RFQ created: %s with %d items (of %d total parts)", rfq.id, len(rfq_parts), len(parts))
     return rfq
 
 

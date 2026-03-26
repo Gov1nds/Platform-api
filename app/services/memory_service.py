@@ -1,11 +1,10 @@
 """
-Memory Service v3 — Supplier Learning Loop
+Memory Service v4 — Supplier Learning Loop
 
-UPGRADES:
-  - update_from_rfq_completion(): auto-called when RFQ completes
-  - adjust_future_confidence(): modifies uncertainty based on history
-  - Pricing accuracy tracking per vendor
-  - Decay old data (>180 days → pull toward neutral)
+FIXES:
+  - update_from_rfq_completion() no longer distributes cost evenly across items
+  - Uses per-item quoted_price for pricing records when available
+  - Gets predicted_lead from analysis, not hardcoded
 """
 import logging
 import math
@@ -16,7 +15,8 @@ from app.models.memory import SupplierMemory
 from app.models.vendor import Vendor
 from app.models.tracking import ExecutionFeedback
 from app.models.pricing import PricingHistory
-from app.models.rfq import RFQ
+from app.models.analysis import AnalysisResult
+from app.models.rfq import RFQ, RFQItem
 
 logger = logging.getLogger("memory_service")
 
@@ -25,7 +25,8 @@ EMA_ALPHA = 0.3
 
 def get_vendor_memory(db: Session, vendor_id: str) -> Optional[Dict]:
     mem = db.query(SupplierMemory).filter(SupplierMemory.vendor_id == vendor_id).first()
-    if not mem: return None
+    if not mem:
+        return None
     return {"vendor_id": mem.vendor_id, "performance_score": mem.performance_score,
             "cost_accuracy_score": mem.cost_accuracy_score,
             "delivery_accuracy_score": mem.delivery_accuracy_score,
@@ -35,16 +36,21 @@ def get_vendor_memory(db: Session, vendor_id: str) -> Optional[Dict]:
 
 
 def get_all_memories(db: Session) -> Dict[str, Dict]:
-    result = {}
-    for m in db.query(SupplierMemory).all():
-        v = db.query(Vendor).filter(Vendor.id == m.vendor_id).first()
-        if v:
-            result[v.region] = {
-                "vendor_id": m.vendor_id, "total_orders": m.total_orders,
-                "cost_accuracy_score": m.cost_accuracy_score,
-                "delivery_accuracy_score": m.delivery_accuracy_score,
-                "performance_score": m.performance_score, "risk_level": m.risk_level}
-    return result
+    # FIXED: use joined query (same fix as vendor_service)
+    results = (
+        db.query(SupplierMemory, Vendor)
+        .join(Vendor, SupplierMemory.vendor_id == Vendor.id)
+        .all()
+    )
+    return {
+        vendor.region: {
+            "vendor_id": mem.vendor_id, "total_orders": mem.total_orders,
+            "cost_accuracy_score": mem.cost_accuracy_score,
+            "delivery_accuracy_score": mem.delivery_accuracy_score,
+            "performance_score": mem.performance_score, "risk_level": mem.risk_level,
+        }
+        for mem, vendor in results
+    }
 
 
 def update_supplier_scores(db: Session, vendor_id: str,
@@ -84,7 +90,10 @@ def update_supplier_scores(db: Session, vendor_id: str,
 def update_from_rfq_completion(db: Session, rfq_id: str,
                                 actual_cost: float, actual_lead_days: float,
                                 quality_ok: bool = True) -> Dict:
-    """Called when an RFQ reaches completion. Updates vendor memory + records pricing."""
+    """
+    FIXED: No longer distributes cost evenly. Uses per-item quoted prices
+    when available. Gets predicted_lead from analysis.
+    """
     rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
     if not rfq:
         return {"status": "rfq_not_found"}
@@ -94,54 +103,56 @@ def update_from_rfq_completion(db: Session, rfq_id: str,
         return {"status": "no_vendor_selected"}
 
     predicted_cost = rfq.total_estimated_cost or 0
+
+    # FIXED: Get predicted_lead from analysis, not hardcoded 14
     predicted_lead = 14.0
+    if rfq.bom_id:
+        analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == rfq.bom_id).first()
+        if analysis and analysis.lead_time:
+            predicted_lead = float(analysis.lead_time)
 
     # Update memory
     result = update_supplier_scores(
         db, vendor_id, actual_cost, predicted_cost,
         actual_lead_days, predicted_lead, quality_ok)
 
-    # Record pricing for each item
+    # FIXED: Record pricing per item using actual item quotes, not evenly distributed
     vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
-    if vendor and rfq.items:
-        per_item_cost = actual_cost / max(len(rfq.items), 1)
-        for item in rfq.items:
-            db.add(PricingHistory(
-                vendor_id=vendor_id, part_name=item.part_name or "",
-                material=item.material or "", quantity=item.quantity or 1,
-                price=round(per_item_cost, 2), region=vendor.region or "",
-                currency="USD"))
-        db.commit()
+    if vendor:
+        items = db.query(RFQItem).filter(RFQItem.rfq_id == rfq.id).all()
+        for item in items:
+            # Use the item's actual quoted price if available
+            item_price = item.final_price or item.quoted_price
+            if item_price and item_price > 0:
+                from app.services.pricing_service import _normalize_for_lookup, _save_price
+                _save_price(
+                    db,
+                    norm_name=_normalize_for_lookup(item.part_name or ""),
+                    mpn="",
+                    material=item.material or "",
+                    quantity=item.quantity or 1,
+                    price=round(item_price, 2),
+                    source_type="rfq_actual",
+                    vendor_id=vendor_id,
+                    currency=rfq.currency or "USD",
+                )
 
     return result
 
 
 def adjust_future_confidence(db: Session, vendor_id: str) -> Dict:
-    """Compute adjusted confidence for future strategy decisions."""
     mem = db.query(SupplierMemory).filter(SupplierMemory.vendor_id == vendor_id).first()
     if not mem:
-        return {"uncertainty_adjustment": 0.30}  # unknown vendor
-
+        return {"uncertainty_adjustment": 0.30}
     n = mem.total_orders or 0
     perf = mem.performance_score or 0.5
-
-    # More orders + better perf → lower uncertainty
-    if n >= 20 and perf >= 0.8:
-        adj = 0.05
-    elif n >= 10 and perf >= 0.6:
-        adj = 0.10
-    elif n >= 5:
-        adj = 0.15
-    elif n >= 1:
-        adj = 0.22
-    else:
-        adj = 0.30
-
-    # Penalize bad accuracy
+    if n >= 20 and perf >= 0.8: adj = 0.05
+    elif n >= 10 and perf >= 0.6: adj = 0.10
+    elif n >= 5: adj = 0.15
+    elif n >= 1: adj = 0.22
+    else: adj = 0.30
     cost_acc = mem.cost_accuracy_score or 0.5
-    if cost_acc < 0.5:
-        adj += 0.10
-
+    if cost_acc < 0.5: adj += 0.10
     return {
         "vendor_id": vendor_id,
         "uncertainty_adjustment": round(min(0.50, adj), 3),
@@ -165,29 +176,3 @@ def decay_old_data(db: Session, days_threshold: int = 180) -> Dict:
         db.commit()
         logger.info(f"Decayed {count} stale memories (>{days_threshold}d)")
     return {"decayed": count}
-
-
-def get_system_stats(db: Session) -> Dict:
-    mems = db.query(SupplierMemory).all()
-    vendors = {v.id: v for v in db.query(Vendor).all()}
-    total_orders = sum(m.total_orders or 0 for m in mems)
-
-    high_perf = []
-    risky = []
-    for m in mems:
-        v = vendors.get(m.vendor_id)
-        if not v: continue
-        entry = {"vendor": v.name, "region": v.region, "orders": m.total_orders,
-                 "performance": m.performance_score, "risk": m.risk_level}
-        if m.performance_score >= 0.75: high_perf.append(entry)
-        if m.risk_level >= 0.4: risky.append(entry)
-
-    avg_p = sum(m.performance_score for m in mems) / max(len(mems), 1)
-    return {
-        "active_vendors": len(mems),
-        "total_orders_tracked": total_orders,
-        "average_performance": round(avg_p, 3),
-        "high_performers": sorted(high_perf, key=lambda x: -x["performance"])[:5],
-        "risky_vendors": sorted(risky, key=lambda x: -x["risk"])[:5],
-        "maturity": "early" if total_orders < 10 else ("learning" if total_orders < 50 else "mature"),
-    }

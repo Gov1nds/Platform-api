@@ -1,4 +1,4 @@
-"""Project schemas."""
+"""Project schemas — FIXED: added currency field."""
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -18,6 +18,7 @@ class ProjectSummary(BaseModel):
     lead_time: Optional[float] = None
     file_name: Optional[str] = None
     recommended_location: Optional[str] = None
+    currency: Optional[str] = "USD"  # NEW
 
 
 class ProjectDetail(BaseModel):
@@ -36,6 +37,7 @@ class ProjectDetail(BaseModel):
     cost_range_high: Optional[float] = None
     savings_percent: Optional[float] = None
     lead_time: Optional[float] = None
+    currency: Optional[str] = "USD"  # NEW
     decision_summary: Optional[str] = None
     analyzer_report: Optional[Dict[str, Any]] = None
     strategy: Optional[Dict[str, Any]] = None

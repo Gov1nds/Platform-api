@@ -1,4 +1,4 @@
-"""Vendor Service — CRUD and intelligence."""
+"""Vendor Service — FIXED: N+1 query, vendor seeding."""
 import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
@@ -7,7 +7,9 @@ from app.models.memory import SupplierMemory
 
 logger = logging.getLogger("vendor_service")
 
-# Seed vendors for initial deployment
+# Flag to avoid re-seeding on every call
+_vendors_seeded = False
+
 SEED_VENDORS = [
     {"name": "PGI India", "country": "India", "region": "India",
      "capabilities": ["CNC", "sheet_metal", "fasteners", "assembly"], "rating": 4.2, "avg_lead_time": 18},
@@ -21,12 +23,19 @@ SEED_VENDORS = [
      "capabilities": ["precision_CNC", "5-axis", "medical", "automotive"], "rating": 4.8, "avg_lead_time": 10},
     {"name": "Local Workshop", "country": "Local", "region": "Local",
      "capabilities": ["prototyping", "CNC", "sheet_metal"], "rating": 3.5, "avg_lead_time": 7},
+    # NEW: External API vendor placeholder for attributed pricing
+    {"name": "External API", "country": "Global", "region": "Global",
+     "capabilities": [], "rating": 3.0, "avg_lead_time": 14},
 ]
 
 
 def seed_vendors(db: Session):
-    """Seed database with initial vendors if empty."""
+    """Seed database with initial vendors if empty. FIXED: uses flag to avoid per-request check."""
+    global _vendors_seeded
+    if _vendors_seeded:
+        return
     if db.query(Vendor).count() > 0:
+        _vendors_seeded = True
         return
     for v in SEED_VENDORS:
         vendor = Vendor(
@@ -38,6 +47,7 @@ def seed_vendors(db: Session):
         db.flush()
         db.add(SupplierMemory(vendor_id=vendor.id))
     db.commit()
+    _vendors_seeded = True
     logger.info(f"Seeded {len(SEED_VENDORS)} vendors")
 
 
@@ -50,18 +60,21 @@ def get_vendor(db: Session, vendor_id: str) -> Optional[Vendor]:
 
 
 def get_vendor_memories(db: Session) -> Dict[str, Dict]:
-    """Get all vendor memories indexed by region."""
-    memories = db.query(SupplierMemory).all()
-    result = {}
-    for m in memories:
-        vendor = db.query(Vendor).filter(Vendor.id == m.vendor_id).first()
-        if vendor:
-            result[vendor.region] = {
-                "vendor_id": vendor.id,
-                "total_orders": m.total_orders,
-                "cost_accuracy_score": m.cost_accuracy_score,
-                "delivery_accuracy_score": m.delivery_accuracy_score,
-                "performance_score": m.performance_score,
-                "risk_level": m.risk_level,
-            }
-    return result
+    """FIXED: Single joined query instead of N+1."""
+    results = (
+        db.query(SupplierMemory, Vendor)
+        .join(Vendor, SupplierMemory.vendor_id == Vendor.id)
+        .filter(Vendor.is_active == True)
+        .all()
+    )
+    return {
+        vendor.region: {
+            "vendor_id": vendor.id,
+            "total_orders": mem.total_orders,
+            "cost_accuracy_score": mem.cost_accuracy_score,
+            "delivery_accuracy_score": mem.delivery_accuracy_score,
+            "performance_score": mem.performance_score,
+            "risk_level": mem.risk_level,
+        }
+        for mem, vendor in results
+    }

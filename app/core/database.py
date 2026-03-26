@@ -1,48 +1,72 @@
-"""Database engine, session factory, and Base."""
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, declarative_base
+"""
+PGI Manufacturing Intelligence Platform — FastAPI Application
+
+Run: uvicorn app.main:app --reload
+"""
+import logging
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.core.config import settings
+from app.core.database import init_db, SessionLocal
+from app.routes import auth, bom, analysis, rfq, tracking, projects
 
-connect_args = {}
-if settings.is_sqlite:
-    connect_args["check_same_thread"] = False
-
-engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args=connect_args,
-    pool_pre_ping=True,
-    echo=False,
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-if settings.is_sqlite:
-    @event.listens_for(engine, "connect")
-    def _set_sqlite_pragma(dbapi_conn, _):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    description="Manufacturing Intelligence Platform — BOM Analysis, Procurement Strategy, RFQ Execution",
+)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://www.pgihub.com",
+        "https://pgihub.com",
+        "http://localhost:5173",       # dev
+        "http://localhost:3000",       # dev
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-def get_db():
+@app.on_event("startup")
+def startup():
+    init_db()
+    # FIXED: Seed vendors at startup instead of per-upload
+    from app.services import vendor_service
     db = SessionLocal()
     try:
-        yield db
+        vendor_service.seed_vendors(db)
     finally:
         db.close()
+    logging.getLogger("main").info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
 
 
-def init_db():
-    """Create all tables."""
-    import app.models.user
-    import app.models.project
-    import app.models.bom
-    import app.models.analysis
-    import app.models.vendor
-    import app.models.pricing
-    import app.models.rfq
-    import app.models.tracking
-    import app.models.memory
-    Base.metadata.create_all(bind=engine)
+app.include_router(auth.router, prefix=settings.API_PREFIX)
+app.include_router(bom.router, prefix=settings.API_PREFIX)
+app.include_router(analysis.router, prefix=settings.API_PREFIX)
+app.include_router(rfq.router, prefix=settings.API_PREFIX)
+app.include_router(tracking.router, prefix=settings.API_PREFIX)
+app.include_router(projects.router, prefix=settings.API_PREFIX)
+
+
+@app.get("/")
+def root():
+    return {
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "status": "operational",
+        "docs": "/docs",
+    }
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
