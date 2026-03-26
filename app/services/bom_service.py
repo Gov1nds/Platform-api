@@ -4,7 +4,7 @@ BOM Service v4 — Store BOMs from BOM Engine output.
 FIXES:
   - Uses provided user_id (was hardcoded to None)
   - Uses provided session_token (was generating a new one)
-  - Stores procurement_class, rfq_required, drawing_required, classification_confidence
+  - Gracefully handles missing new columns (classification_confidence etc.)
 """
 
 import uuid
@@ -44,8 +44,12 @@ def create_bom_from_analyzer(
     db.add(bom)
     db.flush()
 
+    # Check if new columns exist by inspecting the model
+    _has_new_cols = hasattr(BOMPart, 'classification_confidence') and \
+                    _column_exists(db, 'bom_parts', 'classification_confidence')
+
     for comp in components:
-        db.add(BOMPart(
+        part_kwargs = dict(
             bom_id=bom.id,
             part_name=comp.get("description") or comp.get("standard_text", ""),
             material=comp.get("material", ""),
@@ -56,12 +60,15 @@ def create_bom_from_analyzer(
             notes=comp.get("notes", ""),
             specs=comp.get("specs", {}),
             geometry_type=comp.get("geometry"),
-            # NEW fields
-            classification_confidence=comp.get("classification_confidence", 0.0),
-            procurement_class=comp.get("procurement_class", "catalog_purchase"),
-            rfq_required=comp.get("rfq_required", False),
-            drawing_required=comp.get("drawing_required", False),
-        ))
+        )
+        # Only set new columns if the DB schema supports them
+        if _has_new_cols:
+            part_kwargs["classification_confidence"] = comp.get("classification_confidence", 0.0)
+            part_kwargs["procurement_class"] = comp.get("procurement_class", "catalog_purchase")
+            part_kwargs["rfq_required"] = comp.get("rfq_required", False)
+            part_kwargs["drawing_required"] = comp.get("drawing_required", False)
+
+        db.add(BOMPart(**part_kwargs))
 
     db.commit()
     db.refresh(bom)
@@ -72,14 +79,30 @@ def create_bom_from_analyzer(
     return bom
 
 
+def _column_exists(db: Session, table: str, column: str) -> bool:
+    """Check if a column exists in the database table."""
+    try:
+        from sqlalchemy import text
+        # Works for PostgreSQL
+        result = db.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = :table AND column_name = :column"
+        ), {"table": table, "column": column})
+        return result.fetchone() is not None
+    except Exception:
+        # If the check itself fails, assume columns don't exist
+        return False
+
+
 def get_bom(db: Session, bom_id: str) -> Optional[BOM]:
     return db.query(BOM).filter(BOM.id == bom_id).first()
 
 
 def get_bom_parts_as_dicts(db: Session, bom_id: str) -> List[Dict[str, Any]]:
     parts = db.query(BOMPart).filter(BOMPart.bom_id == bom_id).all()
-    return [
-        {
+    result = []
+    for p in parts:
+        d = {
             "part_name": p.part_name or "",
             "quantity": p.quantity or 1,
             "material": p.material or "",
@@ -88,12 +111,18 @@ def get_bom_parts_as_dicts(db: Session, bom_id: str) -> List[Dict[str, Any]]:
             "notes": p.notes or "",
             "category": p.category or "",
             "specs": p.specs or {},
-            "procurement_class": p.procurement_class or "catalog_purchase",
-            "rfq_required": p.rfq_required or False,
-            "drawing_required": p.drawing_required or False,
         }
-        for p in parts
-    ]
+        # Include new fields if they exist
+        if hasattr(p, 'procurement_class') and p.procurement_class is not None:
+            d["procurement_class"] = p.procurement_class
+            d["rfq_required"] = p.rfq_required or False
+            d["drawing_required"] = p.drawing_required or False
+        else:
+            d["procurement_class"] = "catalog_purchase"
+            d["rfq_required"] = False
+            d["drawing_required"] = False
+        result.append(d)
+    return result
 
 
 def update_bom_status(db: Session, bom_id: str, status: str):
