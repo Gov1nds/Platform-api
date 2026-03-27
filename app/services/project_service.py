@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.models.analysis import AnalysisResult
 from app.models.bom import BOM
 from app.models.project import Project
-from app.models.rfq import RFQ, RFQStatus
+from app.models.rfq import RFQBatch as RFQ, RFQStatus
 from app.models.tracking import ProductionTracking, TrackingStage
 
 logger = logging.getLogger("project_service")

@@ -235,17 +235,15 @@ def _moq_penalty(region, quantity):
 
 
 def _best_custom_region(process, material, delivery_country, regions=None):
-    """Pick the best manufacturing region for a custom part based on process + material fit."""
     eval_regions = regions if regions is not None else REGION_PROFILES
-    best_region = "Local"
-    best_score = -1
+    best_region, best_score = "Local", -1
     for region, profile in eval_regions.items():
         if not _capability_match(region, process):
             continue
         pf = profile.get("process_fit", {}).get(process, 0.3)
         mf = profile.get("material_fit", {}).get(material, 0.3)
-        cost_advantage = 1.0 - profile.get("base_cost_mult", 1.0)
-        score = pf * 0.4 + mf * 0.3 + cost_advantage * 0.3
+        cost_adv = 1.0 - profile.get("base_cost_mult", 1.0)
+        score = pf * 0.4 + mf * 0.3 + cost_adv * 0.3
         if score > best_score:
             best_score = score
             best_region = region
@@ -295,31 +293,22 @@ def evaluate_part(part, delivery_country, vendor_memories, db: Session,
     if is_custom_part(part):
         best_region = _best_custom_region(process, mat_family, delivery_country, regions)
         profile = (regions or REGION_PROFILES).get(best_region, REGION_PROFILES.get("Local", {}))
-        lead_days = profile.get("lead_days_base", 14) + 3  # +3 for RFQ turnaround
+        lead_days = profile.get("lead_days_base", 14) + 3
         risk = calculate_risk(best_region, vendor_memories.get(best_region), "high")
         return {
             "part_name": name, "category": category, "quantity": quantity,
             "detected_process": process, "detected_material": mat_family,
             "price_source": "custom_rfq_required", "unit_price": 0,
             "best_region": best_region, "best_cost": 0,
-            "best_lead_days": lead_days,
-            "best_score": 0,
-            "quantity_fit": 1.0, "process_fit": 1.0,
-            "logistics_per_unit": 0,
-            "risk": risk,
-            "cost_range": [0, 0],
-            "alternative_region": None,
-            "alternative_cost": None,
-            "is_custom": True,
-            "rfq_required": True,
-            "drawing_required": True,
+            "best_lead_days": lead_days, "best_score": 0,
+            "quantity_fit": 1.0, "process_fit": 1.0, "logistics_per_unit": 0,
+            "risk": risk, "cost_range": [0, 0],
+            "alternative_region": None, "alternative_cost": None,
+            "is_custom": True, "rfq_required": True, "drawing_required": True,
             "manufacturing_intelligence": {
-                "detected_process": process,
-                "recommended_process": process,
-                "material": mat_family,
-                "suggested_region": best_region,
-                "drawing_required": True,
-                "quote_required": True,
+                "detected_process": process, "recommended_process": process,
+                "material": mat_family, "suggested_region": best_region,
+                "drawing_required": True, "quote_required": True,
             },
         }
 
@@ -644,7 +633,6 @@ def build_strategy_output(analyzer_output: Dict, delivery_location: str = "India
                 "logistics_per_unit": pd["logistics_per_unit"],
                 "cost_range": pd["cost_range"],
                 "alternative_region": pd["alternative_region"],
-                # Custom part fields
                 "is_custom": pd.get("is_custom", False),
                 "rfq_required": pd.get("rfq_required", False),
                 "drawing_required": pd.get("drawing_required", False),

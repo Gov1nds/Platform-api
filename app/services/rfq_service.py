@@ -1,14 +1,17 @@
-"""RFQ Service — FIXED: only quote-required parts, correct currency, bom_part linkage."""
+"""RFQ Service — updated for sourcing.rfq_batches PostgreSQL schema."""
 import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 
-from app.models.rfq import RFQ, RFQItem, RFQStatus
+from app.models.rfq import RFQBatch, RFQItem, RFQQuote, RFQStatus
 from app.models.bom import BOM, BOMPart
 from app.models.analysis import AnalysisResult
 from app.models.project import Project
 
 logger = logging.getLogger("rfq_service")
+
+# Alias for backward compat
+RFQ = RFQBatch
 
 
 def create_rfq_from_analysis(
@@ -16,7 +19,7 @@ def create_rfq_from_analysis(
     bom_or_project_id: str,
     user_id: Optional[str] = None,
     notes: str = "",
-) -> RFQ:
+) -> RFQBatch:
     bom = db.query(BOM).filter(BOM.id == bom_or_project_id).first()
     project = None
     if not bom:
@@ -31,51 +34,49 @@ def create_rfq_from_analysis(
 
     analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
 
-    # FIXED: Use project currency instead of hardcoded USD
     currency = "USD"
     if project and project.currency:
         currency = project.currency
-    elif project and project.analyzer_report:
-        currency = project.analyzer_report.get("section_1_executive_summary", {}).get("currency", "USD")
 
-    rfq = RFQ(
-        user_id=user_id or bom.user_id,
+    rfq = RFQBatch(
+        requested_by_user_id=user_id or bom.uploaded_by_user_id,
         bom_id=bom.id,
         project_id=project.id if project else None,
-        status=RFQStatus.created.value,
-        total_estimated_cost=analysis.average_cost if analysis else None,
-        currency=currency,  # FIXED: was hardcoded "USD"
+        guest_session_id=bom.guest_session_id,
+        status="draft",
+        target_currency=currency,
         notes=notes or "Auto-generated from BOM analysis",
+        batch_metadata={
+            "total_estimated_cost": float(analysis.average_cost) if analysis and analysis.average_cost else None,
+        },
     )
     db.add(rfq)
     db.flush()
 
-    # FIXED: Only include parts that require quotation, not ALL parts
     parts = db.query(BOMPart).filter(BOMPart.bom_id == bom.id).all()
     rfq_parts = [
         p for p in parts
         if p.rfq_required
-        or p.category in ("custom_mechanical", "sheet_metal", "custom", "raw_material")
-        or p.procurement_class == "rfq_required"
+        or p.procurement_class in ("rfq_required", "custom_manufacture", "sheet_metal", "machined_part")
+        or p.is_custom
     ]
 
     if not rfq_parts:
-        # Fallback: if no parts are marked rfq_required, include custom/unknown
-        rfq_parts = [p for p in parts if p.category in ("custom", "custom_mechanical", "sheet_metal", "unknown")]
+        rfq_parts = [p for p in parts if p.is_custom or p.procurement_class == "unknown"]
 
     for p in rfq_parts:
         db.add(RFQItem(
-            rfq_id=rfq.id,
-            bom_part_id=p.id,       # FIXED: was missing — now links to BOMPart
-            part_name=p.part_name,
-            quantity=p.quantity,
-            material=p.material,
+            rfq_batch_id=rfq.id,
+            bom_part_id=p.id,
+            part_key=p.canonical_name or p.description or "",
+            requested_quantity=int(p.quantity) if p.quantity else 1,
+            requested_material=p.material or "",
             drawing_required=p.drawing_required or False,
         ))
 
     if project:
-        project.rfq_status = rfq.status
-        project.status = "quoting"
+        project.rfq_status = "draft"
+        project.status = "rfq_pending"
 
     db.flush()
     db.refresh(rfq)
@@ -83,65 +84,56 @@ def create_rfq_from_analysis(
     return rfq
 
 
-def get_rfq(db: Session, rfq_id: str) -> Optional[RFQ]:
-    return db.query(RFQ).filter(RFQ.id == rfq_id).first()
+def get_rfq(db: Session, rfq_id: str) -> Optional[RFQBatch]:
+    return db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
 
 
-def get_user_rfqs(db: Session, user_id: str) -> List[RFQ]:
-    return db.query(RFQ).filter(RFQ.user_id == user_id).order_by(RFQ.created_at.desc()).all()
+def get_user_rfqs(db: Session, user_id: str) -> List[RFQBatch]:
+    return db.query(RFQBatch).filter(RFQBatch.requested_by_user_id == user_id).order_by(RFQBatch.created_at.desc()).all()
 
 
-def update_rfq_status(db: Session, rfq_id: str, status: str) -> Optional[RFQ]:
-    rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
+def update_rfq_status(db: Session, rfq_id: str, status: str) -> Optional[RFQBatch]:
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
     if rfq:
         rfq.status = status
         project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
         if project:
-            if status == RFQStatus.quoted.value:
-                project.status = "quoted"
-            elif status == RFQStatus.approved.value:
-                project.status = "approved"
-            elif status == RFQStatus.rejected.value:
-                project.status = "analyzed"
-            elif status == RFQStatus.in_production.value:
-                project.status = "in_production"
-            elif status == RFQStatus.completed.value:
-                project.status = "completed"
+            status_map = {
+                "quoted": "quoted", "approved": "approved",
+                "rejected": "ready", "closed": "completed",
+            }
+            if status in status_map:
+                project.status = status_map[status]
             project.rfq_status = status
         db.flush()
         db.refresh(rfq)
     return rfq
 
 
-def add_quote_to_rfq(
-    db: Session,
-    rfq_id: str,
-    item_quotes: List[Dict[str, Any]],
-    vendor_id: Optional[str] = None,
-) -> RFQ:
-    rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
+def add_quote_to_rfq(db, rfq_id, item_quotes, vendor_id=None):
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
 
-    items = db.query(RFQItem).filter(RFQItem.rfq_id == rfq_id).all()
+    items = db.query(RFQItem).filter(RFQItem.rfq_batch_id == rfq_id).all()
     total = 0.0
 
     for item in items:
         for quote in item_quotes:
-            if quote.get("part_name") == item.part_name:
+            if quote.get("part_name") == item.part_key:
                 item.quoted_price = quote.get("price", 0)
                 item.lead_time = quote.get("lead_time", 14)
-                total += (item.quoted_price or 0) * (item.quantity or 1)
+                total += (item.quoted_price or 0) * (int(item.requested_quantity) or 1)
                 break
 
     rfq.total_final_cost = round(total, 2)
     rfq.selected_vendor_id = vendor_id
-    rfq.status = RFQStatus.quoted.value
+    rfq.status = "quoted"
 
     project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     if project:
         project.status = "quoted"
-        project.rfq_status = RFQStatus.quoted.value
+        project.rfq_status = "quoted"
 
     db.flush()
     db.refresh(rfq)

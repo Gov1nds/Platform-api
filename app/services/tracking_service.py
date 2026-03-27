@@ -4,7 +4,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 
 from app.models.tracking import ProductionTracking, ExecutionFeedback, TrackingStage
-from app.models.rfq import RFQ, RFQStatus
+from app.models.rfq import RFQBatch as RFQ, RFQStatus
 from app.models.analysis import AnalysisResult
 from app.models.memory import SupplierMemory
 from app.services import project_service

@@ -1,36 +1,42 @@
 """
 BOM Service — Store BOMs from BOM Engine output.
-FIXES:
-  - Uses provided user_id (was hardcoded to None)
-  - Uses provided session_token (was generating a new one)
-  - Safe for existing DB schema (no new column writes unless columns exist)
-  - NEW: saves classification fields (is_custom, rfq_required, drawing_required, procurement_class, part_type)
+Updated for PostgreSQL schema (bom.boms, bom.bom_parts).
 """
 import uuid
 import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
-from app.models.bom import BOM, BOMPart, BOMStatus
+from sqlalchemy import func
+from app.models.bom import BOM, BOMPart
+from app.models.user import GuestSession
 
 logger = logging.getLogger("bom_service")
 
-# Categories that are custom (not standard catalog parts)
-_CUSTOM_CATEGORIES = {
-    "custom_mechanical", "sheet_metal", "custom",
-}
+_CUSTOM_CATEGORIES = {"custom_mechanical", "sheet_metal", "custom"}
 
 
 def _is_custom_part(comp: Dict[str, Any]) -> bool:
-    """Determine if a component is a custom fabricated part based on classifier output."""
     category = (comp.get("category") or "").lower()
     if category in _CUSTOM_CATEGORIES:
         return True
     if comp.get("is_custom", False):
         return True
-    procurement = (comp.get("procurement_class") or "").lower()
-    if procurement == "rfq_required":
+    if (comp.get("procurement_class") or "").lower() == "rfq_required":
         return True
     return False
+
+
+def _ensure_guest_session(db: Session, session_token: str) -> Optional[str]:
+    """Create or fetch guest session, return its ID."""
+    if not session_token:
+        return None
+    gs = db.query(GuestSession).filter(GuestSession.session_token == session_token).first()
+    if gs:
+        return gs.id
+    gs = GuestSession(session_token=session_token)
+    db.add(gs)
+    db.flush()
+    return gs.id
 
 
 def create_bom_from_analyzer(
@@ -43,59 +49,87 @@ def create_bom_from_analyzer(
 ) -> BOM:
     components = analyzer_output.get("components", [])
 
+    guest_session_id = None
+    if not user_id and session_token:
+        guest_session_id = _ensure_guest_session(db, session_token)
+
+    custom_count = sum(1 for c in components if _is_custom_part(c))
+    standard_count = len(components) - custom_count
+
     bom = BOM(
-        user_id=user_id,                                    # FIXED: was None
-        session_token=session_token or uuid.uuid4().hex,    # FIXED: uses provided token
+        uploaded_by_user_id=user_id,
+        guest_session_id=guest_session_id,
+        source_file_name=file_name or "upload.csv",
+        source_file_type=file_type or "csv",
         name=file_name or "Uploaded BOM",
-        file_name=file_name,
-        file_type=file_type,
-        raw_data=components,
+        raw_payload=components,
         total_parts=len(components),
-        status=BOMStatus.uploaded.value,
+        total_custom_parts=custom_count,
+        total_standard_parts=standard_count,
+        status="uploaded",
     )
+    # Cache session_token for backward compat property
+    bom._session_token_cache = session_token or uuid.uuid4().hex
     db.add(bom)
     db.flush()
 
-    for comp in components:
+    for idx, comp in enumerate(components):
         custom = _is_custom_part(comp)
-        category = comp.get("category", "")
+        category_code = comp.get("category", "unknown")
         procurement_class = comp.get("procurement_class", "catalog_purchase")
         rfq_required = comp.get("rfq_required", False)
         drawing_required = comp.get("drawing_required", False)
 
-        # If custom but fields not explicitly set by classifier, set sensible defaults
         if custom:
-            if not rfq_required:
-                rfq_required = True
-            if not drawing_required:
-                drawing_required = True
+            rfq_required = True
+            drawing_required = True
             if procurement_class == "catalog_purchase":
                 procurement_class = "rfq_required"
 
+        # Map to valid procurement_class values from bootstrap schema
+        valid_classes = {
+            "catalog_purchase", "rfq_required", "raw_material", "custom_manufacture",
+            "engineering_review", "electrical_part", "electronics_part", "sheet_metal",
+            "machined_part", "unknown"
+        }
+        if procurement_class not in valid_classes:
+            procurement_class = "custom_manufacture" if custom else "catalog_purchase"
+
         db.add(BOMPart(
             bom_id=bom.id,
-            part_name=comp.get("description") or comp.get("standard_text", ""),
-            material=comp.get("material", ""),
+            item_id=comp.get("item_id", str(idx + 1)),
+            raw_text=comp.get("raw_text", ""),
+            normalized_text=comp.get("standard_text", ""),
+            canonical_name=comp.get("description") or comp.get("standard_text", ""),
+            description=comp.get("description", ""),
             quantity=max(1, int(comp.get("quantity", 1))),
-            manufacturer=comp.get("manufacturer", ""),
+            part_number=comp.get("part_number", ""),
             mpn=comp.get("mpn", ""),
-            category=category,
-            notes=comp.get("notes", ""),
+            manufacturer=comp.get("manufacturer", ""),
+            category_code=category_code,
+            procurement_class=procurement_class,
+            material=comp.get("material", ""),
+            material_form=comp.get("material_form"),
+            geometry=comp.get("geometry"),
+            tolerance=comp.get("tolerance"),
+            secondary_ops=comp.get("secondary_ops", []),
             specs=comp.get("specs", {}),
-            geometry_type=comp.get("geometry"),
-            # NEW: classification fields
-            part_type="custom" if custom else "standard",
+            classification_confidence=comp.get("classification_confidence", 0),
+            classification_reason=comp.get("classification_reason", ""),
+            has_mpn=comp.get("has_mpn", False),
+            has_brand=comp.get("has_brand", False),
+            is_generic=comp.get("is_generic", False),
+            is_raw=comp.get("is_raw", False),
             is_custom=custom,
             rfq_required=rfq_required,
             drawing_required=drawing_required,
-            procurement_class=procurement_class,
         ))
 
     db.commit()
     db.refresh(bom)
     logger.info(
-        f"BOM created: {bom.id} | user={user_id} | session={session_token and session_token[:8]}... | "
-        f"{len(components)} parts"
+        "BOM created: %s | user=%s | %d parts (%d custom, %d standard)",
+        bom.id, user_id, len(components), custom_count, standard_count,
     )
     return bom
 
@@ -108,19 +142,19 @@ def get_bom_parts_as_dicts(db: Session, bom_id: str) -> List[Dict[str, Any]]:
     parts = db.query(BOMPart).filter(BOMPart.bom_id == bom_id).all()
     return [
         {
-            "part_name": p.part_name or "",
-            "quantity": p.quantity or 1,
+            "part_name": p.canonical_name or p.description or "",
+            "quantity": int(p.quantity) if p.quantity else 1,
             "material": p.material or "",
             "manufacturer": p.manufacturer or "",
             "mpn": p.mpn or "",
-            "notes": p.notes or "",
-            "category": p.category or "",
+            "notes": p.raw_text or "",
+            "category": p.category_code or "",
             "specs": p.specs or {},
-            "is_custom": getattr(p, "is_custom", False) or False,
-            "part_type": getattr(p, "part_type", "standard") or "standard",
-            "rfq_required": getattr(p, "rfq_required", False) or False,
-            "drawing_required": getattr(p, "drawing_required", False) or False,
-            "procurement_class": getattr(p, "procurement_class", "catalog_purchase") or "catalog_purchase",
+            "is_custom": p.is_custom or False,
+            "part_type": "custom" if p.is_custom else "standard",
+            "rfq_required": p.rfq_required or False,
+            "drawing_required": p.drawing_required or False,
+            "procurement_class": p.procurement_class or "catalog_purchase",
         }
         for p in parts
     ]

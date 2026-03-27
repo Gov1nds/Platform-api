@@ -14,9 +14,9 @@ from sqlalchemy.orm import Session
 from app.models.memory import SupplierMemory
 from app.models.vendor import Vendor
 from app.models.tracking import ExecutionFeedback
-from app.models.pricing import PricingHistory
+from app.models.pricing import PricingQuote as PricingHistory
 from app.models.analysis import AnalysisResult
-from app.models.rfq import RFQ, RFQItem
+from app.models.rfq import RFQBatch as RFQ, RFQItem
 
 logger = logging.getLogger("memory_service")
 
