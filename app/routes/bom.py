@@ -1,12 +1,14 @@
-"""BOM routes — upload, analyze, unlock, and project snapshot creation."""
+"""BOM routes — upload, analyze, unlock, and project snapshot creation.
+FIXES:
+  - Passes session_token to create_bom_from_analyzer
+  - bom_unlock queries analysis BEFORE referencing it
+  - Upload response includes project_id for correct frontend navigation
+"""
 from __future__ import annotations
-
 import logging
 from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
-
 from app.core.database import get_db
 from app.models.user import User
 from app.models.bom import BOM, BOMStatus
@@ -36,26 +38,22 @@ async def bom_upload(
 
     try:
         analyzer_output = await analyzer_service.call_analyzer(
-            file_bytes=content,
-            filename=filename,
-            user_location=delivery_location,
-            target_currency=target_currency,
+            file_bytes=content, filename=filename,
+            user_location=delivery_location, target_currency=target_currency,
         )
     except RuntimeError as e:
         logger.error("Analyzer call failed: %s", e)
         raise HTTPException(status_code=502, detail=str(e))
 
-    # FIXED: seed_vendors moved to startup — but keep safe check here
     vendor_service.seed_vendors(db)
 
-    # FIXED: pass session_token and user_id through
+    # FIXED: pass session_token through
     bom = bom_service.create_bom_from_analyzer(
-        db,
-        analyzer_output,
+        db, analyzer_output,
         file_name=filename,
         file_type=filename.rsplit(".", 1)[-1] if "." in filename else "csv",
         user_id=user.id if user else None,
-        session_token=session_token,            # FIXED: was not passed
+        session_token=session_token,
     )
 
     v2_report = analyzer_output.get("_v2_full_report")
@@ -73,16 +71,10 @@ async def bom_upload(
 
     vendor_memories = vendor_service.get_vendor_memories(db)
     strategy = build_strategy_output(
-        strategy_input,
-        delivery_location,
-        vendor_memories,
-        pricing_history=[],
-        external_pricing=external_pricing,
-        db=db,
-        priority=priority,
-        target_currency=target_currency,
+        strategy_input, delivery_location, vendor_memories,
+        pricing_history=[], external_pricing=external_pricing,
+        db=db, priority=priority, target_currency=target_currency,
     )
-
     procurement = generate_procurement_plan(strategy, target_currency, max_suppliers=5)
 
     ps = strategy.get("procurement_strategy", {})
@@ -96,8 +88,7 @@ async def bom_upload(
         raw_analyzer_output=analyzer_output,
         strategy_output=strategy,
         enriched_output={
-            "analyzer": enriched,
-            "procurement_plan": procurement,
+            "analyzer": enriched, "procurement_plan": procurement,
             "external_pricing": {k: v for k, v in external_pricing.items() if v},
             "priority": priority,
         },
@@ -126,12 +117,8 @@ async def bom_upload(
     bom.status = BOMStatus.analyzed.value
 
     project = project_service.upsert_project_from_analysis(
-        db,
-        bom=bom,
-        analysis=analysis,
-        analyzer_output=analyzer_output,
-        strategy=strategy,
-        procurement=procurement,
+        db, bom=bom, analysis=analysis, analyzer_output=analyzer_output,
+        strategy=strategy, procurement=procurement,
     )
 
     db.commit()
@@ -167,7 +154,7 @@ def bom_unlock(
     if not bom:
         raise HTTPException(status_code=404, detail="BOM not found")
 
-    # FIXED: Query analysis and project BEFORE using them in adoption block
+    # FIXED: query analysis and project BEFORE using them
     analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
     project = project_service.get_project_by_bom_id(db, bom.id)
 
@@ -176,12 +163,11 @@ def bom_unlock(
         authorized = True
     elif body.session_token and bom.session_token == body.session_token:
         authorized = True
-        # Guest BOM adoption: attach to authenticated user
         if user and not bom.user_id:
             bom.user_id = user.id
             if project:
                 project.user_id = user.id
-            if analysis:                              # FIXED: no longer crashes
+            if analysis:
                 analysis.user_id = user.id
             db.commit()
 

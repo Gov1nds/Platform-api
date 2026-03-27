@@ -1,7 +1,7 @@
-"""BOM and BOMPart models."""
+"""BOM and BOMPart models. FIXED: __table_args__ moved inside BOM class."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 import enum
@@ -36,7 +36,7 @@ class BOM(Base):
     project = relationship("Project", back_populates="bom", uselist=False, cascade="all, delete-orphan")
     rfqs = relationship("RFQ", back_populates="bom")
 
-    # FIXED: __table_args__ moved INSIDE the class (was outside)
+    # FIXED: was outside the class body
     __table_args__ = (
         Index("idx_bom_user_session", "user_id", "session_token"),
     )
@@ -57,11 +57,6 @@ class BOMPart(Base):
     mpn = Column(String(255), nullable=True)
     category = Column(String(50), nullable=True)
     specs = Column(JSON, nullable=True)
-    # NEW: classification and procurement fields
-    classification_confidence = Column(Float, nullable=True, default=0.0)
-    procurement_class = Column(String(30), nullable=True, default="catalog_purchase")
-    rfq_required = Column(Boolean, nullable=True, default=False)
-    drawing_required = Column(Boolean, nullable=True, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
