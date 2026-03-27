@@ -1,9 +1,9 @@
-from typing import Optional
-import datetime
+from typing import List, Optional
 
 from sqlalchemy import BigInteger, Boolean, Column, DateTime, Double, ForeignKeyConstraint, Index, Integer, JSON, Numeric, PrimaryKeyConstraint, String, Table, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import OID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+import datetime
 
 class Base(DeclarativeBase):
     pass
@@ -81,18 +81,18 @@ class Users(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), nullable=False)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(255))
+    password_hash: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[Optional[str]] = mapped_column(String(255))
     is_active: Mapped[Optional[bool]] = mapped_column(Boolean)
     is_verified: Mapped[Optional[bool]] = mapped_column(Boolean)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
-    boms: Mapped[list['Boms']] = relationship('Boms', back_populates='user')
-    analysis_results: Mapped[list['AnalysisResults']] = relationship('AnalysisResults', back_populates='user')
-    projects: Mapped[list['Projects']] = relationship('Projects', back_populates='user')
-    rfqs: Mapped[list['Rfqs']] = relationship('Rfqs', back_populates='user')
+    boms: Mapped[List['Boms']] = relationship('Boms', back_populates='user')
+    analysis_results: Mapped[List['AnalysisResults']] = relationship('AnalysisResults', back_populates='user')
+    projects: Mapped[List['Projects']] = relationship('Projects', back_populates='user')
+    rfqs: Mapped[List['Rfqs']] = relationship('Rfqs', back_populates='user')
 
 
 class Vendors(Base):
@@ -103,7 +103,7 @@ class Vendors(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(255))
     country: Mapped[Optional[str]] = mapped_column(String(100))
     region: Mapped[Optional[str]] = mapped_column(String(50))
     capabilities: Mapped[Optional[dict]] = mapped_column(JSON)
@@ -115,10 +115,10 @@ class Vendors(Base):
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
-    pricing_history: Mapped[list['PricingHistory']] = relationship('PricingHistory', back_populates='vendor')
-    supplier_memory: Mapped[list['SupplierMemory']] = relationship('SupplierMemory', back_populates='vendor')
-    rfqs: Mapped[list['Rfqs']] = relationship('Rfqs', back_populates='selected_vendor')
-    rfq_quotes: Mapped[list['RfqQuotes']] = relationship('RfqQuotes', back_populates='vendor')
+    pricing_history: Mapped[List['PricingHistory']] = relationship('PricingHistory', back_populates='vendor')
+    supplier_memory: Mapped[List['SupplierMemory']] = relationship('SupplierMemory', back_populates='vendor')
+    rfqs: Mapped[List['Rfqs']] = relationship('Rfqs', back_populates='selected_vendor')
+    rfq_quotes: Mapped[List['RfqQuotes']] = relationship('RfqQuotes', back_populates='vendor')
 
 
 class Boms(Base):
@@ -144,11 +144,11 @@ class Boms(Base):
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
     user: Mapped[Optional['Users']] = relationship('Users', back_populates='boms')
-    analysis_results: Mapped[list['AnalysisResults']] = relationship('AnalysisResults', back_populates='bom')
-    bom_parts: Mapped[list['BomParts']] = relationship('BomParts', back_populates='bom')
-    projects: Mapped[list['Projects']] = relationship('Projects', back_populates='bom')
-    rfqs: Mapped[list['Rfqs']] = relationship('Rfqs', back_populates='bom')
-    drawing_assets: Mapped[list['DrawingAssets']] = relationship('DrawingAssets', back_populates='bom')
+    analysis_results: Mapped[List['AnalysisResults']] = relationship('AnalysisResults', back_populates='bom')
+    bom_parts: Mapped[List['BomParts']] = relationship('BomParts', back_populates='bom')
+    projects: Mapped[List['Projects']] = relationship('Projects', back_populates='bom')
+    rfqs: Mapped[List['Rfqs']] = relationship('Rfqs', back_populates='bom')
+    drawing_assets: Mapped[List['DrawingAssets']] = relationship('DrawingAssets', back_populates='bom')
 
 
 class PricingHistory(Base):
@@ -160,8 +160,8 @@ class PricingHistory(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    vendor_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    price: Mapped[float] = mapped_column(Double(53), nullable=False)
+    vendor_id: Mapped[str] = mapped_column(String(36))
+    price: Mapped[float] = mapped_column(Double(53))
     part_name: Mapped[Optional[str]] = mapped_column(String(500))
     material: Mapped[Optional[str]] = mapped_column(String(255))
     process: Mapped[Optional[str]] = mapped_column(String(100))
@@ -184,7 +184,7 @@ class SupplierMemory(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    vendor_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    vendor_id: Mapped[str] = mapped_column(String(36))
     performance_score: Mapped[Optional[float]] = mapped_column(Double(53))
     cost_accuracy_score: Mapped[Optional[float]] = mapped_column(Double(53))
     delivery_accuracy_score: Mapped[Optional[float]] = mapped_column(Double(53))
@@ -209,7 +209,7 @@ class AnalysisResults(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    bom_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    bom_id: Mapped[str] = mapped_column(String(36))
     user_id: Mapped[Optional[str]] = mapped_column(String(36))
     raw_analyzer_output: Mapped[Optional[dict]] = mapped_column(JSON)
     strategy_output: Mapped[Optional[dict]] = mapped_column(JSON)
@@ -238,7 +238,7 @@ class BomParts(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    bom_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    bom_id: Mapped[str] = mapped_column(String(36))
     part_name: Mapped[Optional[str]] = mapped_column(String(500))
     material: Mapped[Optional[str]] = mapped_column(String(255))
     quantity: Mapped[Optional[int]] = mapped_column(Integer)
@@ -253,7 +253,7 @@ class BomParts(Base):
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
     bom: Mapped['Boms'] = relationship('Boms', back_populates='bom_parts')
-    drawing_assets: Mapped[list['DrawingAssets']] = relationship('DrawingAssets', back_populates='bom_part')
+    drawing_assets: Mapped[List['DrawingAssets']] = relationship('DrawingAssets', back_populates='bom_part')
 
 
 class Projects(Base):
@@ -268,7 +268,7 @@ class Projects(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    bom_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    bom_id: Mapped[str] = mapped_column(String(36))
     user_id: Mapped[Optional[str]] = mapped_column(String(36))
     name: Mapped[Optional[str]] = mapped_column(String(255))
     file_name: Mapped[Optional[str]] = mapped_column(String(255))
@@ -292,8 +292,8 @@ class Projects(Base):
 
     bom: Mapped['Boms'] = relationship('Boms', back_populates='projects')
     user: Mapped[Optional['Users']] = relationship('Users', back_populates='projects')
-    drawing_assets: Mapped[list['DrawingAssets']] = relationship('DrawingAssets', back_populates='project')
-    project_events: Mapped[list['ProjectEvents']] = relationship('ProjectEvents', back_populates='project')
+    drawing_assets: Mapped[List['DrawingAssets']] = relationship('DrawingAssets', back_populates='project')
+    project_events: Mapped[List['ProjectEvents']] = relationship('ProjectEvents', back_populates='project')
 
 
 class Rfqs(Base):
@@ -322,9 +322,9 @@ class Rfqs(Base):
     selected_vendor: Mapped[Optional['Vendors']] = relationship('Vendors', back_populates='rfqs')
     user: Mapped[Optional['Users']] = relationship('Users', back_populates='rfqs')
     execution_feedback: Mapped['ExecutionFeedback'] = relationship('ExecutionFeedback', uselist=False, back_populates='rfq')
-    production_tracking: Mapped[list['ProductionTracking']] = relationship('ProductionTracking', back_populates='rfq')
-    rfq_items: Mapped[list['RfqItems']] = relationship('RfqItems', back_populates='rfq')
-    rfq_quotes: Mapped[list['RfqQuotes']] = relationship('RfqQuotes', back_populates='rfq')
+    production_tracking: Mapped[List['ProductionTracking']] = relationship('ProductionTracking', back_populates='rfq')
+    rfq_items: Mapped[List['RfqItems']] = relationship('RfqItems', back_populates='rfq')
+    rfq_quotes: Mapped[List['RfqQuotes']] = relationship('RfqQuotes', back_populates='rfq')
 
 
 class CostSavings(Base):
@@ -336,7 +336,7 @@ class CostSavings(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    analysis_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    analysis_id: Mapped[str] = mapped_column(String(36))
     recommended_cost: Mapped[Optional[float]] = mapped_column(Double(53))
     alternative_cost: Mapped[Optional[float]] = mapped_column(Double(53))
     savings_percent: Mapped[Optional[float]] = mapped_column(Double(53))
@@ -385,7 +385,7 @@ class ExecutionFeedback(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    rfq_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    rfq_id: Mapped[str] = mapped_column(String(36))
     predicted_cost: Mapped[Optional[float]] = mapped_column(Double(53))
     actual_cost: Mapped[Optional[float]] = mapped_column(Double(53))
     cost_delta: Mapped[Optional[float]] = mapped_column(Double(53))
@@ -408,7 +408,7 @@ class ProductionTracking(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    rfq_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    rfq_id: Mapped[str] = mapped_column(String(36))
     stage: Mapped[Optional[str]] = mapped_column(String(10))
     status_message: Mapped[Optional[str]] = mapped_column(Text)
     progress_percent: Mapped[Optional[int]] = mapped_column(Integer)
@@ -428,8 +428,8 @@ class ProjectEvents(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(36))
+    event_type: Mapped[str] = mapped_column(String(50))
     old_status: Mapped[Optional[str]] = mapped_column(String(50))
     new_status: Mapped[Optional[str]] = mapped_column(String(50))
     payload: Mapped[Optional[dict]] = mapped_column(JSON)
@@ -448,7 +448,7 @@ class RfqItems(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    rfq_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    rfq_id: Mapped[str] = mapped_column(String(36))
     part_name: Mapped[Optional[str]] = mapped_column(String(500))
     quantity: Mapped[Optional[int]] = mapped_column(Integer)
     material: Mapped[Optional[str]] = mapped_column(String(255))
@@ -472,7 +472,7 @@ class RfqQuotes(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    rfq_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    rfq_id: Mapped[str] = mapped_column(String(36))
     vendor_id: Mapped[Optional[str]] = mapped_column(String(36))
     status: Mapped[Optional[str]] = mapped_column(String(30))
     quote_currency: Mapped[Optional[str]] = mapped_column(String(10))

@@ -1,12 +1,11 @@
 """
-Migration 002: Add production tracking and execution feedback tables.
+Migration 002: Add production tracking and execution feedback tables
++ extended schema (catalog, pricing, sourcing improvements)
 
-These tables are used by the tracking_service but are not part of the
-bootstrap schema. They go into the 'ops' schema.
-
-Run after the bootstrap SQL:
-  python migrations/002_add_tracking_tables.py
+Run:
+  python migrations/m002_add_tracking_tables.py
 """
+
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -24,7 +23,16 @@ def table_exists(inspector, schema, table_name):
 
 def run():
     inspector = inspect(engine)
+
     with engine.begin() as conn:
+
+        # ✅ REQUIRED FOR gen_random_uuid()
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+
+        # ===============================
+        # 1. CORE TRACKING TABLES
+        # ===============================
+
         if not table_exists(inspector, "ops", "production_tracking"):
             logger.info("Creating ops.production_tracking")
             conn.execute(text("""
@@ -39,7 +47,11 @@ def run():
                     updated_at timestamptz NOT NULL DEFAULT now()
                 )
             """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ops_prod_tracking_rfq ON ops.production_tracking (rfq_id)"))
+
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_ops_prod_tracking_rfq 
+                ON ops.production_tracking (rfq_id)
+            """))
 
         if not table_exists(inspector, "ops", "execution_feedback"):
             logger.info("Creating ops.execution_feedback")
@@ -59,13 +71,118 @@ def run():
                 )
             """))
 
-        # Add triggers
+        # ===============================
+        # 2. TRIGGERS
+        # ===============================
+
         for tbl in ['ops.production_tracking', 'ops.execution_feedback']:
             try:
-                conn.execute(text(f"DROP TRIGGER IF EXISTS trg_set_updated_at ON {tbl}"))
-                conn.execute(text(f"CREATE TRIGGER trg_set_updated_at BEFORE UPDATE ON {tbl} FOR EACH ROW EXECUTE FUNCTION ops.set_updated_at()"))
+                conn.execute(text(f"""
+                    DROP TRIGGER IF EXISTS trg_set_updated_at ON {tbl}
+                """))
+                conn.execute(text(f"""
+                    CREATE TRIGGER trg_set_updated_at
+                    BEFORE UPDATE ON {tbl}
+                    FOR EACH ROW
+                    EXECUTE FUNCTION ops.set_updated_at()
+                """))
             except Exception:
                 pass
+
+        # ===============================
+        # 3. EXTENDED SCHEMA
+        # ===============================
+
+        logger.info("Applying extended schema updates...")
+
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS catalog.part_identity_map (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          bom_part_id uuid REFERENCES bom.bom_parts(id) ON DELETE CASCADE,
+          part_master_id uuid REFERENCES catalog.part_master(id) ON DELETE SET NULL,
+          canonical_part_key text NOT NULL,
+          match_method text NOT NULL CHECK (
+            match_method IN ('exact_mpn','fuzzy_name','ml_match','manual','rule_based')
+          ),
+          confidence numeric(6,3) NOT NULL,
+          is_primary boolean NOT NULL DEFAULT true,
+          created_at timestamptz DEFAULT now()
+        );
+        """))
+
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS pricing.price_aggregates (
+          canonical_part_key text,
+          region_id uuid,
+          best_unit_price numeric,
+          avg_price numeric,
+          min_lead_time numeric,
+          vendor_count int,
+          last_updated timestamptz,
+          PRIMARY KEY (canonical_part_key, region_id)
+        );
+        """))
+
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS sourcing.manual_quote_requests (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          bom_part_id uuid NOT NULL,
+          rfq_item_id uuid,
+          status text CHECK (status IN ('pending','sent','received','closed')),
+          assigned_to uuid,
+          notes text,
+          created_at timestamptz DEFAULT now()
+        );
+        """))
+
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS catalog.part_versions (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          part_master_id uuid,
+          version_no int,
+          snapshot jsonb,
+          created_at timestamptz DEFAULT now(),
+          UNIQUE(part_master_id, version_no)
+        );
+        """))
+
+        # ===============================
+        # 4. ALTER TABLES
+        # ===============================
+
+        conn.execute(text("""
+        ALTER TABLE bom.bom_parts
+        ADD COLUMN IF NOT EXISTS canonical_part_key text;
+        """))
+
+        conn.execute(text("""
+        ALTER TABLE bom.bom_parts
+        ADD COLUMN IF NOT EXISTS part_master_id uuid REFERENCES catalog.part_master(id);
+        """))
+
+        conn.execute(text("""
+        ALTER TABLE sourcing.rfq_items
+        ADD COLUMN IF NOT EXISTS canonical_part_key text;
+        """))
+
+        # ===============================
+        # 5. INDEXES
+        # ===============================
+
+        conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_part_identity_map_key 
+        ON catalog.part_identity_map (canonical_part_key);
+        """))
+
+        conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_bom_parts_canonical 
+        ON bom.bom_parts (canonical_part_key);
+        """))
+
+        conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_rfq_items_canonical 
+        ON sourcing.rfq_items (canonical_part_key);
+        """))
 
     logger.info("Migration 002 complete.")
 
