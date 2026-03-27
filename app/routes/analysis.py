@@ -1,4 +1,4 @@
-"""Analysis routes — FIXED: added auth + ownership check."""
+"""Analysis routes — updated for bom.analysis_results."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db

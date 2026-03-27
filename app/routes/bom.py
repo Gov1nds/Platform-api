@@ -1,8 +1,5 @@
 """BOM routes — upload, analyze, unlock, and project snapshot creation.
-FIXES:
-  - Passes session_token to create_bom_from_analyzer
-  - bom_unlock queries analysis BEFORE referencing it
-  - Upload response includes project_id for correct frontend navigation
+Updated for PostgreSQL schema.
 """
 from __future__ import annotations
 import logging
@@ -11,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.user import User
-from app.models.bom import BOM, BOMStatus
-from app.models.analysis import AnalysisResult, CostSavings
+from app.models.bom import BOM
+from app.models.analysis import AnalysisResult
 from app.schemas.bom import BOMUploadResponse, BOMUnlockRequest, BOMUnlockResponse
 from app.utils.dependencies import get_current_user
 from app.services import bom_service, analyzer_service, pricing_service, vendor_service, project_service
@@ -47,7 +44,6 @@ async def bom_upload(
 
     vendor_service.seed_vendors(db)
 
-    # FIXED: pass session_token through
     bom = bom_service.create_bom_from_analyzer(
         db, analyzer_output,
         file_name=filename,
@@ -85,36 +81,28 @@ async def bom_upload(
     analysis = AnalysisResult(
         bom_id=bom.id,
         user_id=user.id if user else None,
+        guest_session_id=bom.guest_session_id,
         raw_analyzer_output=analyzer_output,
-        strategy_output=strategy,
-        enriched_output={
-            "analyzer": enriched, "procurement_plan": procurement,
-            "external_pricing": {k: v for k, v in external_pricing.items() if v},
-            "priority": priority,
+        structured_output={
+            "strategy": strategy,
+            "enriched": {
+                "analyzer": enriched, "procurement_plan": procurement,
+                "external_pricing": {k: v for k, v in external_pricing.items() if v},
+                "priority": priority,
+            },
         },
         recommended_location=rec.get("location", ""),
         average_cost=cs.get("average", rec.get("average_cost", 0)),
         cost_range_low=cost_range[0] if len(cost_range) > 0 else 0,
         cost_range_high=cost_range[1] if len(cost_range) > 1 else 0,
         savings_percent=cs.get("savings_percent", rec.get("savings_percent", 0)),
-        lead_time=rec.get("lead_time", 0),
+        lead_time_days=rec.get("lead_time", 0),
         decision_summary=strategy.get("decision_summary", ""),
     )
     db.add(analysis)
     db.flush()
 
-    alt_strats = strategy.get("alternative_strategies", [])
-    if alt_strats:
-        alt = alt_strats[0]
-        db.add(CostSavings(
-            analysis_id=analysis.id,
-            recommended_cost=cs.get("average", 0),
-            alternative_cost=alt.get("total_cost", 0),
-            savings_percent=cs.get("savings_percent", 0),
-            savings_value=cs.get("savings_value", 0),
-        ))
-
-    bom.status = BOMStatus.analyzed.value
+    bom.status = "analyzed"
 
     project = project_service.upsert_project_from_analysis(
         db, bom=bom, analysis=analysis, analyzer_output=analyzer_output,
@@ -137,7 +125,7 @@ async def bom_upload(
 
     return BOMUploadResponse(
         bom_id=bom.id,
-        session_token=bom.session_token,
+        session_token=bom.session_token or "",
         total_parts=bom.total_parts,
         status=bom.status,
         preview=project_service.build_guest_preview(project),
@@ -154,22 +142,27 @@ def bom_unlock(
     if not bom:
         raise HTTPException(status_code=404, detail="BOM not found")
 
-    # FIXED: query analysis and project BEFORE using them
     analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
     project = project_service.get_project_by_bom_id(db, bom.id)
 
     authorized = False
-    if user and bom.user_id == user.id:
+    if user and bom.uploaded_by_user_id == user.id:
         authorized = True
-    elif body.session_token and bom.session_token == body.session_token:
-        authorized = True
-        if user and not bom.user_id:
-            bom.user_id = user.id
-            if project:
-                project.user_id = user.id
-            if analysis:
-                analysis.user_id = user.id
-            db.commit()
+    elif body.session_token:
+        from app.models.user import GuestSession
+        gs = db.query(GuestSession).filter(
+            GuestSession.session_token == body.session_token,
+            GuestSession.id == bom.guest_session_id,
+        ).first()
+        if gs:
+            authorized = True
+            if user and not bom.uploaded_by_user_id:
+                bom.uploaded_by_user_id = user.id
+                if project:
+                    project.user_id = user.id
+                if analysis:
+                    analysis.user_id = user.id
+                db.commit()
 
     if not authorized:
         raise HTTPException(status_code=403, detail="Not authorized")
@@ -206,6 +199,8 @@ def _components_to_section_2(components: list) -> list:
             "procurement_class": comp.get("procurement_class", "catalog_purchase"),
             "rfq_required": comp.get("rfq_required", False),
             "drawing_required": comp.get("drawing_required", False),
+            "is_custom": comp.get("is_custom", False),
+            "part_type": comp.get("part_type", "standard"),
         })
     return section_2
 

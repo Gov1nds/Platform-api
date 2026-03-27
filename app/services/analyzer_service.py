@@ -117,6 +117,11 @@ def _transform_v2_to_v3(v2_result: Dict) -> list:
             "secondary_ops": item.get("secondary_ops", []),
             # Specs
             "specs": item.get("specs", {}),
+            # Procurement intent
+            "procurement_class": item.get("procurement_class", "catalog_purchase"),
+            "rfq_required": item.get("rfq_required", False),
+            "drawing_required": item.get("drawing_required", False),
+            "part_type": "custom" if item.get("is_custom", False) else "standard",
         }
         components.append(comp)
 

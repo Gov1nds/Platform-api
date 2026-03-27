@@ -1,40 +1,29 @@
 """
 PGI Manufacturing Intelligence Platform — FastAPI Application
+PostgreSQL on Railway edition.
 
 Run: uvicorn app.main:app --reload
 """
-
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db, SessionLocal
-from app.routes import auth, bom, analysis, rfq, tracking, projects
+from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings
 
-# -------------------------------------------------------------------
-# Logging
-# -------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("main")
 
-
-# -------------------------------------------------------------------
-# App Initialization
-# -------------------------------------------------------------------
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Manufacturing Intelligence Platform — BOM Analysis, Procurement Strategy, RFQ Execution",
 )
 
-
-# -------------------------------------------------------------------
-# Middleware (CORS)
-# -------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -49,17 +38,21 @@ app.add_middleware(
 )
 
 
-# -------------------------------------------------------------------
-# Startup Event
-# -------------------------------------------------------------------
 @app.on_event("startup")
 def startup():
     logger.info("Initializing database...")
     init_db()
 
-    # Lazy import to avoid circular imports
-    from app.services import vendor_service
+    # Run supplementary migration for tracking tables
+    if settings.is_postgres:
+        try:
+            from migrations.m002_add_tracking_tables import run as run_m002
+            logger.info("Running supplementary migration (tracking tables)...")
+            run_m002()
+        except Exception as e:
+            logger.warning(f"Supplementary migration skipped: {e}")
 
+    from app.services import vendor_service
     db = SessionLocal()
     try:
         logger.info("Seeding vendors...")
@@ -70,26 +63,22 @@ def startup():
     logger.info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
 
 
-# -------------------------------------------------------------------
-# Routes
-# -------------------------------------------------------------------
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(bom.router, prefix=settings.API_PREFIX)
 app.include_router(analysis.router, prefix=settings.API_PREFIX)
 app.include_router(rfq.router, prefix=settings.API_PREFIX)
 app.include_router(tracking.router, prefix=settings.API_PREFIX)
 app.include_router(projects.router, prefix=settings.API_PREFIX)
+app.include_router(drawings.router, prefix=settings.API_PREFIX)
 
 
-# -------------------------------------------------------------------
-# Health Endpoints
-# -------------------------------------------------------------------
 @app.get("/", tags=["System"])
 def root():
     return {
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION,
         "status": "operational",
+        "database": "postgresql" if settings.is_postgres else "sqlite",
         "docs": "/docs",
     }
 

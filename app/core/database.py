@@ -1,4 +1,4 @@
-"""Database engine, session factory, and Base."""
+"""Database engine, session factory, and Base — PostgreSQL on Railway."""
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -16,12 +16,14 @@ engine = create_engine(
     settings.DATABASE_URL,
     connect_args=connect_args,
     pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
     echo=False,
 )
 
 
 # -------------------------------------------------------------------
-# SQLite Optimizations
+# SQLite Optimizations (dev only)
 # -------------------------------------------------------------------
 if settings.is_sqlite:
 
@@ -61,13 +63,10 @@ def get_db():
 # -------------------------------------------------------------------
 def init_db():
     """
-    Create all tables.
-
-    NOTE:
-    - This uses SQLAlchemy metadata.
-    - Replace with Alembic migrations in production.
+    For PostgreSQL: tables are created by the bootstrap SQL migration.
+    This only needs to import models so SQLAlchemy knows about them
+    for ORM queries. For SQLite dev: creates tables via metadata.
     """
-
     # Import models to register them with SQLAlchemy
     import app.models.user
     import app.models.project
@@ -78,5 +77,8 @@ def init_db():
     import app.models.rfq
     import app.models.tracking
     import app.models.memory
+    import app.models.drawing
 
-    Base.metadata.create_all(bind=engine)
+    # Only auto-create tables for SQLite (local dev)
+    if settings.is_sqlite:
+        Base.metadata.create_all(bind=engine)

@@ -7,19 +7,22 @@ load_dotenv()
 
 
 def _normalize_database_url(value: str | None) -> str:
-    default_sqlite = "sqlite:///./pgi_platform.db"
-    url = value or default_sqlite
+    default = "postgresql+psycopg2://postgres:postgres@localhost:5432/pgi_platform"
+    url = value or default
+    # Railway uses postgres:// but SQLAlchemy needs postgresql://
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif url.startswith("postgresql://") and "+psycopg2" not in url:
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return url
 
 
 class Settings:
     PROJECT_NAME: str = "PGI Manufacturing Intelligence Platform"
-    VERSION: str = "1.0.0"
+    VERSION: str = "2.0.0"
     API_PREFIX: str = "/api/v1"
 
-    # Database
+    # Database — PostgreSQL on Railway
     DATABASE_URL: str = _normalize_database_url(os.getenv("DATABASE_URL"))
 
     # JWT
@@ -52,11 +55,15 @@ class Settings:
     def is_sqlite(self) -> bool:
         return "sqlite" in (self.DATABASE_URL or "")
 
+    @property
+    def is_postgres(self) -> bool:
+        return "postgresql" in (self.DATABASE_URL or "")
+
 
 settings = Settings()
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
 PROJECT_STATUSES = [
-    "uploaded", "analyzed", "quoting", "quoted", "approved",
-    "in_production", "qc_inspection", "shipped", "completed",
+    "draft", "analyzing", "ready", "rfq_pending", "quoted", "approved",
+    "in_production", "shipped", "completed", "archived", "error",
 ]

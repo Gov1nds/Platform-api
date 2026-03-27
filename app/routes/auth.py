@@ -1,7 +1,5 @@
 """Auth routes — register, login, and /me.
-FIXES:
-  - attach_guest_boms updates boms, projects, AND analysis_results
-  - Added GET /auth/me endpoint for frontend token validation
+Updated for PostgreSQL schema (auth.users, auth.guest_sessions).
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -17,22 +15,48 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def attach_guest_boms(db, user_id: str, session_token: str):
-    """FIXED: Updates boms, projects, AND analysis_results atomically."""
+    """Merge guest session data to authenticated user using the DB function."""
     if not session_token:
         return
-    db.execute(
-        text("UPDATE boms SET user_id = :user_id WHERE session_token = :session_token AND user_id IS NULL"),
-        {"user_id": user_id, "session_token": session_token},
-    )
-    db.execute(
-        text("UPDATE projects SET user_id = :user_id WHERE bom_id IN (SELECT id FROM boms WHERE session_token = :session_token) AND user_id IS NULL"),
-        {"user_id": user_id, "session_token": session_token},
-    )
-    db.execute(
-        text("UPDATE analysis_results SET user_id = :user_id WHERE bom_id IN (SELECT id FROM boms WHERE session_token = :session_token) AND user_id IS NULL"),
-        {"user_id": user_id, "session_token": session_token},
-    )
-    db.commit()
+    try:
+        db.execute(
+            text("SELECT auth.merge_guest_session(:token, :uid)"),
+            {"token": session_token, "uid": user_id},
+        )
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+            db.execute(
+                text("""
+                    UPDATE bom.boms SET uploaded_by_user_id = :uid, updated_at = now()
+                    WHERE guest_session_id IN (
+                        SELECT id FROM auth.guest_sessions WHERE session_token = :token
+                    ) AND uploaded_by_user_id IS NULL
+                """),
+                {"uid": user_id, "token": session_token},
+            )
+            db.execute(
+                text("""
+                    UPDATE projects.projects SET user_id = :uid, updated_at = now()
+                    WHERE guest_session_id IN (
+                        SELECT id FROM auth.guest_sessions WHERE session_token = :token
+                    ) AND user_id IS NULL
+                """),
+                {"uid": user_id, "token": session_token},
+            )
+            db.execute(
+                text("""
+                    UPDATE bom.analysis_results SET user_id = :uid, updated_at = now()
+                    WHERE guest_session_id IN (
+                        SELECT id FROM auth.guest_sessions WHERE session_token = :token
+                    ) AND user_id IS NULL
+                """),
+                {"uid": user_id, "token": session_token},
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
@@ -71,7 +95,6 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=UserResponse)
 def get_me(user: User = Depends(require_user)):
-    """Return current authenticated user. Used for frontend auth hydration."""
     return UserResponse(
         id=user.id,
         email=user.email,
