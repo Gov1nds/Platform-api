@@ -1,6 +1,6 @@
 """Database engine, session factory, and Base — PostgreSQL on Railway."""
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.core.config import settings
 
@@ -63,9 +63,12 @@ def get_db():
 # -------------------------------------------------------------------
 def init_db():
     """
-    For PostgreSQL: tables are created by the bootstrap SQL migration.
-    This only needs to import models so SQLAlchemy knows about them
-    for ORM queries. For SQLite dev: creates tables via metadata.
+    Import all models so SQLAlchemy registers them, then ensure the
+    required schemas/tables exist.
+
+    The Railway deploy was crashing because startup queried
+    pricing.vendors before the table existed. Creating schemas and
+    running metadata.create_all() makes a fresh database bootstrappable.
     """
     # Import models to register them with SQLAlchemy
     import app.models.user
@@ -79,6 +82,12 @@ def init_db():
     import app.models.memory
     import app.models.drawing
 
-    # Only auto-create tables for SQLite (local dev)
-    if settings.is_sqlite:
-        Base.metadata.create_all(bind=engine)
+    # Ensure schemas exist on PostgreSQL before table creation.
+    if settings.is_postgres:
+        schemas = ("auth", "bom", "projects", "pricing", "sourcing", "ops", "geo")
+        with engine.begin() as conn:
+            for schema in schemas:
+                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+
+    # Safe on both SQLite and PostgreSQL; only creates missing tables.
+    Base.metadata.create_all(bind=engine)

@@ -57,6 +57,8 @@ def startup():
     try:
         logger.info("Seeding vendors...")
         vendor_service.seed_vendors(db)
+    except Exception as e:
+        logger.warning(f"Vendor seeding skipped: {e}")
     finally:
         db.close()
 

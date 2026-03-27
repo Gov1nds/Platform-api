@@ -1,7 +1,7 @@
 """Vendor model — maps to pricing.vendors in PostgreSQL."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, Text, Boolean, DateTime, Numeric, ForeignKey
+from sqlalchemy import Column, Text, Boolean, DateTime, Numeric
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -14,8 +14,8 @@ class Vendor(Base):
     id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(Text, nullable=False)
     legal_name = Column(Text, nullable=True)
-    country_id = Column(UUID(as_uuid=False), ForeignKey("geo.countries.id", ondelete="SET NULL"), nullable=True)
-    region_id = Column(UUID(as_uuid=False), ForeignKey("geo.regions.id", ondelete="SET NULL"), nullable=True)
+    country_id = Column(UUID(as_uuid=False), nullable=True)
+    region_id = Column(UUID(as_uuid=False), nullable=True)
     website = Column(Text, nullable=True)
     contact_email = Column(Text, nullable=True)
     contact_phone = Column(Text, nullable=True)
