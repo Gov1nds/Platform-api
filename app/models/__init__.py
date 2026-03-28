@@ -7,12 +7,14 @@ from app.models.user import User, GuestSession
 from app.models.project import Project, ProjectEvent
 from app.models.bom import BOM, BOMPart
 from app.models.analysis import AnalysisResult
-from app.models.vendor import Vendor
+from app.models.vendor import Vendor, VendorCapability
 from app.models.pricing import PricingQuote, PricingHistory  # PricingHistory = PricingQuote alias
 from app.models.rfq import RFQBatch, RFQItem, RFQQuote, RFQStatus
 from app.models.tracking import ProductionTracking, ExecutionFeedback, TrackingStage
-from app.models.memory import SupplierMemory
+from app.models.memory import SupplierMemory, SupplierMemoryHistory
 from app.models.drawing import DrawingAsset
+from app.models.catalog import PartMaster, PartAlias
+from app.models.geo import Country, RegionProfile, ExchangeRate, TariffRule
 
 # Backward-compat aliases for removed/renamed items
 RFQ = RFQBatch

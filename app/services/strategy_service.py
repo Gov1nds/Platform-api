@@ -222,14 +222,16 @@ def _est_weight(name, category, quantity):
         if k in name.lower(): return w * quantity
     return _WEIGHT_EST.get(category, 0.05) * quantity
 
-def _capability_match(region, process):
-    """Check if region can handle this process."""
-    caps = REGION_PROFILES.get(region, {}).get("capabilities", [])
+def _capability_match(region, process, regions=None):
+    """Check if region can handle this process. Uses passed regions dict or fallback."""
+    source = regions or REGION_PROFILES
+    caps = source.get(region, {}).get("capabilities", [])
     return process in caps or any(process.lower() in c.lower() for c in caps)
 
-def _moq_penalty(region, quantity):
+def _moq_penalty(region, quantity, regions=None):
     """Returns 0-1 penalty. 0 = no penalty, 1 = severe."""
-    moq = REGION_PROFILES.get(region, {}).get("moq_threshold", 1)
+    source = regions or REGION_PROFILES
+    moq = source.get(region, {}).get("moq_threshold", 1)
     if quantity >= moq: return 0.0
     return min(0.5, (moq - quantity) / max(moq, 1) * 0.6)
 
@@ -238,7 +240,7 @@ def _best_custom_region(process, material, delivery_country, regions=None):
     eval_regions = regions if regions is not None else REGION_PROFILES
     best_region, best_score = "Local", -1
     for region, profile in eval_regions.items():
-        if not _capability_match(region, process):
+        if not _capability_match(region, process, regions=eval_regions):
             continue
         pf = profile.get("process_fit", {}).get(process, 0.3)
         mf = profile.get("material_fit", {}).get(material, 0.3)
@@ -314,7 +316,8 @@ def evaluate_part(part, delivery_country, vendor_memories, db: Session,
 
     # DB-first pricing (standard parts only)
     price_data = get_price({"part_name": name, "material": material,
-                             "quantity": quantity, "mpn": part.get("mpn", "")}, db)
+                             "quantity": quantity, "mpn": part.get("mpn", ""),
+                             "canonical_part_key": part.get("canonical_part_key", "")}, db)
     base_unit = external_price if (external_price and external_price > 0) else price_data["price"]
     if base_unit is None:
         base_unit = 0
@@ -327,7 +330,7 @@ def evaluate_part(part, delivery_country, vendor_memories, db: Session,
     eval_regions = regions if regions is not None else REGION_PROFILES
     for region, profile in eval_regions.items():
         # ── CAPABILITY FILTER ──
-        if not _capability_match(region, process):
+        if not _capability_match(region, process, regions=eval_regions):
             continue  # reject incompatible supplier
 
         mfg_cost = base_total * profile["base_cost_mult"]
@@ -352,7 +355,7 @@ def evaluate_part(part, delivery_country, vendor_memories, db: Session,
         pf = profile.get("process_fit", {}).get(process, 0.5)
         mf = profile.get("material_fit", {}).get(mat_family, 0.5)
         combined_pf = pf * 0.6 + mf * 0.4
-        moq_pen = _moq_penalty(region, quantity)
+        moq_pen = _moq_penalty(region, quantity, regions=eval_regions)
 
         candidates.append({
             "region": region, "manufacturing_cost": round(mfg_cost, 2),
@@ -545,14 +548,22 @@ def build_strategy_output(analyzer_output: Dict, delivery_location: str = "India
     bom_summary = {"total_parts": len(s2), "total_quantity": total_quantity,
                    "categories": dict(categories), "priority": priority}
 
+    # ═══ Load region profiles from DB (with fallback to hardcoded) ═══
+    db_regions = REGION_PROFILES  # default fallback
+    if db:
+        try:
+            from app.services.geo_service import get_region_profiles
+            loaded = get_region_profiles(db)
+            if loaded:
+                db_regions = loaded
+        except Exception:
+            pass  # fallback to hardcoded
+
     # ═══ Merge "Local" into delivery country region ═══
-    # If user is in India, "Local" and "India" are the same — don't double-count.
-    # Replace "Local" profile with the delivery country's profile when they match.
-    if delivery_country in REGION_PROFILES and delivery_country != "Local":
-        # User's country has a dedicated profile — skip the generic "Local"
-        active_regions = {k: v for k, v in REGION_PROFILES.items() if k != "Local"}
+    if delivery_country in db_regions and delivery_country != "Local":
+        active_regions = {k: v for k, v in db_regions.items() if k != "Local"}
     else:
-        active_regions = REGION_PROFILES
+        active_regions = db_regions
 
     # ═══ Per-part evaluation (with DB pricing) ═══
     part_decisions = []

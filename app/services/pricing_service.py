@@ -1,14 +1,16 @@
 """
-Pricing Service v6 — PostgreSQL (pricing.pricing_quotes)
+Pricing Service v7 — PostgreSQL (pricing.pricing_quotes)
 
-Key changes from v5:
-  - Uses PricingQuote (maps to pricing.pricing_quotes) instead of PricingHistory
-  - canonical_part_key replaces normalized_key
-  - unit_price replaces price
-  - quote_payload stores mpn, material, region as JSONB
+Key changes from v6:
+  - FIXED: canonical key alignment — uses engine-generated canonical_part_key
+    as PRIMARY lookup key instead of re-normalizing with a different function
+  - FIXED: _save_price() no longer calls db.rollback() (was rolling back outer txn)
+  - FIXED: fallback prices converted to target currency
+  - Uses PricingQuote (maps to pricing.pricing_quotes)
   - Custom parts return None price immediately
 """
 import re
+import hashlib
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
@@ -35,7 +37,57 @@ def is_custom_part(part: Dict[str, Any]) -> bool:
     return False
 
 
-# ── Normalization ──
+# ── Canonical Key Generation (ALIGNED WITH ENGINE) ──
+# This reproduces the same logic as bom-intelligence-engine/engine/orchestrator.py
+# _generate_canonical_key() so lookups match stored keys.
+
+def generate_canonical_key(domain: str, mpn: str = "", manufacturer: str = "",
+                           material: str = "", material_form: str = "",
+                           description: str = "") -> str:
+    """Generate a canonical key using the SAME algorithm as the BOM engine.
+    This ensures pricing lookups match engine-generated keys."""
+    domain = (domain or "unknown").lower()
+
+    # MPN-based key (matches engine logic)
+    if mpn and len(mpn.strip()) >= 4:
+        clean_mpn = re.sub(r"[\s\-_]", "", mpn.strip().upper())
+        mfr = re.sub(r"[\s\-_]", "", manufacturer.strip().lower())[:20] if manufacturer else ""
+        if mfr:
+            return f"{domain}:mpn:{mfr}:{clean_mpn}".lower()
+        return f"{domain}:mpn:{clean_mpn}".lower()
+
+    # Material/form based key (matches engine logic)
+    form = (material_form or "").lower()
+    mat = re.sub(r"[\s_]+", "_", material.strip().lower())[:30] if material else ""
+    desc = re.sub(r"[\s_]+", "_", description.strip().lower())[:40] if description else ""
+
+    parts = [domain]
+    if form:
+        parts.append(form)
+    if mat:
+        parts.append(mat)
+    if desc:
+        parts.append(desc)
+
+    key = ":".join(parts)
+    if len(key) > 120:
+        key = key[:80] + ":" + hashlib.sha256(key.encode()).hexdigest()[:12]
+    return key
+
+
+def _normalize_for_lookup(text: str) -> str:
+    """Legacy normalization — kept for backward compat but canonical_part_key
+    from engine output should be preferred."""
+    if not text:
+        return ""
+    s = text.strip().lower()
+    s = re.sub(r"\bm(\d+)\s*x\s*(\d+)", r"metric_bolt_m\1x\2", s, flags=re.I)
+    for pat, repl in _ABBREVS:
+        s = pat.sub(repl, s, count=1)
+    for pat, fn in _VALUE_SCALES:
+        s = pat.sub(fn, s)
+    return re.sub(r"\s+", " ", s).strip()
+
 
 _ABBREVS = [
     (re.compile(r"\bres\b", re.I), "resistor"),
@@ -53,19 +105,6 @@ _VALUE_SCALES = [
     (re.compile(r"(\d+(?:\.\d+)?)\s*k\b", re.I), lambda m: str(int(float(m.group(1)) * 1000))),
     (re.compile(r"(\d+(?:\.\d+)?)\s*M\b"), lambda m: str(int(float(m.group(1)) * 1e6))),
 ]
-_BOLT_RE = re.compile(r"\bm(\d+)\s*x\s*(\d+)", re.I)
-
-
-def _normalize_for_lookup(text: str) -> str:
-    if not text:
-        return ""
-    s = text.strip().lower()
-    s = _BOLT_RE.sub(r"metric_bolt_m\1x\2", s)
-    for pat, repl in _ABBREVS:
-        s = pat.sub(repl, s, count=1)
-    for pat, fn in _VALUE_SCALES:
-        s = pat.sub(fn, s)
-    return re.sub(r"\s+", " ", s).strip()
 
 
 def _clean_mpn(mpn: str) -> str:
@@ -99,7 +138,33 @@ def get_price(part: Dict[str, Any], db: Session) -> Dict[str, Any]:
     quantity = part.get("quantity", 1)
     mpn = part.get("mpn", "")
     clean_mpn = _clean_mpn(mpn)
-    norm_name = _normalize_for_lookup(name)
+    # FIXED: Use engine-generated canonical_part_key as PRIMARY lookup
+    canonical_key = part.get("canonical_part_key", "")
+
+    # 0. Canonical part key match (PREFERRED — aligned with engine)
+    if canonical_key and len(canonical_key) >= 5:
+        try:
+            key_match = (
+                db.query(PricingQuote)
+                .filter(
+                    PricingQuote.canonical_part_key == canonical_key,
+                    PricingQuote.freshness_state == "current",
+                )
+                .order_by(desc(PricingQuote.recorded_at))
+                .first()
+            )
+            if key_match and float(key_match.unit_price) > 0:
+                source_type = key_match.source_type or "internal_db"
+                conf = "high" if source_type in ("external_api", "rfq_actual") else "medium"
+                return {
+                    "price": float(key_match.unit_price),
+                    "source": source_type,
+                    "confidence": conf,
+                    "match_key": canonical_key,
+                    "recorded_at": key_match.recorded_at.isoformat() if key_match.recorded_at else None,
+                }
+        except Exception as e:
+            logger.debug(f"Canonical key lookup failed: {e}")
 
     # 1. MPN match via quote_payload->>'mpn'
     if clean_mpn and len(clean_mpn) >= 4:
@@ -127,7 +192,8 @@ def get_price(part: Dict[str, Any], db: Session) -> Dict[str, Any]:
         except Exception as e:
             logger.debug(f"MPN lookup failed: {e}")
 
-    # 2. Canonical key match — keys stored lowercase, no func.lower() needed
+    # 2. Legacy normalized text match (backward compat for old pricing data)
+    norm_name = _normalize_for_lookup(name)
     if norm_name and len(norm_name) >= 5:
         try:
             name_match = (
@@ -150,16 +216,14 @@ def get_price(part: Dict[str, Any], db: Session) -> Dict[str, Any]:
                     "recorded_at": name_match.recorded_at.isoformat() if name_match.recorded_at else None,
                 }
         except Exception as e:
-            logger.debug(f"Canonical key lookup failed: {e}")
-            try:
-                db.rollback()
-            except Exception:
-                pass
+            logger.debug(f"Legacy key lookup failed: {e}")
 
     # 3. External API
     ext_price, ext_supplier, ext_is_simulated = _query_external_api(name, mpn, quantity)
     if ext_price and ext_price > 0 and not ext_is_simulated:
-        _save_price(db, norm_name, mpn, material, quantity, ext_price,
+        # Store using engine canonical key if available, else legacy key
+        store_key = canonical_key or norm_name
+        _save_price(db, store_key, mpn, material, quantity, ext_price,
                     source_type="external_api", vendor_name=ext_supplier)
         return {"price": ext_price, "source": "external_api", "confidence": "medium"}
 
@@ -171,6 +235,8 @@ def get_price(part: Dict[str, Any], db: Session) -> Dict[str, Any]:
 def _save_price(db, norm_name, mpn, material, quantity, price,
                 source_type="", vendor_name="", vendor_id=None,
                 currency="USD", is_simulated=False):
+    """Persist a pricing quote. Uses nested savepoint so failures
+    do NOT roll back the outer transaction (FIXED from v6)."""
     if is_simulated:
         return
     try:
@@ -191,56 +257,53 @@ def _save_price(db, norm_name, mpn, material, quantity, price,
                 return
             actual_vendor_id = vendor.id
 
-        # Mark old entries stale — key stored lowercase, no func.lower() needed
+        # Use nested savepoint so failure here won't roll back outer txn
+        nested = db.begin_nested()
         try:
+            # Mark old entries stale
             db.query(PricingQuote).filter(
                 PricingQuote.canonical_part_key == store_key,
                 PricingQuote.freshness_state == "current",
             ).update({"freshness_state": "stale"}, synchronize_session="fetch")
-        except Exception:
+
+            conf_val = 0.9 if source_type == "rfq_actual" else (0.7 if source_type == "external_api" else 0.4)
             try:
-                db.rollback()
-            except Exception:
-                pass
+                from app.services.procurement_planner import FOREX_RATES
+                fx_rate = FOREX_RATES.get(currency, 1.0) / FOREX_RATES.get("USD", 1.0)
+            except ImportError:
+                fx_rate = 1.0
 
-        conf_val = 0.9 if source_type == "rfq_actual" else (0.7 if source_type == "external_api" else 0.4)
-        # Get FX rate for stored currency
-        try:
-            from app.services.procurement_planner import FOREX_RATES
-            fx_rate = FOREX_RATES.get(currency, 1.0) / FOREX_RATES.get("USD", 1.0)
-        except ImportError:
-            fx_rate = 1.0
+            db.add(PricingQuote(
+                canonical_part_key=store_key,
+                vendor_id=actual_vendor_id,
+                source_type=source_type,
+                source_currency=currency,
+                display_currency=currency,
+                fx_rate=round(fx_rate, 8),
+                quantity=quantity,
+                unit_price=round(price, 6),
+                total_price=round(price * quantity, 6),
+                confidence=conf_val,
+                freshness_state="current",
+                valid_from=datetime.utcnow(),
+                valid_until=datetime.utcnow() + timedelta(days=30),
+                recorded_at=datetime.utcnow(),
+                quote_payload={
+                    "mpn": _clean_mpn(mpn) if mpn else "",
+                    "material": (material or "")[:255],
+                    "region": "",
+                    "is_simulated": is_simulated,
+                },
+            ))
+            nested.commit()
+        except Exception:
+            nested.rollback()  # Only rolls back the savepoint, not outer txn
+            raise
 
-        db.add(PricingQuote(
-            canonical_part_key=store_key,
-            vendor_id=actual_vendor_id,
-            source_type=source_type,
-            source_currency=currency,
-            display_currency=currency,
-            fx_rate=round(fx_rate, 8),
-            quantity=quantity,
-            unit_price=round(price, 6),
-            total_price=round(price * quantity, 6),
-            confidence=conf_val,
-            freshness_state="current",
-            valid_from=datetime.utcnow(),
-            valid_until=datetime.utcnow() + timedelta(days=30),
-            recorded_at=datetime.utcnow(),
-            quote_payload={
-                "mpn": _clean_mpn(mpn) if mpn else "",
-                "material": (material or "")[:255],
-                "region": "",
-                "is_simulated": is_simulated,
-            },
-        ))
-        # FIXED: flush not commit — let caller own transaction
         db.flush()
     except Exception as e:
         logger.warning(f"Save pricing failed for '{norm_name}': {e}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
+        # FIXED: Do NOT call db.rollback() — that kills the outer transaction
 
 
 def _query_external_api(name, mpn, quantity):
@@ -369,6 +432,7 @@ def enrich_analysis_with_pricing(analyzer_output, db, external_pricing=None):
             "category": comp.get("category", "standard"),
             "is_custom": comp.get("is_custom", False),
             "procurement_class": comp.get("procurement_class", "catalog_purchase"),
+            "canonical_part_key": comp.get("canonical_part_key", ""),
         }
         if is_custom_part(part):
             comp["_price"] = None
@@ -446,8 +510,4 @@ def expire_stale_prices(db, days_threshold: int = 30) -> int:
         return result
     except Exception as e:
         logger.warning(f"expire_stale_prices failed: {e}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
         return 0

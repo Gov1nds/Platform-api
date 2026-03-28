@@ -1,4 +1,6 @@
-"""RFQ routes — updated for sourcing.rfq_batches."""
+"""RFQ routes — updated for sourcing.rfq_batches.
+FIXED: Email notifications on RFQ submit, quote ready, and approval.
+"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -6,7 +8,10 @@ from app.models.user import User
 from app.models.rfq import RFQBatch, RFQItem
 from app.schemas.rfq import RFQCreateRequest, RFQResponse, RFQItemSchema, RFQQuoteRequest
 from app.utils.dependencies import require_user
-from app.services import rfq_service, project_service
+from app.services import rfq_service, project_service, email_service
+import logging
+
+logger = logging.getLogger("routes.rfq")
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
@@ -21,8 +26,24 @@ def create_rfq(
         rfq = rfq_service.create_rfq_from_analysis(db, body.bom_id, user.id, body.notes or "")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    project_service.update_project_status_from_rfq(db, rfq)
+    project = project_service.update_project_status_from_rfq(db, rfq)
     db.commit()
+
+    # Send email notification
+    try:
+        custom_count = db.query(RFQItem).filter(RFQItem.rfq_batch_id == rfq.id).count()
+        project_name = project.name if project else "BOM Project"
+        project_id = project.id if project else body.bom_id
+        email_service.notify_rfq_submitted(
+            user_email=user.email,
+            user_name=user.full_name or "",
+            project_name=project_name,
+            project_id=str(project_id),
+            custom_parts_count=custom_count,
+        )
+    except Exception as e:
+        logger.warning(f"RFQ email notification failed: {e}")
+
     return _rfq_to_response(rfq, db)
 
 
@@ -48,8 +69,27 @@ def add_quote(
         db, rfq_id, item_quotes=[item.model_dump() for item in body.item_quotes],
         vendor_id=body.vendor_id,
     )
-    project_service.update_project_status_from_rfq(db, rfq)
+    project = project_service.update_project_status_from_rfq(db, rfq)
     db.commit()
+
+    # Notify user quote is ready
+    try:
+        if rfq.requested_by_user_id:
+            owner = db.query(User).filter(User.id == rfq.requested_by_user_id).first()
+            if owner:
+                project_name = project.name if project else "BOM Project"
+                project_id = project.id if project else rfq.bom_id
+                email_service.notify_quote_ready(
+                    user_email=owner.email,
+                    user_name=owner.full_name or "",
+                    project_name=project_name,
+                    project_id=str(project_id),
+                    total_cost=rfq.total_final_cost,
+                    currency=rfq.target_currency or "USD",
+                )
+    except Exception as e:
+        logger.warning(f"Quote ready email failed: {e}")
+
     return _rfq_to_response(rfq, db)
 
 

@@ -1,12 +1,16 @@
-"""Tracking routes — FIXED: GET tracking requires auth."""
+"""Tracking routes — FIXED: GET tracking requires auth. Email on stage change."""
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.user import User
+from app.models.rfq import RFQBatch
 from app.schemas.rfq import TrackingResponse, FeedbackRequest
 from app.utils.dependencies import require_user
-from app.services import tracking_service, project_service
+from app.services import tracking_service, project_service, email_service
+import logging
+
+logger = logging.getLogger("routes.tracking")
 
 router = APIRouter(prefix="/tracking", tags=["tracking"])
 
@@ -39,8 +43,28 @@ def advance_stage(rfq_id: str, user: User = Depends(require_user), db: Session =
     entry = tracking_service.advance_stage(db, rfq_id, updated_by=user.email)
     if not entry:
         raise HTTPException(status_code=404, detail="Tracking not found")
-    project_service.update_project_status_from_tracking(db, rfq_id, entry.stage)
+    project = project_service.update_project_status_from_tracking(db, rfq_id, entry.stage)
     db.commit()
+
+    # Send production update email
+    try:
+        rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
+        if rfq and rfq.requested_by_user_id:
+            owner = db.query(User).filter(User.id == rfq.requested_by_user_id).first()
+            if owner:
+                project_name = project.name if project else "BOM Project"
+                project_id = project.id if project else (rfq.bom_id or rfq_id)
+                email_service.notify_production_update(
+                    user_email=owner.email,
+                    user_name=owner.full_name or "",
+                    project_name=project_name,
+                    project_id=str(project_id),
+                    stage=entry.stage,
+                    message=entry.status_message or "",
+                )
+    except Exception as e:
+        logger.warning(f"Tracking email notification failed: {e}")
+
     return TrackingResponse(
         rfq_id=entry.rfq_id, stage=entry.stage,
         status_message=entry.status_message, progress_percent=entry.progress_percent,

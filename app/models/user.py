@@ -12,7 +12,7 @@ class User(Base):
     __table_args__ = {"schema": "auth"}
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
-    email = Column(Text, nullable=False)
+    email = Column(Text, nullable=False, unique=True)
     password_hash = Column(Text, nullable=False)
     full_name = Column(Text, nullable=True)
     role = Column(Text, nullable=False, default="user")

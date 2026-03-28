@@ -15,6 +15,7 @@ from app.utils.dependencies import get_current_user
 from app.services import bom_service, analyzer_service, pricing_service, vendor_service, project_service
 from app.services.strategy_service import build_strategy_output
 from app.services.procurement_planner import generate_procurement_plan
+from app.services import resolver_service
 
 logger = logging.getLogger("routes.bom")
 router = APIRouter(prefix="/bom", tags=["bom"])
@@ -109,6 +110,13 @@ async def bom_upload(
         db, bom=bom, analysis=analysis, analyzer_output=analyzer_output,
         strategy=strategy, procurement=procurement,
     )
+
+    # Resolver: match BOM parts against canonical master and learn
+    try:
+        match_results = resolver_service.resolve_and_learn(db, parts)
+        resolver_service.update_bom_parts_with_matches(db, bom.id, match_results, parts)
+    except Exception as e:
+        logger.warning(f"Resolver failed (non-fatal): {e}")
 
     db.commit()
     db.refresh(bom)

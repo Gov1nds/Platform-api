@@ -47,6 +47,20 @@ async def upload_drawing(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Send email notification
+    try:
+        from app.services import email_service, project_service
+        project = project_service.get_project_by_bom_id(db, rfq.bom_id)
+        email_service.notify_drawing_received(
+            user_email=user.email,
+            user_name=user.full_name or "",
+            project_name=project.name if project else "BOM Project",
+            project_id=str(project.id if project else rfq.bom_id),
+            file_name=file.filename or "drawing",
+        )
+    except Exception as e:
+        logger.warning(f"Drawing email notification failed: {e}")
+
     return DrawingUploadResponse(
         id=drawing.id, rfq_id=rfq_id,
         part_name=part_name,

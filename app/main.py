@@ -43,6 +43,18 @@ def startup():
     logger.info("Initializing database...")
     init_db()
 
+    # Stamp Alembic migration state if not already tracked
+    if settings.is_postgres:
+        try:
+            from alembic.config import Config as AlembicConfig
+            from alembic import command as alembic_cmd
+            alembic_cfg = AlembicConfig("alembic.ini")
+            alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+            alembic_cmd.stamp(alembic_cfg, "head")
+            logger.info("Alembic migration state stamped")
+        except Exception as e:
+            logger.warning(f"Alembic stamp skipped: {e}")
+
     # Run supplementary migrations
     if settings.is_postgres:
         try:
@@ -66,6 +78,13 @@ def startup():
         vendor_service.seed_vendors(db)
     except Exception as e:
         logger.warning(f"Vendor seeding skipped: {e}")
+
+    try:
+        from app.services.geo_service import seed_geo_data
+        logger.info("Seeding geo data...")
+        seed_geo_data(db)
+    except Exception as e:
+        logger.warning(f"Geo seeding skipped: {e}")
 
     try:
         from app.services.pricing_service import expire_stale_prices

@@ -145,6 +145,7 @@ def create_bom_from_analyzer(
             source_row=idx + 1,
             source_row_hash=_row_hash(comp),
             canonical_part_key=comp.get("canonical_part_key", ""),
+            review_status=comp.get("review_status", "auto"),
         ))
 
     # FIXED: flush instead of commit — let the route handler own the transaction

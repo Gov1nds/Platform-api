@@ -1,7 +1,7 @@
 """BOM and BOMPart models — maps to bom.boms and bom.bom_parts in PostgreSQL."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean, Numeric, BigInteger
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean, Numeric, BigInteger, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -9,7 +9,13 @@ from app.core.database import Base
 
 class BOM(Base):
     __tablename__ = "boms"
-    __table_args__ = {"schema": "bom"}
+    __table_args__ = (
+        Index("ix_boms_user_id", "uploaded_by_user_id"),
+        Index("ix_boms_guest_session", "guest_session_id"),
+        Index("ix_boms_project_id", "project_id"),
+        Index("ix_boms_checksum", "source_checksum"),
+        {"schema": "bom"},
+    )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     uploaded_by_user_id = Column(UUID(as_uuid=False), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
@@ -87,7 +93,15 @@ class BOM(Base):
 
 class BOMPart(Base):
     __tablename__ = "bom_parts"
-    __table_args__ = {"schema": "bom"}
+    __table_args__ = (
+        Index("ix_bom_parts_bom_id", "bom_id"),
+        Index("ix_bom_parts_canonical_key", "canonical_part_key"),
+        Index("ix_bom_parts_category", "category_code"),
+        Index("ix_bom_parts_procurement", "procurement_class"),
+        Index("ix_bom_parts_mpn", "mpn"),
+        Index("ix_bom_parts_manufacturer", "manufacturer"),
+        {"schema": "bom"},
+    )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False)

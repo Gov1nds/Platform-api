@@ -1,7 +1,7 @@
-"""Vendor model — maps to pricing.vendors in PostgreSQL."""
+"""Vendor model — maps to pricing.vendors and pricing.vendor_capabilities in PostgreSQL."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, Text, Boolean, DateTime, Numeric
+from sqlalchemy import Column, Text, Boolean, DateTime, Numeric, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -75,3 +75,36 @@ class Vendor(Base):
 
     pricing_history = relationship("PricingQuote", back_populates="vendor", cascade="all, delete-orphan")
     memory = relationship("SupplierMemory", back_populates="vendor", uselist=False, cascade="all, delete-orphan")
+    capability_entries = relationship("VendorCapability", back_populates="vendor", cascade="all, delete-orphan")
+
+
+class VendorCapability(Base):
+    """Per-vendor capability record — queryable for matching.
+    Replaces the JSONB capabilities list in vendor.metadata_ with
+    a proper table for indexed queries like:
+      SELECT v.* FROM vendors v JOIN vendor_capabilities vc
+      ON v.id = vc.vendor_id WHERE vc.process = 'CNC' AND vc.proficiency >= 0.8
+    """
+    __tablename__ = "vendor_capabilities"
+    __table_args__ = (
+        Index("ix_vendor_cap_process", "process"),
+        Index("ix_vendor_cap_material", "material_family"),
+        Index("ix_vendor_cap_vendor", "vendor_id"),
+        {"schema": "pricing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="CASCADE"), nullable=False)
+    process = Column(Text, nullable=False)  # CNC, sheet_metal, injection_molding, etc.
+    material_family = Column(Text, nullable=True)  # stainless_steel, aluminum, plastic, etc.
+    proficiency = Column(Numeric(6, 4), nullable=False, default=0.8)  # 0-1 score
+    min_quantity = Column(Numeric(18, 6), nullable=True)
+    max_quantity = Column(Numeric(18, 6), nullable=True)
+    typical_lead_days = Column(Numeric(12, 2), nullable=True)
+    certifications = Column(JSONB, nullable=False, default=list)  # ["ISO9001", "AS9100"]
+    notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    vendor = relationship("Vendor", back_populates="capability_entries")

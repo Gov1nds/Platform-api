@@ -5,7 +5,7 @@ to the production schema. A PricingHistory alias is kept for backward compat.
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, Text, DateTime, ForeignKey, Numeric, String
+from sqlalchemy import Column, Text, DateTime, ForeignKey, Numeric, String, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -13,7 +13,12 @@ from app.core.database import Base
 
 class PricingQuote(Base):
     __tablename__ = "pricing_quotes"
-    __table_args__ = {"schema": "pricing"}
+    __table_args__ = (
+        Index("ix_pricing_key_fresh", "canonical_part_key", "freshness_state"),
+        Index("ix_pricing_recorded", "recorded_at"),
+        Index("ix_pricing_vendor", "vendor_id"),
+        {"schema": "pricing"},
+    )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     part_master_id = Column(UUID(as_uuid=False), nullable=True)

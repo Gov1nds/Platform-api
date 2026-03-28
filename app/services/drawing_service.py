@@ -1,12 +1,14 @@
-"""Drawing Service — file storage for custom part technical drawings.
+"""Drawing Service — durable storage for custom part technical drawings.
 Maps to sourcing.drawing_assets in PostgreSQL.
 
-WARNING: Currently stores to local filesystem which is EPHEMERAL on Railway.
-TODO: Migrate to durable storage (S3, Railway Object Storage, or GCS).
-      When ready, set DRAWING_STORAGE_PROVIDER env var to 's3' and provide:
-        DRAWING_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
-      Then update save_drawing() and get_drawing_file() to use boto3.
+Storage providers:
+  - 's3': AWS S3 / compatible (Railway Object Storage, MinIO)
+  - 'local': Local filesystem (ephemeral on Railway — dev only)
+
+Set DRAWING_STORAGE_PROVIDER=s3 and provide:
+  DRAWING_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 """
+import os
 import uuid
 import hashlib
 import logging
@@ -35,11 +37,65 @@ MIME_MAP = {
     "iges": "model/iges", "igs": "model/iges",
 }
 
+STORAGE_PROVIDER = os.getenv("DRAWING_STORAGE_PROVIDER", "local")
+S3_BUCKET = os.getenv("DRAWING_S3_BUCKET", "")
+S3_REGION = os.getenv("AWS_REGION", "us-east-1")
+S3_PREFIX = os.getenv("DRAWING_S3_PREFIX", "drawings/")
 
-def _get_storage_root() -> Path:
+
+# ── Storage backends ──
+
+def _get_s3_client():
+    """Lazy-init boto3 client."""
+    try:
+        import boto3
+        return boto3.client("s3", region_name=S3_REGION)
+    except ImportError:
+        logger.error("boto3 not installed — falling back to local storage")
+        return None
+
+
+def _save_to_s3(file_bytes: bytes, key: str) -> str:
+    client = _get_s3_client()
+    if not client or not S3_BUCKET:
+        raise RuntimeError("S3 not configured")
+    client.put_object(Bucket=S3_BUCKET, Key=key, Body=file_bytes)
+    logger.info(f"Saved drawing to S3: s3://{S3_BUCKET}/{key}")
+    return key
+
+
+def _get_from_s3(key: str) -> Optional[bytes]:
+    client = _get_s3_client()
+    if not client or not S3_BUCKET:
+        return None
+    try:
+        response = client.get_object(Bucket=S3_BUCKET, Key=key)
+        return response["Body"].read()
+    except Exception as e:
+        logger.error(f"S3 download failed for {key}: {e}")
+        return None
+
+
+def _get_local_root() -> Path:
     root = Path(settings.UPLOAD_DIR) / "drawings"
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _save_to_local(file_bytes: bytes, rfq_id: str, safe_name: str) -> str:
+    rfq_dir = _get_local_root() / rfq_id
+    rfq_dir.mkdir(parents=True, exist_ok=True)
+    storage_path = rfq_dir / safe_name
+    storage_path.write_bytes(file_bytes)
+    return str(storage_path)
+
+
+def _get_from_local(path: str) -> Optional[bytes]:
+    p = Path(path)
+    if not p.exists():
+        logger.error("Drawing file missing from disk: %s", path)
+        return None
+    return p.read_bytes()
 
 
 def _validate_file(filename: str, size_bytes: int) -> str:
@@ -51,6 +107,8 @@ def _validate_file(filename: str, size_bytes: int) -> str:
     return ext
 
 
+# ── Public API ──
+
 def save_drawing(db, rfq_id, user_id, file_bytes, original_filename,
                  part_name="", part_notes="", rfq_item_id=None, bom_id=None):
     rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
@@ -59,13 +117,22 @@ def save_drawing(db, rfq_id, user_id, file_bytes, original_filename,
 
     ext = _validate_file(original_filename, len(file_bytes))
     safe_name = f"{uuid.uuid4().hex}{ext}"
-    rfq_dir = _get_storage_root() / rfq_id
-    rfq_dir.mkdir(parents=True, exist_ok=True)
-    storage_path = rfq_dir / safe_name
-    storage_path.write_bytes(file_bytes)
-
     mime = MIME_MAP.get(ext.lstrip("."), "application/octet-stream")
     file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    provider = STORAGE_PROVIDER
+    if provider == "s3" and S3_BUCKET:
+        try:
+            s3_key = f"{S3_PREFIX}{rfq_id}/{safe_name}"
+            storage_path = _save_to_s3(file_bytes, s3_key)
+            provider = "s3"
+        except Exception as e:
+            logger.warning(f"S3 save failed ({e}), falling back to local")
+            storage_path = _save_to_local(file_bytes, rfq_id, safe_name)
+            provider = "local"
+    else:
+        storage_path = _save_to_local(file_bytes, rfq_id, safe_name)
+        provider = "local"
 
     drawing = DrawingAsset(
         bom_id=bom_id or rfq.bom_id,
@@ -73,8 +140,8 @@ def save_drawing(db, rfq_id, user_id, file_bytes, original_filename,
         rfq_item_id=rfq_item_id,
         rfq_batch_id=rfq_id,
         project_id=rfq.project_id,
-        storage_provider="local",
-        storage_path=str(storage_path),
+        storage_provider=provider,
+        storage_path=storage_path,
         file_name=original_filename[:500],
         mime_type=mime,
         file_size_bytes=len(file_bytes),
@@ -82,10 +149,8 @@ def save_drawing(db, rfq_id, user_id, file_bytes, original_filename,
         is_primary=False,
         created_by_user_id=user_id,
     )
-    # Store extra fields in a transient attribute
     drawing._extra = {"part_name": part_name, "part_notes": part_notes, "status": "received"}
     db.add(drawing)
-    # FIXED: flush not commit — let route handler own transaction
     db.flush()
     db.refresh(drawing)
     return drawing
@@ -104,9 +169,14 @@ def get_drawing_file(db, drawing_id):
     drawing = db.query(DrawingAsset).filter(DrawingAsset.id == drawing_id).first()
     if not drawing or not drawing.storage_path:
         return None
-    path = Path(drawing.storage_path)
-    if not path.exists():
-        logger.error("Drawing file missing from disk: %s", drawing.storage_path)
+
+    provider = drawing.storage_provider or "local"
+    if provider == "s3":
+        file_bytes = _get_from_s3(drawing.storage_path)
+    else:
+        file_bytes = _get_from_local(drawing.storage_path)
+
+    if not file_bytes:
         return None
     mime = drawing.mime_type or "application/octet-stream"
-    return path.read_bytes(), drawing.file_name, mime
+    return file_bytes, drawing.file_name, mime

@@ -23,9 +23,27 @@ FOREX_RATES = {
 LOCAL_REGIONS = {"Local", "USA", "EU (Germany)", "Mexico"}
 
 
+def _get_forex_rates_from_db():
+    """Try to load forex rates from DB. Returns hardcoded fallback on failure."""
+    try:
+        from app.core.database import SessionLocal
+        from app.services.geo_service import get_forex_rates
+        db = SessionLocal()
+        try:
+            rates = get_forex_rates(db)
+            if rates:
+                return rates
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return FOREX_RATES
+
+
 def convert_currency(amount: float, from_c: str, to_c: str) -> float:
     if from_c == to_c: return amount
-    return round(amount / FOREX_RATES.get(from_c, 1) * FOREX_RATES.get(to_c, 1), 2)
+    rates = _get_forex_rates_from_db()
+    return round(amount / rates.get(from_c, 1) * rates.get(to_c, 1), 2)
 
 
 def normalize_costs(strategy: Dict, target: str) -> Dict:

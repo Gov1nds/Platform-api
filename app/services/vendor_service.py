@@ -1,8 +1,8 @@
-"""Vendor Service — updated for pricing.vendors PostgreSQL schema."""
+"""Vendor Service — updated for pricing.vendors + pricing.vendor_capabilities PostgreSQL schema."""
 import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
-from app.models.vendor import Vendor
+from app.models.vendor import Vendor, VendorCapability
 from app.models.memory import SupplierMemory
 
 logger = logging.getLogger("vendor_service")
@@ -32,6 +32,9 @@ def seed_vendors(db: Session):
         return
     if db.query(Vendor).count() > 0:
         _vendors_seeded = True
+        # Backfill capabilities if table is empty but vendors exist
+        if db.query(VendorCapability).count() == 0:
+            _seed_capabilities(db)
         return
     for v in SEED_VENDORS:
         vendor = Vendor(
@@ -48,9 +51,41 @@ def seed_vendors(db: Session):
         db.add(vendor)
         db.flush()
         db.add(SupplierMemory(vendor_id=vendor.id))
+        # Seed capability entries
+        for cap in v["capabilities"]:
+            db.add(VendorCapability(
+                vendor_id=vendor.id,
+                process=cap,
+                proficiency=0.85,
+                typical_lead_days=v["avg_lead_time"],
+            ))
     db.commit()
     _vendors_seeded = True
-    logger.info(f"Seeded {len(SEED_VENDORS)} vendors")
+    logger.info(f"Seeded {len(SEED_VENDORS)} vendors with capabilities")
+
+
+def _seed_capabilities(db: Session):
+    """Backfill vendor_capabilities from metadata_ for existing vendors."""
+    vendors = db.query(Vendor).all()
+    count = 0
+    for v in vendors:
+        caps = (v.metadata_ or {}).get("capabilities", [])
+        for cap in caps:
+            existing = db.query(VendorCapability).filter(
+                VendorCapability.vendor_id == v.id,
+                VendorCapability.process == cap,
+            ).first()
+            if not existing:
+                db.add(VendorCapability(
+                    vendor_id=v.id,
+                    process=cap,
+                    proficiency=0.80,
+                    typical_lead_days=float(v.avg_lead_time_days or 14),
+                ))
+                count += 1
+    if count:
+        db.commit()
+        logger.info(f"Backfilled {count} vendor capabilities")
 
 
 def get_all_vendors(db: Session) -> List[Vendor]:
@@ -79,3 +114,62 @@ def get_vendor_memories(db: Session) -> Dict[str, Dict]:
         }
         for mem, vendor in results
     }
+
+
+def get_vendors_for_process(db: Session, process: str, material_family: str = None) -> List[Dict[str, Any]]:
+    """Query vendor_capabilities table to find vendors that can handle a process.
+    Returns list of {vendor_id, vendor_name, region, proficiency, lead_days}."""
+    from sqlalchemy import desc
+    query = (
+        db.query(VendorCapability, Vendor)
+        .join(Vendor, VendorCapability.vendor_id == Vendor.id)
+        .filter(
+            VendorCapability.is_active == True,
+            Vendor.is_active == True,
+        )
+    )
+
+    # Match process — check both exact and substring
+    query = query.filter(
+        VendorCapability.process.ilike(f"%{process}%")
+    )
+
+    if material_family:
+        # If material specified, prefer vendors with that material capability
+        # but don't exclude others
+        pass
+
+    results = query.order_by(desc(VendorCapability.proficiency)).limit(10).all()
+
+    return [
+        {
+            "vendor_id": str(vendor.id),
+            "vendor_name": vendor.name,
+            "region": vendor.region,
+            "process": cap.process,
+            "proficiency": float(cap.proficiency or 0.8),
+            "typical_lead_days": float(cap.typical_lead_days or 14),
+            "certifications": cap.certifications or [],
+        }
+        for cap, vendor in results
+    ]
+
+
+def get_vendor_capability_map(db: Session) -> Dict[str, List[str]]:
+    """Get {region: [process1, process2, ...]} from vendor_capabilities table.
+    Used by strategy_service for capability matching against DB data."""
+    results = (
+        db.query(VendorCapability.process, Vendor)
+        .join(Vendor, VendorCapability.vendor_id == Vendor.id)
+        .filter(VendorCapability.is_active == True, Vendor.is_active == True)
+        .all()
+    )
+
+    region_caps: Dict[str, set] = {}
+    for cap_process, vendor in results:
+        region = vendor.region
+        if region not in region_caps:
+            region_caps[region] = set()
+        region_caps[region].add(cap_process)
+
+    return {r: list(caps) for r, caps in region_caps.items()}

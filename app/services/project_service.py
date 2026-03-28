@@ -151,6 +151,9 @@ def upsert_project_from_analysis(
     project.analyzer_report = build_canonical_report(analyzer_output, strategy, procurement, bom, analysis)
     project.strategy = copy.deepcopy(strategy)
     project.procurement_plan = copy.deepcopy(procurement)
+    # FIXED: Increment version counters
+    project.latest_report_version = (project.latest_report_version or 0) + 1
+    project.latest_strategy_version = (project.latest_strategy_version or 0) + 1
     project.project_metadata = {
         "category_summary": (analyzer_output or {}).get("summary", {}).get("categories", {}),
         "analysis_id": analysis.id,
@@ -404,6 +407,13 @@ def build_canonical_report(
         "savings_percent": _as_float(cost_summary.get("savings_percent"), _as_float(analysis.savings_percent if analysis else None)),
         "decision_summary": strategy.get("decision_summary") or (analysis.decision_summary if analysis else "") or "",
         "decision_points": recommended.get("reasons", [])[:3],
+        # FIXED: Fields the frontend expects (BOMAnalyzer.jsx Step 5 references these)
+        "total_cost": round(total_cost, 2),
+        "risk_score": round(min(1.0, _as_float(risk.get("overall_uncertainty"), 0.15)), 3),
+        "optimization": {
+            "cost_savings_pct": _as_float(cost_summary.get("savings_percent"), _as_float(analysis.savings_percent if analysis else None)),
+            "strategy_name": strategy.get("global_optimization", {}).get("best_strategy_name", "per_part_optimized"),
+        },
     }
 
     item_map = {}
@@ -543,6 +553,17 @@ def build_canonical_report(
         "note": "Learning snapshot stored for supplier and pricing memory.",
     }
 
+    raw_meta = analyzer.get("_meta", {})
+    # FIXED: Frontend reads meta.items, meta.candidates, meta.total_time_s
+    enriched_meta = {
+        **raw_meta,
+        "items": total_parts,
+        "candidates": len(part_decisions),
+        "total_time_s": raw_meta.get("total_time_s", 0),
+        "version": raw_meta.get("version", "4.1.0"),
+        "report_version": 1,
+    }
+
     return {
         "section_1_executive_summary": section1,
         "section_2_component_breakdown": section2,
@@ -552,7 +573,7 @@ def build_canonical_report(
         "section_6_learning_snapshot": section6,
         "decision_summary": section1["decision_summary"],
         "recommended_reasons": recommended.get("reasons", []),
-        "_meta": analyzer.get("_meta", {}),
+        "_meta": enriched_meta,
         "analyzer": analyzer,
         "strategy": copy.deepcopy(strategy),
         "procurement_plan": copy.deepcopy(procurement),

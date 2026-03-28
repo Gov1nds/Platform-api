@@ -1,7 +1,7 @@
 """Project model — maps to projects.projects and projects.project_events."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, Text, Integer, DateTime, ForeignKey, Numeric
+from sqlalchemy import Column, Text, Integer, DateTime, ForeignKey, Numeric, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -9,7 +9,12 @@ from app.core.database import Base
 
 class Project(Base):
     __tablename__ = "projects"
-    __table_args__ = {"schema": "projects"}
+    __table_args__ = (
+        Index("ix_projects_user_id", "user_id"),
+        Index("ix_projects_guest_session", "guest_session_id"),
+        Index("ix_projects_status", "status"),
+        {"schema": "projects"},
+    )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False, unique=True)

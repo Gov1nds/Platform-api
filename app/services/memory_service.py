@@ -11,7 +11,7 @@ import math
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
-from app.models.memory import SupplierMemory
+from app.models.memory import SupplierMemory, SupplierMemoryHistory
 from app.models.vendor import Vendor
 from app.models.tracking import ExecutionFeedback
 from app.models.pricing import PricingQuote as PricingHistory
@@ -81,6 +81,24 @@ def update_supplier_scores(db: Session, vendor_id: str,
     risk_score = round(max(0, min(1, 1.0 - mem.performance_score)), 3)
     mem.risk_level = "low" if risk_score < 0.2 else ("high" if risk_score > 0.5 else "medium")
     mem.last_updated = datetime.utcnow()
+
+    # FIXED: Write append-only history snapshot
+    try:
+        db.add(SupplierMemoryHistory(
+            vendor_id=vendor_id,
+            performance_score=mem.performance_score,
+            cost_accuracy_score=mem.cost_accuracy_score,
+            delivery_accuracy_score=mem.delivery_accuracy_score,
+            risk_level=mem.risk_level,
+            total_orders=mem.total_orders,
+            avg_cost_delta_pct=mem.avg_cost_delta_pct,
+            avg_lead_delta_days=mem.avg_lead_delta_days,
+            event_type="feedback",
+            event_payload=changes,
+        ))
+    except Exception as e:
+        logger.warning(f"Failed to write memory history: {e}")
+
     db.flush()
 
     changes.update({"performance": mem.performance_score, "risk": mem.risk_level, "risk_score": risk_score, "orders": mem.total_orders})
@@ -173,6 +191,21 @@ def decay_old_data(db: Session, days_threshold: int = 180) -> Dict:
         m.performance_score = round((m.cost_accuracy_score + m.delivery_accuracy_score) / 2, 3)
         risk_score = round(1.0 - m.performance_score, 3)
         m.risk_level = "low" if risk_score < 0.2 else ("high" if risk_score > 0.5 else "medium")
+        try:
+            db.add(SupplierMemoryHistory(
+                vendor_id=m.vendor_id,
+                performance_score=m.performance_score,
+                cost_accuracy_score=m.cost_accuracy_score,
+                delivery_accuracy_score=m.delivery_accuracy_score,
+                risk_level=m.risk_level,
+                total_orders=m.total_orders,
+                avg_cost_delta_pct=m.avg_cost_delta_pct,
+                avg_lead_delta_days=m.avg_lead_delta_days,
+                event_type="decay",
+                event_payload={"days_threshold": days_threshold},
+            ))
+        except Exception:
+            pass
         count += 1
     if count:
         db.flush()

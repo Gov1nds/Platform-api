@@ -81,6 +81,8 @@ def init_db():
     import app.models.tracking
     import app.models.memory
     import app.models.drawing
+    import app.models.catalog
+    import app.models.geo
 
     # Ensure schemas exist on PostgreSQL before table creation.
     if settings.is_postgres:
