@@ -3,6 +3,8 @@ BOM Service — Store BOMs from BOM Engine output.
 Updated for PostgreSQL schema (bom.boms, bom.bom_parts).
 """
 import uuid
+import hashlib
+import json
 import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
@@ -13,6 +15,19 @@ from app.models.user import GuestSession
 logger = logging.getLogger("bom_service")
 
 _CUSTOM_CATEGORIES = {"custom_mechanical", "sheet_metal", "custom"}
+
+
+def _row_hash(comp: Dict[str, Any]) -> str:
+    """Deterministic hash of a component's identity fields for dedup tracking."""
+    key_fields = {
+        "item_id": comp.get("item_id", ""),
+        "description": comp.get("description", ""),
+        "mpn": comp.get("mpn", ""),
+        "manufacturer": comp.get("manufacturer", ""),
+        "material": comp.get("material", ""),
+        "quantity": comp.get("quantity", 1),
+    }
+    return hashlib.sha256(json.dumps(key_fields, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def _is_custom_part(comp: Dict[str, Any]) -> bool:
@@ -54,18 +69,22 @@ def create_bom_from_analyzer(
         guest_session_id = _ensure_guest_session(db, session_token)
 
     custom_count = sum(1 for c in components if _is_custom_part(c))
-    standard_count = len(components) - custom_count
+    raw_count = sum(1 for c in components if (c.get("category") or "").lower() == "raw_material")
+    standard_count = len(components) - custom_count - raw_count
+    meta = analyzer_output.get("_meta", {})
 
     bom = BOM(
         uploaded_by_user_id=user_id,
         guest_session_id=guest_session_id,
         source_file_name=file_name or "upload.csv",
         source_file_type=file_type or "csv",
+        source_checksum=meta.get("file_checksum"),
         name=file_name or "Uploaded BOM",
         raw_payload=components,
         total_parts=len(components),
         total_custom_parts=custom_count,
         total_standard_parts=standard_count,
+        total_raw_parts=raw_count,
         status="uploaded",
     )
     # Cache session_token for backward compat property
@@ -123,9 +142,13 @@ def create_bom_from_analyzer(
             is_custom=custom,
             rfq_required=rfq_required,
             drawing_required=drawing_required,
+            source_row=idx + 1,
+            source_row_hash=_row_hash(comp),
+            canonical_part_key=comp.get("canonical_part_key", ""),
         ))
 
-    db.commit()
+    # FIXED: flush instead of commit — let the route handler own the transaction
+    db.flush()
     db.refresh(bom)
     logger.info(
         "BOM created: %s | user=%s | %d parts (%d custom, %d standard)",
@@ -155,6 +178,7 @@ def get_bom_parts_as_dicts(db: Session, bom_id: str) -> List[Dict[str, Any]]:
             "rfq_required": p.rfq_required or False,
             "drawing_required": p.drawing_required or False,
             "procurement_class": p.procurement_class or "catalog_purchase",
+            "canonical_part_key": p.canonical_part_key or "",
         }
         for p in parts
     ]
@@ -164,4 +188,4 @@ def update_bom_status(db: Session, bom_id: str, status: str):
     bom = db.query(BOM).filter(BOM.id == bom_id).first()
     if bom:
         bom.status = status
-        db.commit()
+        db.flush()

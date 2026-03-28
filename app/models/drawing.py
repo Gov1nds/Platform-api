@@ -59,15 +59,15 @@ class DrawingAsset(Base):
 
     @property
     def part_name(self):
-        return (self._extra or {}).get("part_name", "")
+        return (getattr(self, "_extra", None) or {}).get("part_name", "")
 
     @property
     def part_notes(self):
-        return (self._extra or {}).get("part_notes", "")
+        return (getattr(self, "_extra", None) or {}).get("part_notes", "")
 
     @property
     def status(self):
-        return (self._extra or {}).get("status", "received")
+        return (getattr(self, "_extra", None) or {}).get("status", "received")
 
     rfq = relationship("RFQBatch", back_populates="drawings",
                         foreign_keys=[rfq_batch_id],

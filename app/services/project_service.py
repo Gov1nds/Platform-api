@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.analysis import AnalysisResult
 from app.models.bom import BOM
-from app.models.project import Project
+from app.models.project import Project, ProjectEvent
 from app.models.rfq import RFQBatch as RFQ, RFQStatus
 from app.models.tracking import ProductionTracking, TrackingStage
 
@@ -28,6 +28,24 @@ STATUS_ORDER = {
     "shipped": 7,
     "completed": 8,
 }
+
+
+def _emit_event(db: Session, project: Project, event_type: str,
+                old_status: Optional[str] = None, new_status: Optional[str] = None,
+                payload: Optional[Dict] = None, actor_user_id: Optional[str] = None):
+    """Write a ProjectEvent for audit trail."""
+    try:
+        db.add(ProjectEvent(
+            project_id=project.id,
+            event_type=event_type,
+            old_status=old_status,
+            new_status=new_status,
+            payload=payload or {},
+            actor_user_id=actor_user_id or project.user_id,
+        ))
+        db.flush()
+    except Exception as e:
+        logger.warning(f"Failed to emit project event: {e}")
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -103,6 +121,7 @@ def upsert_project_from_analysis(
     procurement: Dict[str, Any],
 ) -> Project:
     project = get_project_by_bom_id(db, bom.id)
+    is_new = project is None
     if not project:
         project = Project(bom_id=bom.id)
         db.add(project)
@@ -113,6 +132,7 @@ def upsert_project_from_analysis(
     risk = procurement.get("risk_analysis", {}) or strategy.get("procurement_strategy", {}).get("risk_analysis", {}) or {}
 
     project.user_id = bom.user_id or analysis.user_id
+    project.guest_session_id = bom.guest_session_id
     project.name = bom.name or bom.file_name or "Uploaded BOM"
     project.file_name = bom.file_name
     project.status = "analyzed"
@@ -135,8 +155,17 @@ def upsert_project_from_analysis(
         "category_summary": (analyzer_output or {}).get("summary", {}).get("categories", {}),
         "analysis_id": analysis.id,
         "risk_level": risk.get("overall_risk_level") or risk.get("risk_level"),
+        "currency": strategy.get("currency") or procurement.get("currency") or "USD",
     }
     db.flush()
+
+    if is_new:
+        _emit_event(db, project, "project_created", None, "analyzed",
+                    {"total_parts": project.total_parts, "source": "bom_upload"})
+    else:
+        _emit_event(db, project, "project_reanalyzed", "analyzed", "analyzed",
+                    {"total_parts": project.total_parts})
+
     return project
 
 
@@ -146,10 +175,14 @@ def update_project_status_from_rfq(db: Session, rfq: RFQ) -> Optional[Project]:
     project = get_project_by_bom_id(db, rfq.bom_id)
     if not project:
         return None
+    old_status = project.status
     project.rfq_status = rfq.status
     new_status = _project_status_from_rfq(rfq.status, project.status)
     if new_status:
         project.status = new_status
+    if project.status != old_status:
+        _emit_event(db, project, "rfq_status_change", old_status, project.status,
+                    {"rfq_id": rfq.id, "rfq_status": rfq.status})
     db.flush()
     return project
 
@@ -161,10 +194,14 @@ def update_project_status_from_tracking(db: Session, rfq_id: str, stage: Optiona
     project = get_project_by_bom_id(db, rfq.bom_id)
     if not project:
         return None
+    old_status = project.status
     project.tracking_stage = stage or project.tracking_stage
     new_status = _project_status_from_tracking(stage, project.status)
     if new_status:
         project.status = new_status
+    if project.status != old_status:
+        _emit_event(db, project, "tracking_stage_change", old_status, project.status,
+                    {"rfq_id": rfq_id, "stage": stage})
     db.flush()
     return project
 
@@ -175,8 +212,11 @@ def sync_project_completion(db: Session, rfq: RFQ) -> Optional[Project]:
     project = get_project_by_bom_id(db, rfq.bom_id)
     if not project:
         return None
+    old_status = project.status
     project.status = "completed"
     project.rfq_status = rfq.status
+    _emit_event(db, project, "project_completed", old_status, "completed",
+                {"rfq_id": rfq.id})
     db.flush()
     return project
 
@@ -202,6 +242,10 @@ def serialize_summary(project: Project) -> Dict[str, Any]:
         "lead_time": project.lead_time,
         "file_name": project.file_name,
         "recommended_location": project.recommended_location,
+        "currency": project.currency or "USD",
+        "rfq_status": project.rfq_status or "none",
+        "tracking_stage": project.tracking_stage or "init",
+        "categories": (project.project_metadata or {}).get("category_summary", {}),
     }
 
 
@@ -247,6 +291,7 @@ def build_guest_preview(project: Project) -> Dict[str, Any]:
 
     return {
         "is_preview": True,
+        "currency": section1.get("currency") or project.currency or "USD",
         "cost_range": cost_range,
         "total_cost": section1.get("cost_breakdown", {}).get("total") or project.average_cost or 0,
         "lead_time": {

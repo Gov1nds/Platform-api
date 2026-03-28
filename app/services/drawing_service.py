@@ -1,10 +1,17 @@
 """Drawing Service — file storage for custom part technical drawings.
 Maps to sourcing.drawing_assets in PostgreSQL.
+
+WARNING: Currently stores to local filesystem which is EPHEMERAL on Railway.
+TODO: Migrate to durable storage (S3, Railway Object Storage, or GCS).
+      When ready, set DRAWING_STORAGE_PROVIDER env var to 's3' and provide:
+        DRAWING_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+      Then update save_drawing() and get_drawing_file() to use boto3.
 """
 import uuid
+import hashlib
 import logging
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -58,6 +65,7 @@ def save_drawing(db, rfq_id, user_id, file_bytes, original_filename,
     storage_path.write_bytes(file_bytes)
 
     mime = MIME_MAP.get(ext.lstrip("."), "application/octet-stream")
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
 
     drawing = DrawingAsset(
         bom_id=bom_id or rfq.bom_id,
@@ -70,13 +78,15 @@ def save_drawing(db, rfq_id, user_id, file_bytes, original_filename,
         file_name=original_filename[:500],
         mime_type=mime,
         file_size_bytes=len(file_bytes),
+        file_hash=file_hash,
         is_primary=False,
         created_by_user_id=user_id,
     )
     # Store extra fields in a transient attribute
     drawing._extra = {"part_name": part_name, "part_notes": part_notes, "status": "received"}
     db.add(drawing)
-    db.commit()
+    # FIXED: flush not commit — let route handler own transaction
+    db.flush()
     db.refresh(drawing)
     return drawing
 

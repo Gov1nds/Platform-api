@@ -115,6 +115,7 @@ class RFQItem(Base):
     drawing_required = Column(Boolean, nullable=False, default=False)
     spec_summary = Column(JSONB, nullable=False, default=dict)
     status = Column(Text, nullable=False, default="pending")
+    canonical_part_key = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

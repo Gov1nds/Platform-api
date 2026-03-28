@@ -42,7 +42,7 @@ async def bom_upload(
         logger.error("Analyzer call failed: %s", e)
         raise HTTPException(status_code=502, detail=str(e))
 
-    vendor_service.seed_vendors(db)
+    # vendor_service.seed_vendors already runs at startup — no need to re-seed per request
 
     bom = bom_service.create_bom_from_analyzer(
         db, analyzer_output,
@@ -98,6 +98,7 @@ async def bom_upload(
         savings_percent=cs.get("savings_percent", rec.get("savings_percent", 0)),
         lead_time_days=rec.get("lead_time", 0),
         decision_summary=strategy.get("decision_summary", ""),
+        source_version=analyzer_output.get("_meta", {}).get("version", "unknown"),
     )
     db.add(analysis)
     db.flush()
@@ -215,4 +216,5 @@ def _build_authenticated_preview(project, analysis, strategy, procurement):
         "procurement_plan": project.procurement_plan or procurement,
         "total_parts": project.total_parts,
         "priority": "cost",
+        "currency": project.currency or strategy.get("currency", "USD"),
     }

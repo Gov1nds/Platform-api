@@ -18,7 +18,10 @@ class ProjectSummary(BaseModel):
     lead_time: Optional[float] = None
     file_name: Optional[str] = None
     recommended_location: Optional[str] = None
-    currency: Optional[str] = "USD"  # NEW
+    currency: Optional[str] = "USD"
+    rfq_status: Optional[str] = "none"
+    tracking_stage: Optional[str] = "init"
+    categories: Optional[Dict[str, Any]] = None
 
 
 class ProjectDetail(BaseModel):
@@ -33,15 +36,20 @@ class ProjectDetail(BaseModel):
     updated_at: Optional[datetime] = None
     recommended_location: Optional[str] = None
     average_cost: Optional[float] = None
+    cost: Optional[float] = None
     cost_range_low: Optional[float] = None
     cost_range_high: Optional[float] = None
     savings_percent: Optional[float] = None
     lead_time: Optional[float] = None
-    currency: Optional[str] = "USD"  # NEW
+    currency: Optional[str] = "USD"
+    rfq_status: Optional[str] = "none"
+    tracking_stage: Optional[str] = "init"
+    categories: Optional[Dict[str, Any]] = None
     decision_summary: Optional[str] = None
     analyzer_report: Optional[Dict[str, Any]] = None
     strategy: Optional[Dict[str, Any]] = None
     procurement_plan: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class StatusUpdate(BaseModel):

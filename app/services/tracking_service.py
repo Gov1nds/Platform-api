@@ -162,4 +162,5 @@ def _update_memory(db: Session, vendor_id: str, cost_delta: Optional[float], lea
         mem.delivery_accuracy_score = max(0, min(1, 1.0 - abs(mem.avg_lead_delta_days) / 14))
 
     mem.performance_score = (mem.cost_accuracy_score + mem.delivery_accuracy_score) / 2
-    mem.risk_level = max(0, min(1, 1.0 - mem.performance_score))
+    risk_score = max(0, min(1, 1.0 - mem.performance_score))
+    mem.risk_level = "low" if risk_score < 0.2 else ("high" if risk_score > 0.5 else "medium")

@@ -43,6 +43,7 @@ async def upload_drawing(
             rfq_item_id=rfq_item_id or None,
             bom_id=rfq.bom_id,
         )
+        db.commit()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -127,13 +127,13 @@ def get_price(part: Dict[str, Any], db: Session) -> Dict[str, Any]:
         except Exception as e:
             logger.debug(f"MPN lookup failed: {e}")
 
-    # 2. Canonical key match
+    # 2. Canonical key match — keys stored lowercase, no func.lower() needed
     if norm_name and len(norm_name) >= 5:
         try:
             name_match = (
                 db.query(PricingQuote)
                 .filter(
-                    func.lower(PricingQuote.canonical_part_key) == norm_name,
+                    PricingQuote.canonical_part_key == norm_name,
                     PricingQuote.freshness_state == "current",
                 )
                 .order_by(desc(PricingQuote.recorded_at))
@@ -174,7 +174,7 @@ def _save_price(db, norm_name, mpn, material, quantity, price,
     if is_simulated:
         return
     try:
-        store_key = norm_name or _normalize_for_lookup(mpn)
+        store_key = (norm_name or _normalize_for_lookup(mpn)).lower()
         if not store_key:
             return
 
@@ -191,10 +191,10 @@ def _save_price(db, norm_name, mpn, material, quantity, price,
                 return
             actual_vendor_id = vendor.id
 
-        # Mark old entries stale
+        # Mark old entries stale — key stored lowercase, no func.lower() needed
         try:
             db.query(PricingQuote).filter(
-                func.lower(PricingQuote.canonical_part_key) == store_key.lower(),
+                PricingQuote.canonical_part_key == store_key,
                 PricingQuote.freshness_state == "current",
             ).update({"freshness_state": "stale"}, synchronize_session="fetch")
         except Exception:
@@ -204,12 +204,20 @@ def _save_price(db, norm_name, mpn, material, quantity, price,
                 pass
 
         conf_val = 0.9 if source_type == "rfq_actual" else (0.7 if source_type == "external_api" else 0.4)
+        # Get FX rate for stored currency
+        try:
+            from app.services.procurement_planner import FOREX_RATES
+            fx_rate = FOREX_RATES.get(currency, 1.0) / FOREX_RATES.get("USD", 1.0)
+        except ImportError:
+            fx_rate = 1.0
+
         db.add(PricingQuote(
-            canonical_part_key=store_key.lower(),
+            canonical_part_key=store_key,
             vendor_id=actual_vendor_id,
             source_type=source_type,
             source_currency=currency,
             display_currency=currency,
+            fx_rate=round(fx_rate, 8),
             quantity=quantity,
             unit_price=round(price, 6),
             total_price=round(price * quantity, 6),
@@ -225,7 +233,8 @@ def _save_price(db, norm_name, mpn, material, quantity, price,
                 "is_simulated": is_simulated,
             },
         ))
-        db.commit()
+        # FIXED: flush not commit — let caller own transaction
+        db.flush()
     except Exception as e:
         logger.warning(f"Save pricing failed for '{norm_name}': {e}")
         try:
@@ -420,3 +429,25 @@ def record_pricing(db, vendor_id, part_name, price,
                    region="", currency="USD"):
     _save_price(db, _normalize_for_lookup(part_name), "", material, quantity, price,
                 source_type="rfq_actual", vendor_id=vendor_id, currency=currency)
+
+
+def expire_stale_prices(db, days_threshold: int = 30) -> int:
+    """Mark pricing quotes as stale if valid_until has passed.
+    Call at startup or on a schedule. Returns count of expired entries.
+    """
+    try:
+        result = db.query(PricingQuote).filter(
+            PricingQuote.freshness_state == "current",
+            PricingQuote.valid_until < datetime.utcnow(),
+        ).update({"freshness_state": "expired"}, synchronize_session="fetch")
+        db.commit()
+        if result:
+            logger.info(f"Expired {result} stale pricing quotes (>{days_threshold}d)")
+        return result
+    except Exception as e:
+        logger.warning(f"expire_stale_prices failed: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return 0

@@ -78,11 +78,12 @@ def update_supplier_scores(db: Session, vendor_id: str,
 
     q_mult = 1.0 if quality_ok else 0.85
     mem.performance_score = round(mem.cost_accuracy_score * 0.4 + mem.delivery_accuracy_score * 0.4 + q_mult * 0.2, 3)
-    mem.risk_level = round(max(0, min(1, 1.0 - mem.performance_score)), 3)
+    risk_score = round(max(0, min(1, 1.0 - mem.performance_score)), 3)
+    mem.risk_level = "low" if risk_score < 0.2 else ("high" if risk_score > 0.5 else "medium")
     mem.last_updated = datetime.utcnow()
-    db.commit()
+    db.flush()
 
-    changes.update({"performance": mem.performance_score, "risk": mem.risk_level, "orders": mem.total_orders})
+    changes.update({"performance": mem.performance_score, "risk": mem.risk_level, "risk_score": risk_score, "orders": mem.total_orders})
     logger.info(f"Vendor {vendor_id} memory updated: {changes}")
     return {"status": "updated", "changes": changes}
 
@@ -170,9 +171,10 @@ def decay_old_data(db: Session, days_threshold: int = 180) -> Dict:
         m.cost_accuracy_score = round(m.cost_accuracy_score * (1 - decay_factor) + 0.5 * decay_factor, 3)
         m.delivery_accuracy_score = round(m.delivery_accuracy_score * (1 - decay_factor) + 0.5 * decay_factor, 3)
         m.performance_score = round((m.cost_accuracy_score + m.delivery_accuracy_score) / 2, 3)
-        m.risk_level = round(1.0 - m.performance_score, 3)
+        risk_score = round(1.0 - m.performance_score, 3)
+        m.risk_level = "low" if risk_score < 0.2 else ("high" if risk_score > 0.5 else "medium")
         count += 1
     if count:
-        db.commit()
+        db.flush()
         logger.info(f"Decayed {count} stale memories (>{days_threshold}d)")
     return {"decayed": count}

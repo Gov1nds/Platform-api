@@ -643,6 +643,7 @@ def build_strategy_output(analyzer_output: Dict, delivery_location: str = "India
         "bom_summary": bom_summary,
         "explanation": explanation["decision_summary"],
         "decision_summary": explanation["decision_summary"],
+        "currency": target_currency,
     }
 
 

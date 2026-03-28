@@ -15,7 +15,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def attach_guest_boms(db, user_id: str, session_token: str):
-    """Merge guest session data to authenticated user using the DB function."""
+    """Merge guest session data to authenticated user.
+    FIXED: Now also merges RFQs, drawings, and records merge audit trail.
+    """
     if not session_token:
         return
     try:
@@ -27,6 +29,7 @@ def attach_guest_boms(db, user_id: str, session_token: str):
     except Exception:
         try:
             db.rollback()
+            # BOMs
             db.execute(
                 text("""
                     UPDATE bom.boms SET uploaded_by_user_id = :uid, updated_at = now()
@@ -36,6 +39,7 @@ def attach_guest_boms(db, user_id: str, session_token: str):
                 """),
                 {"uid": user_id, "token": session_token},
             )
+            # Projects
             db.execute(
                 text("""
                     UPDATE projects.projects SET user_id = :uid, updated_at = now()
@@ -45,12 +49,44 @@ def attach_guest_boms(db, user_id: str, session_token: str):
                 """),
                 {"uid": user_id, "token": session_token},
             )
+            # Analysis results
             db.execute(
                 text("""
                     UPDATE bom.analysis_results SET user_id = :uid, updated_at = now()
                     WHERE guest_session_id IN (
                         SELECT id FROM auth.guest_sessions WHERE session_token = :token
                     ) AND user_id IS NULL
+                """),
+                {"uid": user_id, "token": session_token},
+            )
+            # RFQ batches (FIXED: was missing)
+            db.execute(
+                text("""
+                    UPDATE sourcing.rfq_batches SET requested_by_user_id = :uid, updated_at = now()
+                    WHERE guest_session_id IN (
+                        SELECT id FROM auth.guest_sessions WHERE session_token = :token
+                    ) AND requested_by_user_id IS NULL
+                """),
+                {"uid": user_id, "token": session_token},
+            )
+            # Drawing assets — merge via bom_id ownership (FIXED: was missing)
+            db.execute(
+                text("""
+                    UPDATE sourcing.drawing_assets SET created_by_user_id = :uid, updated_at = now()
+                    WHERE bom_id IN (
+                        SELECT id FROM bom.boms WHERE guest_session_id IN (
+                            SELECT id FROM auth.guest_sessions WHERE session_token = :token
+                        )
+                    ) AND created_by_user_id IS NULL
+                """),
+                {"uid": user_id, "token": session_token},
+            )
+            # Audit trail: mark guest session as merged (FIXED: was missing)
+            db.execute(
+                text("""
+                    UPDATE auth.guest_sessions
+                    SET merged_user_id = :uid, merged_at = now(), updated_at = now()
+                    WHERE session_token = :token AND merged_user_id IS NULL
                 """),
                 {"uid": user_id, "token": session_token},
             )

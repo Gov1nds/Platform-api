@@ -71,7 +71,9 @@ def create_rfq_from_analysis(
             part_key=p.canonical_name or p.description or "",
             requested_quantity=int(p.quantity) if p.quantity else 1,
             requested_material=p.material or "",
+            requested_process=p.process_hint or "",
             drawing_required=p.drawing_required or False,
+            canonical_part_key=p.canonical_part_key or "",
         ))
 
     if project:

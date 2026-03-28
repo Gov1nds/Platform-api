@@ -43,14 +43,21 @@ def startup():
     logger.info("Initializing database...")
     init_db()
 
-    # Run supplementary migration for tracking tables
+    # Run supplementary migrations
     if settings.is_postgres:
         try:
+            from migrations.m003_indexes_and_backfill import run as run_m003
+            logger.info("Running migration 003 (indexes, catalog tables, backfill)...")
+            run_m003()
+        except Exception as e:
+            logger.warning(f"Migration 003 skipped: {e}")
+
+        try:
             from migrations.m002_add_tracking_tables import run as run_m002
-            logger.info("Running supplementary migration (tracking tables)...")
+            logger.info("Running migration 002 (tracking tables)...")
             run_m002()
         except Exception as e:
-            logger.warning(f"Supplementary migration skipped: {e}")
+            logger.warning(f"Migration 002 skipped: {e}")
 
     from app.services import vendor_service
     db = SessionLocal()
@@ -59,8 +66,22 @@ def startup():
         vendor_service.seed_vendors(db)
     except Exception as e:
         logger.warning(f"Vendor seeding skipped: {e}")
-    finally:
-        db.close()
+
+    try:
+        from app.services.pricing_service import expire_stale_prices
+        expired = expire_stale_prices(db)
+        if expired:
+            logger.info(f"Expired {expired} stale pricing quotes")
+    except Exception as e:
+        logger.warning(f"Price expiration skipped: {e}")
+
+    try:
+        from app.services.memory_service import decay_old_data
+        decay_old_data(db, days_threshold=180)
+    except Exception as e:
+        logger.warning(f"Memory decay skipped: {e}")
+
+    db.close()
 
     logger.info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
 

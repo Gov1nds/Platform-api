@@ -121,8 +121,9 @@ def _transform_v2_to_v3(v2_result: Dict) -> list:
             "procurement_class": item.get("procurement_class", "catalog_purchase"),
             "rfq_required": item.get("rfq_required", False),
             "drawing_required": item.get("drawing_required", False),
-            "is_custom": item.get("is_custom", False),
             "part_type": "custom" if item.get("is_custom", False) else "standard",
+            # Canonical key (from engine v4.1+)
+            "canonical_part_key": item.get("canonical_part_key", ""),
         }
         components.append(comp)
 
@@ -130,13 +131,10 @@ def _transform_v2_to_v3(v2_result: Dict) -> list:
 
 
 def _count_categories(components: list) -> Dict[str, int]:
-    counts = {"standard": 0, "custom": 0, "raw_material": 0, "unknown": 0}
+    counts: Dict[str, int] = {}
     for c in components:
         cat = c.get("category", "unknown")
-        if cat in counts:
-            counts[cat] += 1
-        else:
-            counts["unknown"] += 1
+        counts[cat] = counts.get(cat, 0) + 1
     return counts
 
 
