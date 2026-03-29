@@ -14,6 +14,7 @@ from app.models.project import Project, ProjectEvent
 from app.models.rfq import RFQBatch as RFQ, RFQStatus
 from app.models.tracking import ProductionTracking, TrackingStage
 from app.models.report_snapshot import ReportSnapshot
+from app.models.strategy_run import StrategyRun
 
 logger = logging.getLogger("project_service")
 
@@ -188,6 +189,35 @@ def upsert_project_from_analysis(
         db.flush()
     except Exception as e:
         logger.warning(f"ReportSnapshot save failed (non-fatal): {e}")
+
+    # FIXED: Persist strategy run as first-class entity (Item 1)
+    try:
+        strat_run = StrategyRun(
+            project_id=project.id,
+            analysis_id=analysis.id,
+            version=project.latest_strategy_version,
+            priority=strategy.get("bom_summary", {}).get("priority", "cost"),
+            delivery_location=strategy.get("bom_summary", {}).get("delivery_location", ""),
+            target_currency=strategy.get("currency") or procurement.get("currency") or "USD",
+            strategy_json=copy.deepcopy(strategy),
+            procurement_json=copy.deepcopy(procurement),
+            global_optimization=strategy.get("global_optimization", {}),
+            region_distribution=strategy.get("region_distribution", {}),
+            part_level_decisions=strategy.get("part_level_decisions", []),
+            recommended_location=rec.get("location", ""),
+            average_cost=_as_float(cost_summary.get("average"), 0),
+            savings_percent=_as_float(cost_summary.get("savings_percent"), 0),
+            lead_time_days=_as_float(rec.get("lead_time"), 0),
+            decision_summary=strategy.get("decision_summary", ""),
+            total_parts=project.total_parts or 0,
+            engine_version=raw_meta.get("version", "unknown") if 'raw_meta' in dir() else "unknown",
+        )
+        db.add(strat_run)
+        db.flush()
+        project.current_strategy_run_id = strat_run.id
+        db.flush()
+    except Exception as e:
+        logger.warning(f"StrategyRun save failed (non-fatal): {e}")
 
     if is_new:
         _emit_event(db, project, "project_created", None, "analyzed",

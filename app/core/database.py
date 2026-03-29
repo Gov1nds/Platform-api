@@ -84,6 +84,7 @@ def init_db():
     import app.models.catalog
     import app.models.geo
     import app.models.report_snapshot
+    import app.models.strategy_run
 
     # Ensure schemas exist on PostgreSQL before table creation.
     if settings.is_postgres:
@@ -93,12 +94,21 @@ def init_db():
                 conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
 
     # Safe on both SQLite and PostgreSQL; only creates missing tables.
-    # In mature production, set ALLOW_CREATE_ALL=false to enforce migration-only schema changes.
+    # Production defaults to migration-only. Dev/staging defaults to create_all.
     import os
-    if os.getenv("ALLOW_CREATE_ALL", "true").lower() in ("true", "1", "yes"):
+    allow_raw = os.getenv("ALLOW_CREATE_ALL")
+    if allow_raw is None:
+        # No explicit override — derive from environment
+        allow_create = not settings.is_production
+    else:
+        allow_create = allow_raw.lower() in ("true", "1", "yes")
+
+    if allow_create:
         Base.metadata.create_all(bind=engine)
     else:
-        import logging
-        logging.getLogger("database").info(
-            "ALLOW_CREATE_ALL=false — skipping create_all(). Use Alembic migrations."
+        import logging as _logging
+        _logging.getLogger("database").info(
+            "ALLOW_CREATE_ALL=false (ENVIRONMENT=%s) — skipping create_all(). "
+            "Use 'alembic upgrade head' for schema changes.",
+            getattr(settings, 'ENVIRONMENT', 'unknown'),
         )

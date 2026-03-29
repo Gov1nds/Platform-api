@@ -22,6 +22,9 @@ class Settings:
     VERSION: str = "2.0.0"
     API_PREFIX: str = "/api/v1"
 
+    # Environment: development | staging | production
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+
     # Database — PostgreSQL on Railway
     DATABASE_URL: str = _normalize_database_url(os.getenv("DATABASE_URL"))
 
@@ -58,6 +61,10 @@ class Settings:
     @property
     def is_postgres(self) -> bool:
         return "postgresql" in (self.DATABASE_URL or "")
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.lower() == "production"
 
 
 settings = Settings()

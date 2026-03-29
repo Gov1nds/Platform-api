@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db, SessionLocal
-from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings
+from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings, review
 
 logging.basicConfig(
     level=logging.INFO,
@@ -119,6 +119,7 @@ app.include_router(rfq.router, prefix=settings.API_PREFIX)
 app.include_router(tracking.router, prefix=settings.API_PREFIX)
 app.include_router(projects.router, prefix=settings.API_PREFIX)
 app.include_router(drawings.router, prefix=settings.API_PREFIX)
+app.include_router(review.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/", tags=["System"])

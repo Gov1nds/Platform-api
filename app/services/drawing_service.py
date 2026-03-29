@@ -42,6 +42,35 @@ S3_BUCKET = os.getenv("DRAWING_S3_BUCKET", "")
 S3_REGION = os.getenv("AWS_REGION", "us-east-1")
 S3_PREFIX = os.getenv("DRAWING_S3_PREFIX", "drawings/")
 
+_production_checked = False
+
+
+def _enforce_production_storage():
+    """Fail fast if production lacks durable storage config."""
+    global _production_checked
+    if _production_checked:
+        return
+    _production_checked = True
+    try:
+        from app.core.config import settings
+        if settings.is_production and STORAGE_PROVIDER == "local":
+            logger.error(
+                "FATAL: ENVIRONMENT=production but DRAWING_STORAGE_PROVIDER=local. "
+                "Drawings on ephemeral disk WILL be lost. Set DRAWING_STORAGE_PROVIDER=s3 "
+                "and configure DRAWING_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY."
+            )
+            raise RuntimeError("Production requires S3 drawing storage. Set DRAWING_STORAGE_PROVIDER=s3.")
+        if STORAGE_PROVIDER == "s3" and not S3_BUCKET:
+            logger.error("DRAWING_STORAGE_PROVIDER=s3 but DRAWING_S3_BUCKET is empty.")
+            raise RuntimeError("S3 storage configured but DRAWING_S3_BUCKET is empty.")
+        if STORAGE_PROVIDER == "local":
+            logger.warning(
+                "Drawing storage: LOCAL (dev-only, ephemeral). "
+                "Set DRAWING_STORAGE_PROVIDER=s3 for production."
+            )
+    except ImportError:
+        pass
+
 
 # ── Storage backends ──
 
@@ -111,6 +140,8 @@ def _validate_file(filename: str, size_bytes: int) -> str:
 
 def save_drawing(db, rfq_id, user_id, file_bytes, original_filename,
                  part_name="", part_notes="", rfq_item_id=None, bom_id=None):
+    _enforce_production_storage()
+
     rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
