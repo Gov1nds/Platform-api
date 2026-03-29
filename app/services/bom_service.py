@@ -14,7 +14,7 @@ from app.models.user import GuestSession
 
 logger = logging.getLogger("bom_service")
 
-_CUSTOM_CATEGORIES = {"custom_mechanical", "sheet_metal", "custom"}
+_CUSTOM_CATEGORIES = {"custom_mechanical", "sheet_metal", "custom", "machined"}
 
 
 def _row_hash(comp: Dict[str, Any]) -> str:
@@ -107,9 +107,9 @@ def create_bom_from_analyzer(
 
         # Map to valid procurement_class values from bootstrap schema
         valid_classes = {
-            "catalog_purchase", "rfq_required", "raw_material", "custom_manufacture",
+            "catalog_purchase", "rfq_required", "machined_part", "raw_material", "custom_manufacture",
             "engineering_review", "electrical_part", "electronics_part", "sheet_metal",
-            "machined_part", "unknown"
+            "machined_part", "unknown", "raw_stock",
         }
         if procurement_class not in valid_classes:
             procurement_class = "custom_manufacture" if custom else "catalog_purchase"

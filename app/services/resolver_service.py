@@ -18,7 +18,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, text
 
-from app.models.catalog import PartMaster, PartAlias
+from app.models.catalog import PartMaster, PartAlias, PartObservation, PartAttribute
 from app.models.bom import BOMPart
 
 logger = logging.getLogger("resolver_service")
@@ -345,7 +345,8 @@ def _add_alias(db: Session, part_master_id: str, alias_type: str,
 
 def resolve_and_learn(db: Session, bom_parts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Resolve all parts in a BOM and learn from unresolved ones.
-    Called after BOM creation to populate part_master from observations."""
+    Called after BOM creation to populate part_master from observations.
+    Also records PartObservation and extracts PartAttributes."""
     results = []
     for part in bom_parts:
         try:
@@ -357,9 +358,13 @@ def resolve_and_learn(db: Session, bom_parts: List[Dict[str, Any]]) -> List[Dict
                 if pm:
                     decision["matched_master_id"] = pm.id
                     decision["match_reason"] = "New canonical entry created from observation"
+                    _record_observation(db, pm.id, part, decision)
+                    _extract_and_store_attributes(db, pm.id, part)
             elif decision["action"] == "accept":
                 # Update observation count on matched master
-                upsert_canonical_part(db, part)
+                pm = upsert_canonical_part(db, part)
+                if pm:
+                    _record_observation(db, pm.id, part, decision)
 
             results.append(decision)
         except Exception as e:
@@ -375,6 +380,67 @@ def resolve_and_learn(db: Session, bom_parts: List[Dict[str, Any]]) -> List[Dict
             })
 
     return results
+
+
+def _record_observation(db: Session, part_master_id: str, part: Dict, decision: Dict):
+    """Record a PartObservation for every BOM row that references a canonical part."""
+    try:
+        db.add(PartObservation(
+            part_master_id=part_master_id,
+            bom_id=part.get("_bom_id", ""),
+            raw_text=part.get("raw_text", part.get("description", "")),
+            normalized_text=part.get("standard_text", part.get("normalized_text", "")),
+            quantity=part.get("quantity", 1),
+            source_file=part.get("_source_file", ""),
+            match_score=decision.get("match_score", 0),
+            match_method=decision.get("match_status", "auto"),
+        ))
+    except Exception as e:
+        logger.debug(f"Observation record failed: {e}")
+
+
+def _extract_and_store_attributes(db: Session, part_master_id: str, part: Dict):
+    """Extract indexed attributes from part specs and store them."""
+    specs = part.get("specs", {})
+    if not specs or not isinstance(specs, dict):
+        return
+    # Key spec fields to index
+    _INDEX_KEYS = {
+        "resistance_ohm", "capacitance_f", "voltage_v", "package", "thread_size",
+        "length_mm", "diameter_mm", "thickness_mm", "material_grade", "material_name",
+        "material_family", "fastener_type", "head_type", "coating", "standard",
+        "component_type", "mounting", "tolerance_mm", "form",
+    }
+    for key in _INDEX_KEYS:
+        val = specs.get(key)
+        if val is None:
+            continue
+        str_val = str(val)
+        if not str_val or str_val == "None":
+            continue
+        # Check if already exists
+        existing = db.query(PartAttribute).filter(
+            PartAttribute.part_master_id == part_master_id,
+            PartAttribute.attribute_key == key,
+        ).first()
+        if existing:
+            continue
+        numeric = None
+        try:
+            numeric = float(val)
+        except (ValueError, TypeError):
+            pass
+        try:
+            db.add(PartAttribute(
+                part_master_id=part_master_id,
+                attribute_key=key,
+                attribute_value=str_val[:255],
+                numeric_value=numeric,
+                source="extracted",
+                confidence=0.8,
+            ))
+        except Exception:
+            pass
 
 
 def update_bom_parts_with_matches(db: Session, bom_id: str, match_results: List[Dict[str, Any]],

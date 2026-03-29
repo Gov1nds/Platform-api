@@ -13,6 +13,7 @@ from app.models.bom import BOM
 from app.models.project import Project, ProjectEvent
 from app.models.rfq import RFQBatch as RFQ, RFQStatus
 from app.models.tracking import ProductionTracking, TrackingStage
+from app.models.report_snapshot import ReportSnapshot
 
 logger = logging.getLogger("project_service")
 
@@ -154,6 +155,8 @@ def upsert_project_from_analysis(
     # FIXED: Increment version counters
     project.latest_report_version = (project.latest_report_version or 0) + 1
     project.latest_strategy_version = (project.latest_strategy_version or 0) + 1
+    # FIXED: Set current state pointers (Item 4)
+    project.current_analysis_id = analysis.id
     project.project_metadata = {
         "category_summary": (analyzer_output or {}).get("summary", {}).get("categories", {}),
         "analysis_id": analysis.id,
@@ -161,6 +164,30 @@ def upsert_project_from_analysis(
         "currency": strategy.get("currency") or procurement.get("currency") or "USD",
     }
     db.flush()
+
+    # FIXED: Save durable report snapshot (Item 3)
+    try:
+        raw_meta = (analyzer_output or {}).get("_meta", {})
+        db.add(ReportSnapshot(
+            project_id=project.id,
+            version=project.latest_report_version,
+            report_json=project.analyzer_report,
+            strategy_json=copy.deepcopy(strategy),
+            procurement_json=copy.deepcopy(procurement),
+            analyzer_version=raw_meta.get("version", "unknown"),
+            classifier_version=raw_meta.get("version", "unknown"),
+            normalizer_version=raw_meta.get("normalizer_version", "unknown"),
+            source_checksum=raw_meta.get("file_checksum"),
+            replay_metadata={
+                "bom_id": str(bom.id),
+                "analysis_id": str(analysis.id),
+                "total_parts": project.total_parts,
+                "priority": strategy.get("bom_summary", {}).get("priority", "cost"),
+            },
+        ))
+        db.flush()
+    except Exception as e:
+        logger.warning(f"ReportSnapshot save failed (non-fatal): {e}")
 
     if is_new:
         _emit_event(db, project, "project_created", None, "analyzed",
@@ -180,6 +207,8 @@ def update_project_status_from_rfq(db: Session, rfq: RFQ) -> Optional[Project]:
         return None
     old_status = project.status
     project.rfq_status = rfq.status
+    # FIXED: Set current RFQ pointer (Item 4)
+    project.current_rfq_id = rfq.id
     new_status = _project_status_from_rfq(rfq.status, project.status)
     if new_status:
         project.status = new_status
@@ -334,7 +363,7 @@ def _estimate_tlc_breakdown(best_cost: float, best_lead: float, category: str) -
     manufacturing = round(best_cost * 0.68, 2)
     logistics = round(best_cost * 0.14, 2)
     tariffs = round(best_cost * 0.06, 2)
-    nre = round(best_cost * (0.08 if category in {"custom", "raw_material"} else 0.04), 2)
+    nre = round(best_cost * (0.08 if category in {"custom", "custom_mechanical", "machined", "sheet_metal", "raw_material"} else 0.04), 2)
     inventory = round(best_cost * 0.02, 2)
     risk = round(best_cost * 0.015, 2)
     compliance = round(best_cost * 0.005, 2)
@@ -436,7 +465,7 @@ def build_canonical_report(
             "simulated_tlc": round(best_cost, 2),
             "tlc_breakdown": _estimate_tlc_breakdown(best_cost, lead_days, category),
             "process_chain": [decision.get("process") or component.get("geometry") or "Review", "Procure", "Produce", "Inspect"],
-            "machining_time_hrs": round(_as_float(decision.get("unit_price"), 0.0) / 10.0, 2) if category == "custom" else round(best_cost / 120.0, 2),
+            "machining_time_hrs": round(_as_float(decision.get("unit_price"), 0.0) / 10.0, 2) if category in ("custom", "custom_mechanical", "machined") else round(best_cost / 120.0, 2),
             "labor_hours": round(best_cost / 160.0, 2),
         }
         alternatives = []
@@ -460,7 +489,7 @@ def build_canonical_report(
             "unit_price": decision.get("unit_price"),
             "best_region": decision.get("best_region") or selected_vendor["region"],
             "best_cost": best_cost,
-            "decision_mode": "exploration" if category in {"custom", "raw_material"} else "exploit",
+            "decision_mode": "exploration" if category in {"custom", "custom_mechanical", "machined", "sheet_metal", "raw_material"} else "exploit",
             "selected_vendor": selected_vendor,
             "explanation": {
                 "math": {
@@ -483,7 +512,7 @@ def build_canonical_report(
     section3 = {
         "volume_strategy": [
             {
-                "type": "high" if item.get("category") == "standard" else ("medium" if item.get("category") == "custom" else "low"),
+                "type": "high" if item.get("category") == "standard" else ("medium" if item.get("category") in ("custom", "custom_mechanical", "machined") else "low"),
                 "item": item.get("description"),
                 "qty": item.get("quantity"),
                 "region": item.get("best_region"),
@@ -500,7 +529,7 @@ def build_canonical_report(
                 "process_chain": item.get("process_chain") or [],
             }
             for item in section2
-            if item.get("category") in {"custom", "raw_material"}
+            if item.get("category") in {"custom", "custom_mechanical", "machined", "raw_material", "sheet_metal"}
         ],
         "risk_insights": [
             {
@@ -531,10 +560,10 @@ def build_canonical_report(
         {
             "item": item.get("description"),
             "supplier": (item.get("selected_vendor") or {}).get("region"),
-            "info_gain": round(0.18 if item.get("category") in {"custom", "raw_material"} else 0.05, 3),
+            "info_gain": round(0.18 if item.get("category") in {"custom", "custom_mechanical", "machined", "raw_material", "sheet_metal"} else 0.05, 3),
         }
         for item in section2
-        if item.get("category") in {"custom", "raw_material"}
+        if item.get("category") in {"custom", "custom_mechanical", "machined", "raw_material", "sheet_metal"}
     ]
     high_uncertainty = [
         {
@@ -564,6 +593,185 @@ def build_canonical_report(
         "report_version": 1,
     }
 
+    # ══════════════════════════════════════════════════════════
+    # Section 7: Category-wise reports (one per industry category)
+    # ══════════════════════════════════════════════════════════
+    _ALL_CATS = ["standard", "electrical", "electronics", "fastener",
+                 "machined", "custom_mechanical", "sheet_metal",
+                 "raw_material", "unknown"]
+    _CAT_LABELS = {
+        "standard": "Standard / Catalog Parts",
+        "electrical": "Electrical Parts",
+        "electronics": "Electronics Parts",
+        "fastener": "Fasteners",
+        "machined": "Machined Parts",
+        "custom_mechanical": "Custom Manufacturing",
+        "sheet_metal": "Sheet Metal Parts",
+        "raw_material": "Raw Materials",
+        "unknown": "Unmatched / Needs Review",
+    }
+
+    category_reports = {}
+    for cat in _ALL_CATS:
+        cat_items = [it for it in section2 if (it.get("category") or "unknown") == cat]
+        if not cat_items:
+            continue
+        cat_cost = sum(_as_float(it.get("best_cost"), 0) for it in cat_items)
+        cat_qty = sum(_as_int(it.get("quantity"), 1) for it in cat_items)
+        rfq_items = [it for it in cat_items if it.get("category") in ("machined", "custom_mechanical", "sheet_metal")]
+        category_reports[cat] = {
+            "label": _CAT_LABELS.get(cat, cat),
+            "count": len(cat_items),
+            "total_quantity": cat_qty,
+            "total_cost": round(cat_cost, 2),
+            "avg_unit_cost": round(cat_cost / max(cat_qty, 1), 4),
+            "rfq_required_count": len(rfq_items),
+            "items": [
+                {
+                    "description": it.get("description") or it.get("part_name", ""),
+                    "quantity": _as_int(it.get("quantity"), 1),
+                    "material": it.get("material", ""),
+                    "process": it.get("process", ""),
+                    "best_region": it.get("best_region", ""),
+                    "best_cost": round(_as_float(it.get("best_cost"), 0), 2),
+                    "unit_price": _as_float(it.get("unit_price"), 0),
+                    "price_source": it.get("price_source", ""),
+                }
+                for it in cat_items
+            ],
+        }
+
+    section7_category_reports = category_reports
+
+    # ══════════════════════════════════════════════════════════
+    # Section 8: Substitutes / Alternatives
+    # ══════════════════════════════════════════════════════════
+    section8_substitutes = {
+        "alternatives": [
+            {
+                "item": it.get("description") or it.get("part_name", ""),
+                "current_region": it.get("best_region", ""),
+                "current_cost": round(_as_float(it.get("best_cost"), 0), 2),
+                "alternative_region": (it.get("alternatives") or [{}])[0].get("region", "") if it.get("alternatives") else "",
+                "alternative_cost": round(_as_float((it.get("alternatives") or [{}])[0].get("simulated_tlc"), 0), 2) if it.get("alternatives") else 0,
+                "savings": round(
+                    _as_float(it.get("best_cost"), 0) - _as_float((it.get("alternatives") or [{}])[0].get("simulated_tlc"), 0), 2
+                ) if it.get("alternatives") else 0,
+            }
+            for it in section2
+            if it.get("alternatives")
+        ],
+    }
+
+    # ══════════════════════════════════════════════════════════
+    # Section 9: Risk Summary
+    # ══════════════════════════════════════════════════════════
+    high_risk_items = [it for it in section2
+                       if _as_float((it.get("explanation") or {}).get("risk", {}).get("supply"), 0) >= 0.4]
+    section9_risk_summary = {
+        "overall_risk_level": risk.get("overall_risk_level") or risk.get("risk_level") or "MEDIUM",
+        "overall_uncertainty": round(_as_float(risk.get("overall_uncertainty"), 0.15), 4),
+        "avg_delivery_variance_days": round(_as_float(risk.get("avg_delivery_variance_days"), 3), 1),
+        "new_vendor_pct": round(_as_float(risk.get("new_vendor_pct"), 0), 1),
+        "high_risk_items_count": len(high_risk_items),
+        "high_risk_items": [
+            {
+                "item": it.get("description", ""),
+                "region": it.get("best_region", ""),
+                "supply_risk": round(_as_float((it.get("explanation") or {}).get("risk", {}).get("supply"), 0), 3),
+                "logistics_risk": round(_as_float((it.get("explanation") or {}).get("risk", {}).get("logistics"), 0), 3),
+            }
+            for it in high_risk_items
+        ],
+    }
+
+    # ══════════════════════════════════════════════════════════
+    # Section 10: Currency Summary
+    # ══════════════════════════════════════════════════════════
+    report_currency = procurement.get("currency") or strategy.get("currency") or "USD"
+    section10_currency_summary = {
+        "display_currency": report_currency,
+        "source_currency": "USD",
+        "fx_rate_note": f"All costs sourced in USD, displayed in {report_currency}" if report_currency != "USD" else "All costs in USD",
+        "total_cost_display": round(total_cost, 2),
+        "currency_risk": "low" if report_currency == "USD" else "medium",
+    }
+
+    # ══════════════════════════════════════════════════════════
+    # Section 11: Lead Time Summary
+    # ══════════════════════════════════════════════════════════
+    lead_times = [_as_float(it.get("selected_vendor", {}).get("tlc_breakdown", {}).get("c_log"), 0) for it in section2]
+    part_leads = [_as_float(pd.get("lead_days"), 0) for pd in part_decisions]
+    section11_lead_time_summary = {
+        "min_days": timeline.get("min_days") or (min(part_leads) if part_leads else 0),
+        "avg_days": timeline.get("avg_days") or (round(sum(part_leads) / max(len(part_leads), 1)) if part_leads else 0),
+        "max_days": timeline.get("max_days") or (max(part_leads) if part_leads else 0),
+        "critical_path_items": [
+            {
+                "item": pd.get("part_name", ""),
+                "lead_days": pd.get("lead_days", 0),
+                "region": pd.get("best_region", ""),
+            }
+            for pd in sorted(part_decisions, key=lambda x: -_as_float(x.get("lead_days"), 0))[:5]
+        ],
+        "by_category": {
+            cat: round(sum(_as_float(it.get("selected_vendor", {}).get("tlc_breakdown", {}).get("c_log"), 14) for it in items) / max(len(items), 1))
+            for cat, items in category_reports.items()
+        },
+    }
+
+    # ══════════════════════════════════════════════════════════
+    # Section 12: RFQ Actions
+    # ══════════════════════════════════════════════════════════
+    rfq_required_items = [it for it in section2 if it.get("category") in ("machined", "custom_mechanical", "sheet_metal")]
+    section12_rfq_actions = {
+        "total_rfq_items": len(rfq_required_items),
+        "drawing_required_count": sum(1 for it in section2 if it.get("category") in ("machined", "custom_mechanical", "sheet_metal")),
+        "items": [
+            {
+                "description": it.get("description", ""),
+                "category": it.get("category", ""),
+                "quantity": _as_int(it.get("quantity"), 1),
+                "material": it.get("material", ""),
+                "process": it.get("process", ""),
+                "region": it.get("best_region", ""),
+                "drawing_required": True,
+                "action": "Submit RFQ with drawing for manufacturing quote",
+            }
+            for it in rfq_required_items
+        ],
+    }
+
+    # ══════════════════════════════════════════════════════════
+    # Section 13: Next Steps
+    # ══════════════════════════════════════════════════════════
+    steps = []
+    std_count = len([it for it in section2 if it.get("category") in ("standard", "electrical", "electronics", "fastener")])
+    custom_count = len(rfq_required_items)
+    raw_count = len([it for it in section2 if it.get("category") == "raw_material"])
+    review_count = len([it for it in section2 if it.get("category") == "unknown"])
+
+    if std_count > 0:
+        steps.append({"step": 1, "action": f"Order {std_count} standard/catalog parts from recommended distributors", "priority": "immediate"})
+    if custom_count > 0:
+        steps.append({"step": 2, "action": f"Submit RFQ with drawings for {custom_count} custom/machined parts", "priority": "high"})
+    if raw_count > 0:
+        steps.append({"step": 3, "action": f"Source {raw_count} raw material items from regional suppliers", "priority": "medium"})
+    if review_count > 0:
+        steps.append({"step": 4, "action": f"Engineering review needed for {review_count} unclassified items", "priority": "medium"})
+    steps.append({"step": len(steps) + 1, "action": "Consolidate shipments per region cluster to optimize logistics", "priority": "medium"})
+    steps.append({"step": len(steps) + 1, "action": "Confirm lead times against production schedule", "priority": "medium"})
+    steps.append({"step": len(steps) + 1, "action": "Track milestones: T0 → T1 → T2 → T3 → T4", "priority": "ongoing"})
+    steps.append({"step": len(steps) + 1, "action": "Submit execution feedback for supplier learning system", "priority": "post-delivery"})
+
+    section13_next_steps = {
+        "steps": steps,
+        "summary": f"{len(section2)} parts: {std_count} catalog, {custom_count} RFQ, {raw_count} raw, {review_count} review",
+    }
+
+    # ══════════════════════════════════════════════════════════
+    # Assemble final report
+    # ══════════════════════════════════════════════════════════
     return {
         "section_1_executive_summary": section1,
         "section_2_component_breakdown": section2,
@@ -571,6 +779,13 @@ def build_canonical_report(
         "section_4_financial": section4,
         "section_5_recommendation": section5,
         "section_6_learning_snapshot": section6,
+        "section_7_category_reports": section7_category_reports,
+        "section_8_substitutes": section8_substitutes,
+        "section_9_risk_summary": section9_risk_summary,
+        "section_10_currency_summary": section10_currency_summary,
+        "section_11_lead_time_summary": section11_lead_time_summary,
+        "section_12_rfq_actions": section12_rfq_actions,
+        "section_13_next_steps": section13_next_steps,
         "decision_summary": section1["decision_summary"],
         "recommended_reasons": recommended.get("reasons", []),
         "_meta": enriched_meta,

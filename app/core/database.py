@@ -83,13 +83,22 @@ def init_db():
     import app.models.drawing
     import app.models.catalog
     import app.models.geo
+    import app.models.report_snapshot
 
     # Ensure schemas exist on PostgreSQL before table creation.
     if settings.is_postgres:
-        schemas = ("auth", "bom", "projects", "pricing", "sourcing", "ops", "geo")
+        schemas = ("auth", "bom", "projects", "pricing", "sourcing", "ops", "geo", "catalog")
         with engine.begin() as conn:
             for schema in schemas:
                 conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
 
     # Safe on both SQLite and PostgreSQL; only creates missing tables.
-    Base.metadata.create_all(bind=engine)
+    # In mature production, set ALLOW_CREATE_ALL=false to enforce migration-only schema changes.
+    import os
+    if os.getenv("ALLOW_CREATE_ALL", "true").lower() in ("true", "1", "yes"):
+        Base.metadata.create_all(bind=engine)
+    else:
+        import logging
+        logging.getLogger("database").info(
+            "ALLOW_CREATE_ALL=false — skipping create_all(). Use Alembic migrations."
+        )

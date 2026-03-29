@@ -21,7 +21,7 @@ from app.models.vendor import Vendor
 
 logger = logging.getLogger("pricing_service")
 
-_CUSTOM_CATEGORIES = {"custom_mechanical", "sheet_metal", "custom"}
+_CUSTOM_CATEGORIES = {"custom_mechanical", "sheet_metal", "custom", "machined"}
 
 
 def is_custom_part(part: Dict[str, Any]) -> bool:
@@ -361,6 +361,16 @@ def _build_manufacturing_intelligence(comp):
     process = "CNC Machining"
     if category == "sheet_metal" or "sheet" in material or "sheetmetal" in material:
         process = "Sheet Metal Fabrication (Laser Cut + Bend)"
+    elif category == "machined" or any(w in name for w in ["machined", "cnc", "milled", "turned"]):
+        # Determine CNC sub-type for machined parts
+        if any(w in name for w in ["shaft", "rod", "spindle", "sleeve", "bushing", "thread", "knob"]):
+            process = "CNC Turning"
+        elif any(w in name for w in ["pocket", "slot", "block", "mount", "coupling", "plate"]):
+            process = "CNC Milling"
+        elif any(w in name for w in ["5-axis", "5axis", "multi-axis", "contour", "freeform"]):
+            process = "5-Axis CNC Machining"
+        else:
+            process = "CNC Machining (3-Axis)"
     elif any(w in name for w in ["weld", "frame", "assy", "assembly"]):
         process = "Welding & Assembly"
     elif any(w in name for w in ["shaft", "rod", "thread", "knob"]):
@@ -385,6 +395,7 @@ def _build_manufacturing_intelligence(comp):
 
     regions = ["India (local)", "China"]
     if "sheet" in process.lower(): regions = ["India (local)", "China", "Vietnam"]
+    elif "5-axis" in process.lower() or "5axis" in process.lower(): regions = ["EU (Germany)", "USA", "China"]
     elif "cnc" in process.lower(): regions = ["India (local)", "China", "EU (Germany)"]
     elif "weld" in process.lower(): regions = ["India (local)", "Mexico"]
 
@@ -392,6 +403,8 @@ def _build_manufacturing_intelligence(comp):
     if "sheet" in process.lower(): insight += " Standard sheet metal tolerances. Nesting reduces waste."
     elif "turning" in process.lower(): insight += " Standard turning ±0.05mm. Check concentricity."
     elif "milling" in process.lower(): insight += " Standard milling ±0.05mm. Minimize deep pockets."
+    elif "5-axis" in process.lower() or "5axis" in process.lower(): insight += " Complex geometry. Requires qualified 5-axis vendor."
+    elif "machining" in process.lower(): insight += " Standard CNC ±0.05mm. Review tolerances and surface finish."
 
     return {
         "detected_process": process, "recommended_process": process,

@@ -13,8 +13,9 @@ from app.models.rfq import RFQBatch, RFQItem, RFQQuote, RFQStatus
 from app.models.tracking import ProductionTracking, ExecutionFeedback, TrackingStage
 from app.models.memory import SupplierMemory, SupplierMemoryHistory
 from app.models.drawing import DrawingAsset
-from app.models.catalog import PartMaster, PartAlias
+from app.models.catalog import PartMaster, PartAlias, PartAttribute, PartObservation, ReviewQueueItem
 from app.models.geo import Country, RegionProfile, ExchangeRate, TariffRule
+from app.models.report_snapshot import ReportSnapshot
 
 # Backward-compat aliases for removed/renamed items
 RFQ = RFQBatch

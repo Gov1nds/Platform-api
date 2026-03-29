@@ -87,6 +87,13 @@ def startup():
         logger.warning(f"Geo seeding skipped: {e}")
 
     try:
+        from app.services.seed_service import seed_canonical_parts
+        logger.info("Seeding canonical parts...")
+        seed_canonical_parts(db)
+    except Exception as e:
+        logger.warning(f"Canonical part seeding skipped: {e}")
+
+    try:
         from app.services.pricing_service import expire_stale_prices
         expired = expire_stale_prices(db)
         if expired:
