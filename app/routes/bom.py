@@ -1,18 +1,39 @@
-"""BOM routes — upload, analyze, unlock, and project snapshot creation.
+"""
+BOM routes — upload, analyze, unlock, and project snapshot creation.
+
+Integration points (in upload order):
+  1. analyzer_service   — AI extraction of BOM parts
+  2. bom_service        — persist BOM + BOMPart rows
+  3. pricing_service    — external price enrichment
+  4. strategy_service   — procurement strategy build
+  5. procurement_planner— line-item plan generation
+  6. project_service    — upsert Project snapshot
+  7. resolver_service   — canonical part matching + learning loop
+  8. review_service     — queue unresolved / soft-matched parts for human review
+
 Updated for PostgreSQL schema.
 """
 from __future__ import annotations
+
 import logging
 from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.models.user import User
 from app.models.bom import BOM
 from app.models.analysis import AnalysisResult
 from app.schemas.bom import BOMUploadResponse, BOMUnlockRequest, BOMUnlockResponse
 from app.utils.dependencies import get_current_user
-from app.services import bom_service, analyzer_service, pricing_service, vendor_service, project_service
+from app.services import (
+    bom_service,
+    analyzer_service,
+    pricing_service,
+    vendor_service,
+    project_service,
+)
 from app.services.strategy_service import build_strategy_output
 from app.services.procurement_planner import generate_procurement_plan
 from app.services import resolver_service
@@ -21,6 +42,10 @@ from app.services import review_service
 logger = logging.getLogger("routes.bom")
 router = APIRouter(prefix="/bom", tags=["bom"])
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UPLOAD  (main pipeline)
+# ══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/upload", response_model=BOMUploadResponse)
 async def bom_upload(
@@ -35,46 +60,68 @@ async def bom_upload(
     content = await file.read()
     filename = file.filename or "upload.csv"
 
+    # ── 1. AI extraction ──────────────────────────────────────────────────────
     try:
         analyzer_output = await analyzer_service.call_analyzer(
-            file_bytes=content, filename=filename,
-            user_location=delivery_location, target_currency=target_currency,
+            file_bytes=content,
+            filename=filename,
+            user_location=delivery_location,
+            target_currency=target_currency,
         )
     except RuntimeError as e:
         logger.error("Analyzer call failed: %s", e)
         raise HTTPException(status_code=502, detail=str(e))
 
-    # vendor_service.seed_vendors already runs at startup — no need to re-seed per request
+    # vendor_service.seed_vendors runs at startup — no need to re-seed per request
 
+    # ── 2. Persist BOM + BOMPart rows ─────────────────────────────────────────
     bom = bom_service.create_bom_from_analyzer(
-        db, analyzer_output,
+        db,
+        analyzer_output,
         file_name=filename,
         file_type=filename.rsplit(".", 1)[-1] if "." in filename else "csv",
         user_id=user.id if user else None,
         session_token=session_token,
     )
 
+    # ── 3. Build strategy input ───────────────────────────────────────────────
     v2_report = analyzer_output.get("_v2_full_report")
     if v2_report and "section_2_component_breakdown" in v2_report:
         strategy_input = v2_report
     else:
-        strategy_input = {"section_2_component_breakdown": _components_to_section_2(analyzer_output.get("components", []))}
+        strategy_input = {
+            "section_2_component_breakdown": _components_to_section_2(
+                analyzer_output.get("components", [])
+            )
+        }
 
+    # ── 4. External price enrichment ─────────────────────────────────────────
     parts = bom_service.get_bom_parts_as_dicts(db, bom.id)
     external_pricing = pricing_service.fetch_external_pricing(parts)
-    enriched = pricing_service.enrich_analysis_with_pricing(strategy_input, db, external_pricing)
+    enriched = pricing_service.enrich_analysis_with_pricing(
+        strategy_input, db, external_pricing
+    )
 
+    # ── 5. Strategy + procurement plan ───────────────────────────────────────
     if priority not in ("cost", "speed"):
         priority = "cost"
 
     vendor_memories = vendor_service.get_vendor_memories(db)
     strategy = build_strategy_output(
-        strategy_input, delivery_location, vendor_memories,
-        pricing_history=[], external_pricing=external_pricing,
-        db=db, priority=priority, target_currency=target_currency,
+        strategy_input,
+        delivery_location,
+        vendor_memories,
+        pricing_history=[],
+        external_pricing=external_pricing,
+        db=db,
+        priority=priority,
+        target_currency=target_currency,
     )
-    procurement = generate_procurement_plan(strategy, target_currency, max_suppliers=5)
+    procurement = generate_procurement_plan(
+        strategy, target_currency, max_suppliers=5
+    )
 
+    # ── 6. Persist AnalysisResult ─────────────────────────────────────────────
     ps = strategy.get("procurement_strategy", {})
     cs = ps.get("cost_summary", {})
     rec = strategy.get("recommended_strategy", {})
@@ -88,8 +135,11 @@ async def bom_upload(
         structured_output={
             "strategy": strategy,
             "enriched": {
-                "analyzer": enriched, "procurement_plan": procurement,
-                "external_pricing": {k: v for k, v in external_pricing.items() if v},
+                "analyzer": enriched,
+                "procurement_plan": procurement,
+                "external_pricing": {
+                    k: v for k, v in external_pricing.items() if v
+                },
                 "priority": priority,
             },
         },
@@ -107,39 +157,94 @@ async def bom_upload(
 
     bom.status = "analyzed"
 
+    # ── 7. Project snapshot ───────────────────────────────────────────────────
     project = project_service.upsert_project_from_analysis(
-        db, bom=bom, analysis=analysis, analyzer_output=analyzer_output,
-        strategy=strategy, procurement=procurement,
+        db,
+        bom=bom,
+        analysis=analysis,
+        analyzer_output=analyzer_output,
+        strategy=strategy,
+        procurement=procurement,
     )
 
-    # Resolver: match BOM parts against canonical master and learn
-    match_results = []
-    try:
-        source_file = bom.source_file_name or filename
-        match_results = resolver_service.resolve_and_learn(db, parts, bom.id, source_file=source_file)
-        resolver_service.update_bom_parts_with_matches(db, bom.id, match_results, parts)
-    except Exception as e:
-        logger.warning(f"Resolver failed (non-fatal): {e}")
+    # ── 8. Resolver: canonical part matching + learning loop ──────────────────
+    #
+    # resolve_and_learn:
+    #   - Scores every BOM part against the PartMaster catalog
+    #   - auto_matched  → reinforces observation count + merges specs + aliases
+    #   - review_needed → same reinforcement, queued for human review
+    #   - create_new    → upserts a new PartMaster candidate from this observation
+    #   - error         → logs warning, appends error record, never aborts batch
+    #
+    # update_bom_parts_with_matches:
+    #   - Writes part_master_id, canonical_part_key, review_status back to BOMPart rows
+    #   - Single bulk fetch + dict lookup (no N+1)
+    #
+    # Both calls are wrapped independently so a resolver failure never
+    # prevents the BOM upload from completing.
+    # ─────────────────────────────────────────────────────────────────────────
+    match_results: list = []
 
-    # Create review queue items for unresolved/review-needed parts
+    try:
+
+     source_file = bom.source_file_name or filename
+
+     logger.info(f"[Resolver] Starting for BOM {bom.id} with {len(parts)} parts")
+
+     match_results = resolver_service.resolve_and_learn(
+        db,
+        parts,
+        bom.id,
+        source_file=source_file,
+      )
+
+     logger.info(
+        f"[Resolver] Completed for BOM {bom.id} | "
+        f"results={len(match_results)}"
+      )
+
+     resolver_service.update_bom_parts_with_matches(
+        db,
+        bom.id,
+        match_results,
+        parts,
+      )
+
+     logger.info(f"[Resolver] BOMPart linkage updated for BOM {bom.id}")
+ 
+    except Exception as e:
+     logger.warning(f"[Resolver] failed (non-fatal): {e}", exc_info=True)
+
+    # ── 9. Review queue: surface unresolved / soft-match parts ────────────────
+    #
+    # Creates ReviewItem rows for every part whose match_status is
+    # "unresolved" or "review_needed" so ops can manually verify them.
+    # Non-fatal: a queue failure must not roll back the BOM upload.
+    # ─────────────────────────────────────────────────────────────────────────
     try:
         if match_results:
-            review_service.create_review_items_from_resolver(db, bom.id, match_results, parts)
+            review_service.create_review_items_from_resolver(
+                db, bom.id, match_results, parts
+            )
     except Exception as e:
         logger.warning(f"Review queue creation failed (non-fatal): {e}")
 
+    # ── 10. Commit + refresh ──────────────────────────────────────────────────
     db.commit()
     db.refresh(bom)
     db.refresh(analysis)
     db.refresh(project)
 
+    # ── 11. Response ──────────────────────────────────────────────────────────
     if user:
         return BOMUploadResponse(
             bom_id=bom.id,
             session_token="",
             total_parts=bom.total_parts,
             status=bom.status,
-            preview=_build_authenticated_preview(project, analysis, strategy, procurement),
+            preview=_build_authenticated_preview(
+                project, analysis, strategy, procurement
+            ),
         )
 
     return BOMUploadResponse(
@@ -151,6 +256,10 @@ async def bom_upload(
     )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# UNLOCK  (authenticated full-report access)
+# ══════════════════════════════════════════════════════════════════════════════
+
 @router.post("/unlock", response_model=BOMUnlockResponse)
 def bom_unlock(
     body: BOMUnlockRequest,
@@ -161,20 +270,30 @@ def bom_unlock(
     if not bom:
         raise HTTPException(status_code=404, detail="BOM not found")
 
-    analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
+    analysis = (
+        db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
+    )
     project = project_service.get_project_by_bom_id(db, bom.id)
 
     authorized = False
+
+    # Auth path 1: logged-in owner
     if user and bom.uploaded_by_user_id == user.id:
         authorized = True
+
+    # Auth path 2: guest session token
     elif body.session_token:
         from app.models.user import GuestSession
+
         gs = db.query(GuestSession).filter(
             GuestSession.session_token == body.session_token,
             GuestSession.id == bom.guest_session_id,
         ).first()
+
         if gs:
             authorized = True
+
+            # Opportunistically claim the BOM for a newly-logged-in user
             if user and not bom.uploaded_by_user_id:
                 bom.uploaded_by_user_id = user.id
                 if project:
@@ -197,34 +316,50 @@ def bom_unlock(
     )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PRIVATE HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
 def _components_to_section_2(components: list) -> list:
+    """
+    Normalise a flat components list into the section_2_component_breakdown
+    shape expected by build_strategy_output when the v2 full report is absent.
+    """
     section_2 = []
     for comp in components:
-        section_2.append({
-            "item_id": comp.get("item_id", ""),
-            "description": comp.get("description", ""),
-            "quantity": comp.get("quantity", 1),
-            "material": comp.get("material", ""),
-            "mpn": comp.get("mpn", ""),
-            "manufacturer": comp.get("manufacturer", ""),
-            "notes": comp.get("notes", ""),
-            "category": comp.get("category", "standard"),
-            "classification_confidence": comp.get("classification_confidence", 0),
-            "geometry": comp.get("geometry"),
-            "tolerance": comp.get("tolerance"),
-            "material_form": comp.get("material_form"),
-            "secondary_ops": comp.get("secondary_ops", []),
-            "specs": comp.get("specs", {}),
-            "procurement_class": comp.get("procurement_class", "catalog_purchase"),
-            "rfq_required": comp.get("rfq_required", False),
-            "drawing_required": comp.get("drawing_required", False),
-            "is_custom": comp.get("is_custom", False),
-            "part_type": comp.get("part_type", "standard"),
-        })
+        section_2.append(
+            {
+                "item_id": comp.get("item_id", ""),
+                "description": comp.get("description", ""),
+                "quantity": comp.get("quantity", 1),
+                "material": comp.get("material", ""),
+                "mpn": comp.get("mpn", ""),
+                "manufacturer": comp.get("manufacturer", ""),
+                "notes": comp.get("notes", ""),
+                "category": comp.get("category", "standard"),
+                "classification_confidence": comp.get("classification_confidence", 0),
+                "geometry": comp.get("geometry"),
+                "tolerance": comp.get("tolerance"),
+                "material_form": comp.get("material_form"),
+                "secondary_ops": comp.get("secondary_ops", []),
+                "specs": comp.get("specs", {}),
+                "procurement_class": comp.get("procurement_class", "catalog_purchase"),
+                "rfq_required": comp.get("rfq_required", False),
+                "drawing_required": comp.get("drawing_required", False),
+                "is_custom": comp.get("is_custom", False),
+                "part_type": comp.get("part_type", "standard"),
+            }
+        )
     return section_2
 
 
-def _build_authenticated_preview(project, analysis, strategy, procurement):
+def _build_authenticated_preview(
+    project, analysis, strategy: dict, procurement: dict
+) -> dict:
+    """
+    Full response payload for authenticated users.
+    Guests receive a stripped version via project_service.build_guest_preview.
+    """
     return {
         "is_preview": False,
         "project_id": project.id,

@@ -1,12 +1,19 @@
-"""Database engine, session factory, and Base — PostgreSQL on Railway."""
+"""
+Database engine, session factory, and Base — PostgreSQL on Railway.
+"""
 
+import os
+import logging
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.core.config import settings
 
+logger = logging.getLogger("database")
+
 # -------------------------------------------------------------------
 # Engine Configuration
 # -------------------------------------------------------------------
+
 connect_args = {}
 
 if settings.is_sqlite:
@@ -15,16 +22,42 @@ if settings.is_sqlite:
 engine = create_engine(
     settings.DATABASE_URL,
     connect_args=connect_args,
+
+    # Connection health
     pool_pre_ping=True,
+
+    # Pool tuning (Railway safe)
     pool_size=10,
     max_overflow=20,
+    pool_timeout=30,
+    pool_recycle=1800,  # 30 mins
+
+    # Streaming large queries
+    execution_options={"stream_results": True},
+
     echo=False,
 )
 
+# -------------------------------------------------------------------
+# PostgreSQL Session Settings
+# -------------------------------------------------------------------
+
+if settings.is_postgres:
+
+    @event.listens_for(engine, "connect")
+    def set_postgres_session(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+
+        cursor.execute("SET statement_timeout TO 30000")
+        cursor.execute("SET lock_timeout TO 10000")
+        cursor.execute("SET idle_in_transaction_session_timeout TO 30000")
+
+        cursor.close()
 
 # -------------------------------------------------------------------
 # SQLite Optimizations (dev only)
 # -------------------------------------------------------------------
+
 if settings.is_sqlite:
 
     @event.listens_for(engine, "connect")
@@ -34,10 +67,10 @@ if settings.is_sqlite:
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-
 # -------------------------------------------------------------------
 # Session & Base
 # -------------------------------------------------------------------
+
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
@@ -46,31 +79,42 @@ SessionLocal = sessionmaker(
 
 Base = declarative_base()
 
-
 # -------------------------------------------------------------------
 # Dependency (FastAPI)
 # -------------------------------------------------------------------
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
+# -------------------------------------------------------------------
+# Database Health Check
+# -------------------------------------------------------------------
+
+def check_db_connection():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as e:
+        raise RuntimeError(f"Database connection failed: {e}")
 
 # -------------------------------------------------------------------
 # Initialize Database
 # -------------------------------------------------------------------
+
 def init_db():
     """
-    Import all models so SQLAlchemy registers them, then ensure the
-    required schemas/tables exist.
-
-    The Railway deploy was crashing because startup queried
-    pricing.vendors before the table existed. Creating schemas and
-    running metadata.create_all() makes a fresh database bootstrappable.
+    Import all models so SQLAlchemy registers them, then ensure schemas/tables exist.
     """
-    # Import models to register them with SQLAlchemy
+
+    # Import models (CRITICAL for metadata registration)
     import app.models.user
     import app.models.project
     import app.models.bom
@@ -86,29 +130,41 @@ def init_db():
     import app.models.report_snapshot
     import app.models.strategy_run
 
-    # Ensure schemas exist on PostgreSQL before table creation.
+    # -------------------------------------------------------------------
+    # PostgreSQL Schema Creation
+    # -------------------------------------------------------------------
+
     if settings.is_postgres:
-        schemas = ("auth", "bom", "projects", "pricing", "sourcing", "ops", "geo", "catalog")
+        schemas = (
+            "auth", "bom", "projects", "pricing",
+            "sourcing", "ops", "geo", "catalog"
+        )
+
         with engine.begin() as conn:
             for schema in schemas:
-                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+                try:
+                    conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+                except Exception as e:
+                    logger.error(f"Failed creating schema {schema}: {e}")
+                    raise
 
-    # Safe on both SQLite and PostgreSQL; only creates missing tables.
-    # Production defaults to migration-only. Dev/staging defaults to create_all.
-    import os
+    # -------------------------------------------------------------------
+    # Table Creation Strategy
+    # -------------------------------------------------------------------
+
     allow_raw = os.getenv("ALLOW_CREATE_ALL")
+
     if allow_raw is None:
-        # No explicit override — derive from environment
         allow_create = not settings.is_production
     else:
         allow_create = allow_raw.lower() in ("true", "1", "yes")
 
     if allow_create:
         Base.metadata.create_all(bind=engine)
+        logger.info("Tables created via metadata.create_all()")
     else:
-        import logging as _logging
-        _logging.getLogger("database").info(
+        logger.info(
             "ALLOW_CREATE_ALL=false (ENVIRONMENT=%s) — skipping create_all(). "
             "Use 'alembic upgrade head' for schema changes.",
-            getattr(settings, 'ENVIRONMENT', 'unknown'),
+            getattr(settings, "ENVIRONMENT", "unknown"),
         )

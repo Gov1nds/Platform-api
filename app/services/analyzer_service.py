@@ -1,22 +1,102 @@
 """
 Analyzer Service — HTTP Bridge to BOM Analyzer Microservice.
 
+Supports:
+- File upload (call_analyzer)
+- File path async call (analyze_bom)
+
 Handles BOTH response formats:
   - v3: { "components": [...], "summary": {...} }
-  - v2: { "section_1_executive_summary": {...}, "section_2_component_breakdown": [...], ... }
+  - v2: { "section_2_component_breakdown": [...] }
 
-If v2 response is detected, it transforms it into v3 format so the rest
-of Platform API (bom_service, routes/bom) can work with a single schema.
+Transforms v2 → v3 for platform consistency.
 """
 
 import logging
 import httpx
+import os
+import asyncio
 from typing import Dict, Any
 from app.core.config import settings
 
 logger = logging.getLogger("analyzer_service")
+
+# -------------------------------------------------------------------
+# Config
+# -------------------------------------------------------------------
+
+ENGINE_URL = os.getenv("BOM_ENGINE_URL") or settings.BOM_ANALYZER_URL
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY") or settings.INTERNAL_API_KEY
+
 TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
+
+# -------------------------------------------------------------------
+# NEW: Async path-based analyzer call (worker-safe)
+# -------------------------------------------------------------------
+
+async def analyze_bom(
+    file_path: str,
+    user_location: str,
+    target_currency: str,
+    email: str,
+) -> Dict[str, Any]:
+    """
+    Async-safe call to BOM engine using file path.
+    Includes retry, timeout, and structured error handling.
+    """
+
+    timeout = httpx.Timeout(60.0, connect=10.0)
+
+    headers = {
+        "X-Internal-Key": INTERNAL_API_KEY or "",
+    }
+
+    payload = {
+        "file_path": file_path,
+        "user_location": user_location,
+        "target_currency": target_currency,
+        "email": email,
+    }
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(3):
+            try:
+                resp = await client.post(
+                    f"{ENGINE_URL}/api/analyze-bom",
+                    json=payload,
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                result = resp.json()
+                return _normalize_response(result)
+
+            except httpx.TimeoutException:
+                logger.error("Analyzer timeout (attempt %s)", attempt + 1)
+                if attempt == 2:
+                    raise RuntimeError("Analysis timed out")
+
+            except httpx.ConnectError:
+                logger.error("Analyzer unreachable")
+                if attempt == 2:
+                    raise RuntimeError("Analyzer service unavailable")
+
+            except httpx.HTTPStatusError as e:
+                logger.error("Analyzer HTTP error: %s", e.response.status_code)
+                if attempt == 2:
+                    raise RuntimeError(f"Analyzer error {e.response.status_code}")
+
+            except Exception as e:
+                logger.error("Unexpected analyzer error: %s", str(e))
+                if attempt == 2:
+                    raise
+
+            await asyncio.sleep(0.5 * (attempt + 1))
+
+
+# -------------------------------------------------------------------
+# EXISTING: File upload analyzer call (PRESERVED + HARDENED)
+# -------------------------------------------------------------------
 
 async def call_analyzer(
     file_bytes: bytes,
@@ -26,12 +106,14 @@ async def call_analyzer(
 ) -> Dict[str, Any]:
     """
     Forward raw BOM file to BOM Analyzer service.
-    Returns normalized data — auto-detects v2 or v3 response format.
+    Handles v2/v3 response formats.
     """
-    url = f"{settings.BOM_ANALYZER_URL}/api/analyze-bom"
+
+    url = f"{ENGINE_URL}/api/analyze-bom"
+
     headers = {}
-    if settings.INTERNAL_API_KEY:
-        headers["X-Internal-Key"] = settings.INTERNAL_API_KEY
+    if INTERNAL_API_KEY:
+        headers["X-Internal-Key"] = INTERNAL_API_KEY
 
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         try:
@@ -45,27 +127,43 @@ async def call_analyzer(
                 headers=headers,
             )
             resp.raise_for_status()
+
         except httpx.TimeoutException:
             logger.error("BOM Analyzer timed out")
             raise RuntimeError("Analysis timed out. Try a smaller BOM file.")
+
         except httpx.HTTPStatusError as e:
             logger.error(f"Analyzer HTTP {e.response.status_code}")
             raise RuntimeError(f"Analysis service error: {e.response.status_code}")
+
         except httpx.ConnectError:
             logger.error("Cannot reach BOM Analyzer")
             raise RuntimeError("Analysis service unavailable")
 
     result = resp.json()
+    return _normalize_response(result)
 
-    # ── v3 format: already has "components" ──
+
+# -------------------------------------------------------------------
+# NORMALIZATION (SHARED)
+# -------------------------------------------------------------------
+
+def _normalize_response(result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize analyzer response to v3 format.
+    """
+
+    # v3 format
     if "components" in result:
-        logger.info(f"Analyzer returned v3 format: {len(result['components'])} components")
+        logger.info(f"Analyzer v3: {len(result['components'])} components")
         return result
 
-    # ── v2 format: has "section_1_executive_summary" — transform to v3 ──
+    # v2 format
     if "section_2_component_breakdown" in result:
-        logger.info("Analyzer returned v2 format — transforming to v3")
+        logger.info("Analyzer v2 detected — transforming")
+
         components = _transform_v2_to_v3(result)
+
         return {
             "components": components,
             "summary": {
@@ -73,22 +171,22 @@ async def call_analyzer(
                 "categories": _count_categories(components),
             },
             "_meta": result.get("_meta", {}),
-            "_v2_full_report": result,  # keep original for enriched output
+            "_v2_full_report": result,
         }
 
-    raise RuntimeError("Invalid analyzer response — unrecognized format")
+    raise RuntimeError("Invalid analyzer response — unknown format")
 
+
+# -------------------------------------------------------------------
+# V2 → V3 TRANSFORM (UNCHANGED LOGIC)
+# -------------------------------------------------------------------
 
 def _transform_v2_to_v3(v2_result: Dict) -> list:
-    """
-    Transform v2 section_2_component_breakdown items into v3 component format.
-    """
     s2 = v2_result.get("section_2_component_breakdown", [])
     components = []
 
     for item in s2:
         comp = {
-            # Identity
             "item_id": item.get("item_id", ""),
             "raw_text": item.get("description", ""),
             "standard_text": item.get("description", ""),
@@ -100,31 +198,34 @@ def _transform_v2_to_v3(v2_result: Dict) -> list:
             "material": item.get("material", ""),
             "notes": item.get("notes", ""),
             "unit": "each",
-            # Classification
+
             "category": item.get("category", "standard"),
             "classification_path": item.get("classification_path", "3_1"),
             "classification_confidence": item.get("confidence", 0),
             "classification_reason": item.get("classification_reason", ""),
+
             "has_mpn": bool(item.get("mpn")),
             "has_brand": bool(item.get("manufacturer")),
             "is_generic": item.get("is_generic", False),
             "is_raw": item.get("is_raw", False),
             "is_custom": item.get("is_custom", False),
-            # Manufacturing attributes
+
             "material_form": item.get("material_form"),
             "geometry": item.get("geometry"),
             "tolerance": item.get("tolerance"),
             "secondary_ops": item.get("secondary_ops", []),
-            # Specs
+
             "specs": item.get("specs", {}),
-            # Procurement intent
+
             "procurement_class": item.get("procurement_class", "catalog_purchase"),
             "rfq_required": item.get("rfq_required", False),
             "drawing_required": item.get("drawing_required", False),
-            "part_type": "custom" if item.get("is_custom", False) else "standard",
-            # Canonical key (from engine v4.1+)
+
+            "part_type": "custom" if item.get("is_custom") else "standard",
+
             "canonical_part_key": item.get("canonical_part_key", ""),
         }
+
         components.append(comp)
 
     return components
@@ -138,11 +239,14 @@ def _count_categories(components: list) -> Dict[str, int]:
     return counts
 
 
+# -------------------------------------------------------------------
+# HEALTH CHECK
+# -------------------------------------------------------------------
+
 async def health_check() -> Dict[str, Any]:
-    """Check if BOM Analyzer is reachable."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(f"{settings.BOM_ANALYZER_URL}/health")
+            r = await client.get(f"{ENGINE_URL}/health")
             return {"status": "ok", "analyzer": r.json()}
     except Exception as e:
         return {"status": "degraded", "error": str(e)}
