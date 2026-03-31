@@ -135,18 +135,21 @@ def init_db():
     # -------------------------------------------------------------------
 
     if settings.is_postgres:
-        schemas = (
-            "auth", "bom", "projects", "pricing",
-            "sourcing", "ops", "geo", "catalog"
-        )
+     schemas = (
+        "auth", "bom", "projects", "pricing",
+        "sourcing", "ops", "geo", "catalog"
+     )
 
-        with engine.begin() as conn:
-            for schema in schemas:
-                try:
-                    conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
-                except Exception as e:
-                    logger.error(f"Failed creating schema {schema}: {e}")
-                    raise
+    with engine.begin() as conn:
+        # 🔥 disable streaming for DDL
+        conn = conn.execution_options(stream_results=False)
+
+        for schema in schemas:
+            try:
+                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+            except Exception as e:
+                logger.error(f"Failed creating schema {schema}: {e}")
+                raise
 
     # -------------------------------------------------------------------
     # Table Creation Strategy
