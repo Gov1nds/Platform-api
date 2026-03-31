@@ -18,14 +18,18 @@ _CUSTOM_CATEGORIES = {"custom_mechanical", "sheet_metal", "custom", "machined"}
 
 
 def _row_hash(comp: Dict[str, Any]) -> str:
-    """Deterministic hash of a component's identity fields for dedup tracking."""
     key_fields = {
         "item_id": comp.get("item_id", ""),
+        "canonical_part_key": comp.get("canonical_part_key", ""),
         "description": comp.get("description", ""),
+        "standard_text": comp.get("standard_text", ""),
         "mpn": comp.get("mpn", ""),
         "manufacturer": comp.get("manufacturer", ""),
         "material": comp.get("material", ""),
+        "category": comp.get("category", ""),
         "quantity": comp.get("quantity", 1),
+        "source_sheet": comp.get("source_sheet", ""),
+        "source_row": comp.get("source_row", 0),
     }
     return hashlib.sha256(json.dumps(key_fields, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -114,7 +118,7 @@ def create_bom_from_analyzer(
         if procurement_class not in valid_classes:
             procurement_class = "custom_manufacture" if custom else "catalog_purchase"
 
-        db.add(BOMPart(
+            db.add(BOMPart(
             bom_id=bom.id,
             item_id=comp.get("item_id", str(idx + 1)),
             raw_text=comp.get("raw_text", ""),
@@ -122,17 +126,25 @@ def create_bom_from_analyzer(
             canonical_name=comp.get("description") or comp.get("standard_text", ""),
             description=comp.get("description", ""),
             quantity=max(1, int(comp.get("quantity", 1))),
+            unit=comp.get("unit", "each"),
             part_number=comp.get("part_number", ""),
             mpn=comp.get("mpn", ""),
             manufacturer=comp.get("manufacturer", ""),
+            supplier_name=comp.get("supplier_name", ""),
             category_code=category_code,
             procurement_class=procurement_class,
             material=comp.get("material", ""),
+            material_family=comp.get("material_family"),
+            material_grade=comp.get("material_grade"),
             material_form=comp.get("material_form"),
             geometry=comp.get("geometry"),
             tolerance=comp.get("tolerance"),
+            finish=comp.get("finish"),
+            operation_type=comp.get("operation_type"),
+            process_hint=comp.get("process_hint"),
             secondary_ops=comp.get("secondary_ops", []),
             specs=comp.get("specs", {}),
+            classification_path=comp.get("classification_path", []),
             classification_confidence=comp.get("classification_confidence", 0),
             classification_reason=comp.get("classification_reason", ""),
             has_mpn=comp.get("has_mpn", False),
@@ -142,10 +154,20 @@ def create_bom_from_analyzer(
             is_custom=custom,
             rfq_required=rfq_required,
             drawing_required=drawing_required,
-            source_row=idx + 1,
+            source_row=comp.get("source_row", idx + 1),
             source_row_hash=_row_hash(comp),
             canonical_part_key=comp.get("canonical_part_key", ""),
             review_status=comp.get("review_status", "auto"),
+            metadata_={
+                "source_file": file_name or "upload.csv",
+                "source_sheet": comp.get("source_sheet", ""),
+                "source_row": comp.get("source_row", idx + 1),
+                "source_rows": comp.get("source_rows", []),
+                "source_sheets": comp.get("source_sheets", []),
+                "dedup_key": comp.get("dedup_key", ""),
+                "duplicate_count": comp.get("duplicate_count", 1),
+                "analyzer_meta": meta,
+            },
         ))
 
     # FIXED: flush instead of commit — let the route handler own the transaction
@@ -163,23 +185,54 @@ def get_bom(db: Session, bom_id: str) -> Optional[BOM]:
 
 
 def get_bom_parts_as_dicts(db: Session, bom_id: str) -> List[Dict[str, Any]]:
+    bom = db.query(BOM).filter(BOM.id == bom_id).first()
     parts = db.query(BOMPart).filter(BOMPart.bom_id == bom_id).all()
+    source_file = bom.source_file_name if bom else ""
+
     return [
         {
+            "bom_part_id": str(p.id),
+            "bom_id": str(p.bom_id),
+            "source_file": source_file,
+            "source_sheet": (p.metadata_ or {}).get("source_sheet", ""),
+            "source_row": (p.metadata_ or {}).get("source_row", p.source_row),
+            "source_rows": (p.metadata_ or {}).get("source_rows", []),
+            "source_sheets": (p.metadata_ or {}).get("source_sheets", []),
+            "dedup_key": (p.metadata_ or {}).get("dedup_key", ""),
+            "duplicate_count": (p.metadata_ or {}).get("duplicate_count", 1),
+
             "part_name": p.canonical_name or p.description or "",
+            "raw_text": p.raw_text or "",
+            "standard_text": p.normalized_text or "",
+            "description": p.description or "",
+            "part_number": p.part_number or "",
             "quantity": int(p.quantity) if p.quantity else 1,
+            "unit": p.unit or "each",
             "material": p.material or "",
+            "material_family": p.material_family or "",
+            "material_grade": p.material_grade or "",
+            "material_form": p.material_form or "",
+            "geometry": p.geometry or "",
+            "tolerance": p.tolerance or "",
+            "finish": p.finish or "",
+            "operation_type": p.operation_type or "",
+            "process_hint": p.process_hint or "",
             "manufacturer": p.manufacturer or "",
+            "supplier_name": p.supplier_name or "",
             "mpn": p.mpn or "",
             "notes": p.raw_text or "",
             "category": p.category_code or "",
             "specs": p.specs or {},
+            "classification_path": p.classification_path or [],
+            "classification_confidence": float(p.classification_confidence or 0),
+            "classification_reason": p.classification_reason or "",
             "is_custom": p.is_custom or False,
             "part_type": "custom" if p.is_custom else "standard",
             "rfq_required": p.rfq_required or False,
             "drawing_required": p.drawing_required or False,
             "procurement_class": p.procurement_class or "catalog_purchase",
             "canonical_part_key": p.canonical_part_key or "",
+            "review_status": p.review_status or "auto",
         }
         for p in parts
     ]

@@ -115,7 +115,8 @@ async def bom_upload(
     # Resolver: match BOM parts against canonical master and learn
     match_results = []
     try:
-        match_results = resolver_service.resolve_and_learn(db, parts)
+        source_file = bom.source_file_name or filename
+        match_results = resolver_service.resolve_and_learn(db, parts, bom.id, source_file=source_file)
         resolver_service.update_bom_parts_with_matches(db, bom.id, match_results, parts)
     except Exception as e:
         logger.warning(f"Resolver failed (non-fatal): {e}")

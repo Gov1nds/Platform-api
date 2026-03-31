@@ -55,9 +55,52 @@ def _similarity(a: str, b: str) -> float:
     union = ta | tb
     return len(intersection) / len(union)
 
+def _clean_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+def _normalize_alias(value: Any) -> str:
+    return _clean_text(value)
+
+def _spec_overlap_score(part: Dict[str, Any], candidate: PartMaster) -> Tuple[float, List[str]]:
+    part_specs = part.get("specs") or {}
+    cand_specs = candidate.specs or {}
+
+    if not isinstance(part_specs, dict) or not isinstance(cand_specs, dict):
+        return 0.0, []
+
+    score = 0.0
+    reasons: List[str] = []
+
+    for key, pval in part_specs.items():
+        if pval in (None, "", [], {}):
+            continue
+        cval = cand_specs.get(key)
+        if cval in (None, "", [], {}):
+            continue
+
+        p = _clean_text(pval)
+        c = _clean_text(cval)
+
+        if not p or not c:
+            continue
+        if p == c:
+            score += 0.04
+            reasons.append(f"Spec exact: {key}")
+        elif p in c or c in p:
+            score += 0.02
+            reasons.append(f"Spec partial: {key}")
+
+    return min(0.15, score), reasons
+
+def _feedback_boost(candidate: PartMaster) -> float:
+    obs = float(candidate.observation_count or 0)
+    conf = float(candidate.confidence or 0)
+
+    boost = min(0.10, obs * 0.002)
+    boost += min(0.08, conf * 0.08)
+    return min(0.15, boost)
 
 def score_candidate(candidate: PartMaster, part: Dict[str, Any]) -> Dict[str, Any]:
-    """Score a candidate match with transparent breakdown."""
     score = 0.0
     reasons = []
 
@@ -65,10 +108,13 @@ def score_candidate(candidate: PartMaster, part: Dict[str, Any]) -> Dict[str, An
     cand_mpn = _clean_mpn(candidate.mpn or "")
     part_mfr = _normalize_mfr(part.get("manufacturer", ""))
     cand_mfr = _normalize_mfr(candidate.manufacturer or "")
-    part_desc = (part.get("description") or part.get("part_name") or "").lower()
-    cand_desc = (candidate.description or "").lower()
+    part_desc = _clean_text(part.get("description") or part.get("part_name") or part.get("standard_text") or "")
+    cand_desc = _clean_text(candidate.description or "")
+    part_cat = _clean_text(part.get("category") or "")
+    cand_cat = _clean_text(candidate.category or "")
+    part_domain = _clean_text(part.get("category") or "unknown")
+    cand_domain = _clean_text(candidate.domain or "unknown")
 
-    # MPN match (highest weight)
     if part_mpn and cand_mpn:
         if part_mpn == cand_mpn:
             score += 0.45
@@ -77,7 +123,6 @@ def score_candidate(candidate: PartMaster, part: Dict[str, Any]) -> Dict[str, An
             score += 0.25
             reasons.append(f"MPN partial: {part_mpn} ~ {cand_mpn}")
 
-    # Manufacturer match
     if part_mfr and cand_mfr:
         if part_mfr == cand_mfr:
             score += 0.20
@@ -86,39 +131,42 @@ def score_candidate(candidate: PartMaster, part: Dict[str, Any]) -> Dict[str, An
             score += 0.10
             reasons.append(f"Manufacturer partial: {part_mfr} ~ {cand_mfr}")
 
-    # Category match
-    part_cat = (part.get("category") or "").lower()
-    cand_cat = (candidate.category or "").lower()
     if part_cat and cand_cat and part_cat == cand_cat:
         score += 0.10
         reasons.append(f"Category match: {part_cat}")
 
-    # Domain match
-    part_domain = (part.get("category") or "unknown").lower()
-    cand_domain = (candidate.domain or "unknown").lower()
     if part_domain == cand_domain:
         score += 0.05
         reasons.append(f"Domain match: {part_domain}")
 
-    # Description similarity
     desc_sim = _similarity(part_desc, cand_desc)
     if desc_sim > 0.3:
         desc_contrib = min(0.20, desc_sim * 0.25)
         score += desc_contrib
         reasons.append(f"Description similarity: {desc_sim:.2f}")
 
-    # Material match
-    part_mat = (part.get("material") or "").lower()
-    cand_mat = (candidate.material or "").lower()
-    if part_mat and cand_mat and (part_mat == cand_mat or part_mat in cand_mat):
+    part_mat = _clean_text(part.get("material") or "")
+    cand_mat = _clean_text(candidate.material or "")
+    if part_mat and cand_mat and (part_mat == cand_mat or part_mat in cand_mat or cand_mat in part_mat):
         score += 0.05
         reasons.append(f"Material match: {part_mat}")
 
-    # Canonical key exact match (highest possible)
+    spec_boost, spec_reasons = _spec_overlap_score(part, candidate)
+    if spec_boost:
+        score += spec_boost
+        reasons.extend(spec_reasons)
+
+    cal_boost = _feedback_boost(candidate)
+    if cal_boost:
+        score += cal_boost
+        reasons.append(
+            f"Calibration boost: obs={candidate.observation_count or 0}, confidence={candidate.confidence or 0}"
+        )
+
     part_key = part.get("canonical_part_key", "")
     if part_key and part_key == candidate.canonical_part_key:
         score = max(score, 0.95)
-        reasons.insert(0, f"Canonical key exact match")
+        reasons.insert(0, "Canonical key exact match")
 
     return {
         "candidate_id": candidate.id,
@@ -132,14 +180,6 @@ def score_candidate(candidate: PartMaster, part: Dict[str, Any]) -> Dict[str, An
 
 
 def find_candidates(db: Session, part: Dict[str, Any], limit: int = 10) -> List[Dict[str, Any]]:
-    """Multi-strategy candidate retrieval:
-    1. Exact canonical key
-    2. Exact MPN
-    3. Manufacturer + MPN
-    4. Alias lookup
-    5. Normalized text match
-    6. Category + description fuzzy
-    """
     candidates: List[PartMaster] = []
     seen_ids = set()
 
@@ -151,29 +191,32 @@ def find_candidates(db: Session, part: Dict[str, Any], limit: int = 10) -> List[
 
     canonical_key = part.get("canonical_part_key", "")
     mpn = _clean_mpn(part.get("mpn", ""))
+    part_number = _clean_mpn(part.get("part_number", ""))
     mfr = _normalize_mfr(part.get("manufacturer", ""))
-    desc_text = (part.get("description") or part.get("part_name") or "").strip().lower()[:60]
+    desc_text = _clean_text(part.get("description") or part.get("part_name") or part.get("standard_text") or "")[:80]
 
-    # 1. Exact canonical key
     if canonical_key:
-        _add(db.query(PartMaster).filter(
-            PartMaster.canonical_part_key == canonical_key
-        ).limit(1).all())
+        _add(db.query(PartMaster).filter(PartMaster.canonical_part_key == canonical_key).limit(1).all())
 
-    # 2. Exact MPN
     if mpn and len(mpn) >= 3:
-        _add(db.query(PartMaster).filter(
-            func.upper(func.replace(PartMaster.mpn, " ", "")) == mpn
-        ).limit(3).all())
+        _add(db.query(PartMaster).filter(func.upper(func.replace(PartMaster.mpn, " ", "")) == mpn).limit(3).all())
 
-    # 3. Manufacturer + MPN combo
+    if part_number and len(part_number) >= 3 and part_number != mpn:
+        alias_matches = (
+            db.query(PartMaster)
+            .join(PartAlias, PartAlias.part_master_id == PartMaster.id)
+            .filter(PartAlias.normalized_value == part_number.lower())
+            .limit(3)
+            .all()
+        )
+        _add(alias_matches)
+
     if mpn and mfr:
         _add(db.query(PartMaster).filter(
             func.upper(func.replace(PartMaster.mpn, " ", "")) == mpn,
             func.lower(PartMaster.manufacturer).contains(mfr[:15])
         ).limit(3).all())
 
-    # 4. Alias lookup
     if mpn and len(mpn) >= 3:
         alias_matches = (
             db.query(PartMaster)
@@ -189,22 +232,18 @@ def find_candidates(db: Session, part: Dict[str, Any], limit: int = 10) -> List[
             db.query(PartMaster)
             .join(PartAlias, PartAlias.part_master_id == PartMaster.id)
             .filter(
-                PartAlias.alias_type == "description",
-                PartAlias.normalized_value == desc_text[:40]
+                PartAlias.alias_type.in_(("description", "name")),
+                PartAlias.normalized_value == desc_text
             )
             .limit(3)
             .all()
         )
         _add(alias_desc)
 
-    # 5. Category + domain match (broader)
-    category = (part.get("category") or "").lower()
+    category = _clean_text(part.get("category") or "")
     if category and category != "unknown" and len(candidates) < limit:
-        _add(db.query(PartMaster).filter(
-            PartMaster.category == category
-        ).order_by(desc(PartMaster.observation_count)).limit(5).all())
+        _add(db.query(PartMaster).filter(PartMaster.category == category).order_by(desc(PartMaster.observation_count)).limit(5).all())
 
-    # Score all candidates
     scored = [score_candidate(c, part) for c in candidates]
     scored.sort(key=lambda x: -x["score"])
     return scored[:limit]
@@ -261,9 +300,6 @@ def resolve_part(db: Session, part: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def upsert_canonical_part(db: Session, part: Dict[str, Any]) -> PartMaster:
-    """Create or update a canonical part master entry from a BOM observation.
-    Used when a part is unresolved and needs a new canonical entry,
-    or when a human approves a new part."""
     canonical_key = part.get("canonical_part_key", "")
     if not canonical_key:
         return None
@@ -272,19 +308,35 @@ def upsert_canonical_part(db: Session, part: Dict[str, Any]) -> PartMaster:
         PartMaster.canonical_part_key == canonical_key
     ).first()
 
+    incoming_specs = part.get("specs", {}) if isinstance(part.get("specs", {}), dict) else {}
+
     if existing:
-        # Update observation count
         existing.observation_count = (existing.observation_count or 0) + 1
         existing.updated_at = datetime.utcnow()
-        # Update confidence if engine's is higher
-        engine_conf = part.get("classification_confidence", 0)
+
+        engine_conf = float(part.get("classification_confidence", 0) or 0)
         if engine_conf > float(existing.confidence or 0):
             existing.confidence = engine_conf
+
+        if not existing.description and part.get("description"):
+            existing.description = part.get("description", "")
+        if not existing.mpn and part.get("mpn"):
+            existing.mpn = part.get("mpn", "")
+        if not existing.manufacturer and part.get("manufacturer"):
+            existing.manufacturer = part.get("manufacturer", "")
+        if not existing.material and part.get("material"):
+            existing.material = part.get("material", "")
+        if not existing.material_grade and incoming_specs.get("material_grade"):
+            existing.material_grade = incoming_specs.get("material_grade", "")
+        if not existing.material_form and part.get("material_form"):
+            existing.material_form = part.get("material_form", "")
+        existing.specs = _merge_specs(existing.specs or {}, incoming_specs)
+
+        _create_aliases(db, existing, part)
         db.flush()
         return existing
 
-    # Create new entry
-    category = (part.get("category") or "unknown").lower()
+    category = _clean_text(part.get("category") or "unknown")
     pm = PartMaster(
         canonical_part_key=canonical_key,
         domain=category,
@@ -294,9 +346,9 @@ def upsert_canonical_part(db: Session, part: Dict[str, Any]) -> PartMaster:
         mpn=part.get("mpn", ""),
         manufacturer=part.get("manufacturer", ""),
         material=part.get("material", ""),
-        material_grade=part.get("specs", {}).get("material_grade", ""),
+        material_grade=incoming_specs.get("material_grade", ""),
         material_form=part.get("material_form", ""),
-        specs=part.get("specs", {}),
+        specs=incoming_specs,
         review_status=part.get("review_status", "auto"),
         confidence=part.get("classification_confidence", 0),
         source="observed",
@@ -305,25 +357,34 @@ def upsert_canonical_part(db: Session, part: Dict[str, Any]) -> PartMaster:
     db.add(pm)
     db.flush()
 
-    # Create aliases for this part
     _create_aliases(db, pm, part)
-
     return pm
 
+def _merge_specs(current: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(current or {})
+    for k, v in (incoming or {}).items():
+        if v in (None, "", [], {}):
+            continue
+        if k not in merged or merged.get(k) in (None, "", [], {}):
+            merged[k] = v
+    return merged
 
 def _create_aliases(db: Session, pm: PartMaster, part: Dict[str, Any]):
-    """Create alias entries for a newly inserted PartMaster."""
     mpn = _clean_mpn(part.get("mpn", ""))
     if mpn and len(mpn) >= 3:
         _add_alias(db, pm.id, "mpn", part.get("mpn", ""), mpn.lower())
 
-    desc_text = (part.get("description") or "").strip()
+    desc_text = _clean_text(part.get("description") or part.get("standard_text") or "")
     if desc_text and len(desc_text) >= 5:
-        _add_alias(db, pm.id, "description", desc_text, desc_text.lower()[:40])
+        _add_alias(db, pm.id, "description", part.get("description") or desc_text, desc_text)
 
-    part_number = (part.get("part_number") or "").strip()
+    part_number = _clean_text(part.get("part_number") or "")
     if part_number and part_number != mpn and len(part_number) >= 3:
-        _add_alias(db, pm.id, "supplier_pn", part_number, part_number.lower())
+        _add_alias(db, pm.id, "supplier_pn", part.get("part_number"), part_number)
+
+    mfr = _clean_text(part.get("manufacturer") or "")
+    if mfr and len(mfr) >= 3:
+        _add_alias(db, pm.id, "manufacturer", part.get("manufacturer"), mfr)
 
 
 def _add_alias(db: Session, part_master_id: str, alias_type: str,
@@ -343,30 +404,56 @@ def _add_alias(db: Session, part_master_id: str, alias_type: str,
         db.flush()
 
 
-def resolve_and_learn(db: Session, bom_parts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Resolve all parts in a BOM and learn from unresolved ones.
-    Called after BOM creation to populate part_master from observations.
-    Also records PartObservation and extracts PartAttributes."""
+def resolve_and_learn(
+    db: Session,
+    bom_parts: List[Dict[str, Any]],
+    bom_id: str,
+    source_file: str = "",
+) -> List[Dict[str, Any]]:
     results = []
+
     for part in bom_parts:
         try:
+            part = dict(part)
+            part.setdefault("bom_id", bom_id)
+            part.setdefault("source_file", source_file)
+
             decision = resolve_part(db, part)
+            decision["bom_part_id"] = part.get("bom_part_id")
+            decision["bom_id"] = bom_id
+            decision["source_file"] = part.get("source_file", source_file)
+            decision["source_sheet"] = part.get("source_sheet", "")
+            decision["source_row"] = part.get("source_row")
+            decision["raw_text"] = part.get("raw_text", part.get("description", ""))
+            decision["normalized_text"] = part.get("standard_text", part.get("normalized_text", ""))
+
+            matched_master_id = decision.get("matched_master_id")
 
             if decision["action"] == "create_new":
-                # Auto-create canonical entry from observation
                 pm = upsert_canonical_part(db, part)
                 if pm:
                     decision["matched_master_id"] = pm.id
                     decision["match_reason"] = "New canonical entry created from observation"
-                    _record_observation(db, pm.id, part, decision)
+                    _record_observation(db, pm.id, part, decision, bom_id=bom_id, source_file=source_file)
                     _extract_and_store_attributes(db, pm.id, part)
-            elif decision["action"] == "accept":
-                # Update observation count on matched master
-                pm = upsert_canonical_part(db, part)
+
+            elif decision["action"] in ("accept", "review") and matched_master_id:
+                pm = db.query(PartMaster).filter(PartMaster.id == matched_master_id).first()
                 if pm:
-                    _record_observation(db, pm.id, part, decision)
+                    pm.observation_count = (pm.observation_count or 0) + 1
+                    pm.updated_at = datetime.utcnow()
+                    engine_conf = float(part.get("classification_confidence", 0) or 0)
+                    if engine_conf > float(pm.confidence or 0):
+                        pm.confidence = engine_conf
+                    existing_specs = pm.specs or {}
+                    incoming_specs = part.get("specs", {}) if isinstance(part.get("specs", {}), dict) else {}
+                    pm.specs = _merge_specs(existing_specs, incoming_specs)
+                    _create_aliases(db, pm, part)
+                    _record_observation(db, pm.id, part, decision, bom_id=bom_id, source_file=source_file)
+                    _extract_and_store_attributes(db, pm.id, part)
 
             results.append(decision)
+
         except Exception as e:
             logger.warning(f"Resolve failed for {part.get('item_id', '?')}: {e}")
             results.append({
@@ -377,21 +464,32 @@ def resolve_and_learn(db: Session, bom_parts: List[Dict[str, Any]]) -> List[Dict
                 "canonical_part_key": part.get("canonical_part_key", ""),
                 "candidates": [],
                 "action": "skip",
+                "bom_part_id": part.get("bom_part_id"),
+                "bom_id": bom_id,
             })
 
     return results
 
 
-def _record_observation(db: Session, part_master_id: str, part: Dict, decision: Dict):
-    """Record a PartObservation for every BOM row that references a canonical part."""
+def _record_observation(
+    db: Session,
+    part_master_id: str,
+    part: Dict,
+    decision: Dict,
+    bom_id: str,
+    source_file: str = "",
+):
     try:
         db.add(PartObservation(
             part_master_id=part_master_id,
-            bom_id=part.get("_bom_id", ""),
+            bom_id=bom_id,
+            bom_part_id=part.get("bom_part_id"),
             raw_text=part.get("raw_text", part.get("description", "")),
             normalized_text=part.get("standard_text", part.get("normalized_text", "")),
             quantity=part.get("quantity", 1),
-            source_file=part.get("_source_file", ""),
+            source_file=source_file or part.get("source_file", ""),
+            source_sheet=part.get("source_sheet", ""),
+            source_row=part.get("source_row"),
             match_score=decision.get("match_score", 0),
             match_method=decision.get("match_status", "auto"),
         ))
@@ -400,36 +498,56 @@ def _record_observation(db: Session, part_master_id: str, part: Dict, decision: 
 
 
 def _extract_and_store_attributes(db: Session, part_master_id: str, part: Dict):
-    """Extract indexed attributes from part specs and store them."""
     specs = part.get("specs", {})
     if not specs or not isinstance(specs, dict):
         return
-    # Key spec fields to index
+
     _INDEX_KEYS = {
-        "resistance_ohm", "capacitance_f", "voltage_v", "package", "thread_size",
-        "length_mm", "diameter_mm", "thickness_mm", "material_grade", "material_name",
-        "material_family", "fastener_type", "head_type", "coating", "standard",
-        "component_type", "mounting", "tolerance_mm", "form",
+        # electrical / electronics
+        "resistance_ohm", "capacitance_f", "inductance_h", "voltage_v", "current_a",
+        "package", "tolerance_pct", "frequency_hz", "power_w", "connector_type",
+        "wire_gauge_awg", "shielding", "core_count", "insulation", "temperature_rating_c",
+
+        # mechanical / fastener
+        "thread_size", "length_mm", "diameter_mm", "thickness_mm", "material_grade",
+        "material_name", "material_family", "fastener_type", "head_type", "coating",
+        "standard", "form", "finish",
+
+        # pneumatic / hydraulic
+        "pressure_bar", "flow_rate_lpm", "port_size", "seal_type", "media", "valve_type",
+        "cylinder_bore", "stroke_mm",
+
+        # optical
+        "wavelength_nm", "fiber_type", "core_diameter_um", "lens_type", "optical_power_mw",
+        "connector_polish",
+
+        # thermal
+        "thermal_resistance_k_per_w", "thermal_conductivity_w_mk", "fan_size_mm",
+        "airflow_cfm", "heatsink_type", "pad_thickness_mm",
     }
+
     for key in _INDEX_KEYS:
         val = specs.get(key)
         if val is None:
             continue
-        str_val = str(val)
+
+        str_val = str(val).strip()
         if not str_val or str_val == "None":
             continue
-        # Check if already exists
+
         existing = db.query(PartAttribute).filter(
             PartAttribute.part_master_id == part_master_id,
             PartAttribute.attribute_key == key,
         ).first()
         if existing:
             continue
+
         numeric = None
         try:
             numeric = float(val)
         except (ValueError, TypeError):
             pass
+
         try:
             db.add(PartAttribute(
                 part_master_id=part_master_id,
@@ -442,21 +560,31 @@ def _extract_and_store_attributes(db: Session, part_master_id: str, part: Dict):
         except Exception:
             pass
 
+def update_bom_parts_with_matches(
+    db: Session,
+    bom_id: str,
+    match_results: List[Dict[str, Any]],
+    bom_parts_dicts: List[Dict[str, Any]],
+):
+    parts = db.query(BOMPart).filter(BOMPart.bom_id == bom_id).all()
+    part_by_id = {str(p.id): p for p in parts}
 
-def update_bom_parts_with_matches(db: Session, bom_id: str, match_results: List[Dict[str, Any]],
-                                   bom_parts_dicts: List[Dict[str, Any]]):
-    """Update BOMPart rows with resolver match results."""
-    parts = db.query(BOMPart).filter(BOMPart.bom_id == bom_id).order_by(BOMPart.source_row).all()
+    for mr in match_results:
+        bom_part_id = str(mr.get("bom_part_id") or "")
+        part = part_by_id.get(bom_part_id)
+        if not part:
+            continue
 
-    for i, part in enumerate(parts):
-        if i >= len(match_results):
-            break
-        mr = match_results[i]
         if mr.get("matched_master_id"):
             part.part_master_id = mr["matched_master_id"]
-        if mr.get("match_status") == "review_needed":
+            part.canonical_part_key = mr.get("canonical_part_key", part.canonical_part_key)
+
+        status = mr.get("match_status")
+        if status == "review_needed":
             part.review_status = "needs_review"
-        elif mr.get("match_status") == "auto_matched":
+        elif status == "auto_matched":
             part.review_status = "auto_matched"
+        elif status == "unresolved":
+            part.review_status = "unresolved"
 
     db.flush()
