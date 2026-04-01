@@ -132,25 +132,29 @@ def init_db():
     import app.models.vendor_match
     import app.models.collaboration
     import app.models.analytics
+
     # -------------------------------------------------------------------
     # PostgreSQL Schema Creation
     # -------------------------------------------------------------------
+    schemas = ()
+
     if settings.is_postgres:
-     schemas = (
-        "auth", "bom", "projects", "pricing",
-        "sourcing", "ops", "geo", "catalog", "collaboration", "analytics"
-     )
+        schemas = (
+            "auth", "bom", "projects", "pricing",
+            "sourcing", "ops", "geo", "catalog", "collaboration", "analytics"
+        )
 
-    with engine.begin() as conn:
-        # 🔥 disable streaming for DDL
-        conn = conn.execution_options(stream_results=False)
+    if schemas:
+        with engine.begin() as conn:
+            # 🔥 disable streaming for DDL
+            conn = conn.execution_options(stream_results=False)
 
-        for schema in schemas:
-            try:
-                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
-            except Exception as e:
-                logger.error(f"Failed creating schema {schema}: {e}")
-                raise
+            for schema in schemas:
+                try:
+                    conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+                except Exception as e:
+                    logger.error(f"Failed creating schema {schema}: {e}")
+                    raise
 
     # -------------------------------------------------------------------
     # Table Creation Strategy
