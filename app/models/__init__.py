@@ -27,6 +27,23 @@ from app.models.rfq import (
     RFQComparisonView,
     RFQStatus,
 )
+from app.models.collaboration import (
+    ChatThread,
+    ChatMessage,
+    MessageAttachment,
+    ChatReadReceipt,
+    ApprovalRequest,
+    ApprovalAction,
+)
+from app.models.analytics import (
+    SpendLedger,
+    CategorySpendRollup,
+    VendorSpendRollup,
+    MonthlySpendSnapshot,
+    SavingsRealized,
+    DeliveryPerformanceRollup,
+    ReportSchedule,
+)
 # Backward-compat aliases for removed/renamed items
 RFQ = RFQBatch
 Drawing = DrawingAsset

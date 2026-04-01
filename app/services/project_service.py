@@ -585,6 +585,11 @@ def serialize_summary(project: Project) -> Dict[str, Any]:
         "analysis_lifecycle": lifecycle,
         "categories": (project.project_metadata or {}).get("category_summary", {}),
         "next_action": (project.project_metadata or {}).get("next_action") or project_stage_action(workflow_stage),
+        "spend_summary": (project.project_metadata or {}).get("spend_summary", {}),
+        "analytics_snapshot": (project.project_metadata or {}).get("analytics_snapshot", {}),
+        "savings_realized": (project.project_metadata or {}).get("savings_realized"),
+        "vendor_on_time_rate": (project.project_metadata or {}).get("vendor_on_time_rate"),
+        "quote_to_order_conversion": (project.project_metadata or {}).get("quote_to_order_conversion"),
     }
 
 
@@ -612,6 +617,11 @@ def serialize_detail(project: Project) -> Dict[str, Any]:
         "latest_report_version": project.latest_report_version,
         "latest_strategy_version": project.latest_strategy_version,
         "analysis_lifecycle": lifecycle,
+        "spend_summary": (project.project_metadata or {}).get("spend_summary", {}),
+        "analytics_snapshot": (project.project_metadata or {}).get("analytics_snapshot", {}),
+        "savings_realized": (project.project_metadata or {}).get("savings_realized"),
+        "vendor_on_time_rate": (project.project_metadata or {}).get("vendor_on_time_rate"),
+        "quote_to_order_conversion": (project.project_metadata or {}).get("quote_to_order_conversion"),
     })
     return payload
 

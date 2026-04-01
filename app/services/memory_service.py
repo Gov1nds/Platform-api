@@ -211,3 +211,34 @@ def decay_old_data(db: Session, days_threshold: int = 180) -> Dict:
         db.flush()
         logger.info(f"Decayed {count} stale memories (>{days_threshold}d)")
     return {"decayed": count}
+
+def record_delivery_outcome(db, vendor_id, on_time=None, delay_days=None, spend_amount=None):
+    """Optional vendor memory update for delivery outcomes.
+    Uses hasattr guards so it does not break older SupplierMemory schemas.
+    """
+    try:
+        mem = db.query(SupplierMemory).filter(SupplierMemory.vendor_id == vendor_id).first()
+        if not mem:
+            return None
+
+        if on_time is not None and hasattr(mem, "on_time_shipments"):
+            mem.on_time_shipments = (mem.on_time_shipments or 0) + (1 if on_time else 0)
+
+        if delay_days is not None and hasattr(mem, "avg_delay_days"):
+            prev = getattr(mem, "avg_delay_days", 0) or 0
+            count = max((getattr(mem, "total_orders", 0) or 0), 1)
+            mem.avg_delay_days = ((prev * (count - 1)) + float(delay_days)) / count
+
+        if spend_amount is not None and hasattr(mem, "avg_spend_amount"):
+            prev = getattr(mem, "avg_spend_amount", 0) or 0
+            count = max((getattr(mem, "total_orders", 0) or 0), 1)
+            mem.avg_spend_amount = ((prev * (count - 1)) + float(spend_amount)) / count
+
+        if hasattr(mem, "last_delivery_at"):
+            mem.last_delivery_at = datetime.utcnow()
+
+        db.flush()
+        return mem
+    except Exception as e:
+        logger.warning("record_delivery_outcome failed (non-fatal): %s", e)
+        return None

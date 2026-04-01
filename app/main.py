@@ -7,10 +7,10 @@ Run: uvicorn app.main:app --reload
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.routes import analytics, reports
 from app.core.config import settings
 from app.core.database import init_db, SessionLocal
-from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings, review, vendors
+from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings, review, chat, approvals, vendors
 
 
 logging.basicConfig(
@@ -126,7 +126,10 @@ app.include_router(projects.router, prefix=settings.API_PREFIX)
 app.include_router(drawings.router, prefix=settings.API_PREFIX)
 app.include_router(review.router, prefix=settings.API_PREFIX)
 app.include_router(vendors.router, prefix=settings.API_PREFIX)  # ✅ FIXED POSITION
-
+app.include_router(chat.router, prefix=settings.API_PREFIX)
+app.include_router(approvals.router, prefix=settings.API_PREFIX)
+app.include_router(analytics.router, prefix=settings.API_PREFIX)
+app.include_router(reports.router, prefix=settings.API_PREFIX)
 
 @app.get("/", tags=["System"])
 def root():

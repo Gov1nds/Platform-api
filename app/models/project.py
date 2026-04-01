@@ -94,7 +94,7 @@ class Project(Base):
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
+    
     # Backward-compat aliases
     @property
     def lead_time(self):
@@ -131,5 +131,6 @@ class ProjectEvent(Base):
     payload = Column(JSONB, nullable=False, default=dict)
     actor_user_id = Column(UUID(as_uuid=False), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-
+    chat_threads = relationship("ChatThread", back_populates="project", cascade="all, delete-orphan")
+    approval_requests = relationship("ApprovalRequest", back_populates="project", cascade="all, delete-orphan")
     project = relationship("Project", back_populates="events")

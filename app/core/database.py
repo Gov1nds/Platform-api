@@ -130,14 +130,15 @@ def init_db():
     import app.models.report_snapshot
     import app.models.strategy_run
     import app.models.vendor_match
+    import app.models.collaboration
+    import app.models.analytics
     # -------------------------------------------------------------------
     # PostgreSQL Schema Creation
     # -------------------------------------------------------------------
-
     if settings.is_postgres:
      schemas = (
         "auth", "bom", "projects", "pricing",
-        "sourcing", "ops", "geo", "catalog"
+        "sourcing", "ops", "geo", "catalog", "collaboration", "analytics"
      )
 
     with engine.begin() as conn:

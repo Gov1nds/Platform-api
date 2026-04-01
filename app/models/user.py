@@ -22,7 +22,13 @@ class User(Base):
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
+    chat_threads = relationship("ChatThread", back_populates="created_by")
+    chat_messages = relationship("ChatMessage", back_populates="sender")
+    read_receipts = relationship("ChatReadReceipt", back_populates="user")
+    approval_requests_requested = relationship("ApprovalRequest", foreign_keys="ApprovalRequest.requested_by_user_id")
+    approval_requests_assigned = relationship("ApprovalRequest", foreign_keys="ApprovalRequest.assigned_to_user_id")
+    approval_actions = relationship("ApprovalAction", back_populates="acted_by")
+    
     # Convenience properties for backward compat
     @property
     def is_active(self):
