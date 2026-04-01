@@ -23,17 +23,11 @@ engine = create_engine(
     settings.DATABASE_URL,
     connect_args=connect_args,
 
-    # Connection health
     pool_pre_ping=True,
-
-    # Pool tuning (Railway safe)
     pool_size=10,
     max_overflow=20,
     pool_timeout=30,
-    pool_recycle=1800,  # 30 mins
-
-    # Streaming large queries
-    execution_options={"stream_results": True},
+    pool_recycle=1800,
 
     echo=False,
 )
