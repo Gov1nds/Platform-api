@@ -141,7 +141,8 @@ def init_db():
     if settings.is_postgres:
         schemas = (
             "auth", "bom", "projects", "pricing",
-            "sourcing", "ops", "geo", "catalog", "collaboration", "analytics"
+            "sourcing", "ops", "geo", "catalog",
+            "collaboration", "analytics"
         )
 
     if schemas:
