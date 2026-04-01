@@ -76,7 +76,7 @@ class Vendor(Base):
     pricing_history = relationship("PricingQuote", back_populates="vendor", cascade="all, delete-orphan")
     memory = relationship("SupplierMemory", back_populates="vendor", uselist=False, cascade="all, delete-orphan")
     capability_entries = relationship("VendorCapability", back_populates="vendor", cascade="all, delete-orphan")
-
+    match_records = relationship("VendorMatch", back_populates="vendor", cascade="all, delete-orphan")
 
 class VendorCapability(Base):
     """Per-vendor capability record — queryable for matching.

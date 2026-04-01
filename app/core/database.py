@@ -129,7 +129,7 @@ def init_db():
     import app.models.geo
     import app.models.report_snapshot
     import app.models.strategy_run
-
+    import app.models.vendor_match
     # -------------------------------------------------------------------
     # PostgreSQL Schema Creation
     # -------------------------------------------------------------------

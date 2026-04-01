@@ -10,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db, SessionLocal
-from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings, review
+from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings, review, vendors
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,11 +19,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
+
+# ✅ CREATE APP FIRST (FIX)
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Manufacturing Intelligence Platform — BOM Analysis, Procurement Strategy, RFQ Execution",
 )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -112,6 +116,7 @@ def startup():
     logger.info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
 
 
+# ✅ ROUTERS (ALL AFTER app IS CREATED)
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(bom.router, prefix=settings.API_PREFIX)
 app.include_router(analysis.router, prefix=settings.API_PREFIX)
@@ -120,6 +125,7 @@ app.include_router(tracking.router, prefix=settings.API_PREFIX)
 app.include_router(projects.router, prefix=settings.API_PREFIX)
 app.include_router(drawings.router, prefix=settings.API_PREFIX)
 app.include_router(review.router, prefix=settings.API_PREFIX)
+app.include_router(vendors.router, prefix=settings.API_PREFIX)  # ✅ FIXED POSITION
 
 
 @app.get("/", tags=["System"])

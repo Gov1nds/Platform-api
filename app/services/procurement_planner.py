@@ -47,28 +47,84 @@ def convert_currency(amount: float, from_c: str, to_c: str) -> float:
 
 
 def normalize_costs(strategy: Dict, target: str) -> Dict:
-    """Normalize all cost fields to target currency."""
+    """Normalize all cost fields to target currency while preserving structured rationale."""
     if target == "USD":
         strategy["currency"] = "USD"
         return strategy
+
     rate = FOREX_RATES.get(target, 1)
-    def _c(v): return round(v * rate, 2) if isinstance(v, (int, float)) else v
+
+    def _c(v):
+        return round(v * rate, 2) if isinstance(v, (int, float)) else v
+
+    def _range(v):
+        if isinstance(v, list) and len(v) == 2:
+            return [_c(v[0]), _c(v[1])]
+        return v
 
     # Procurement strategy
     ps = strategy.get("procurement_strategy", {})
     cs = ps.get("cost_summary", {})
-    for k in ("average", "savings_value"): 
-        if k in cs: cs[k] = _c(cs[k])
-    r = cs.get("range", [])
-    if isinstance(r, list) and len(r) == 2: cs["range"] = [_c(r[0]), _c(r[1])]
+    for k in ("average", "savings_value"):
+        if k in cs:
+            cs[k] = _c(cs[k])
+    if "range" in cs:
+        cs["range"] = _range(cs["range"])
 
     rec = strategy.get("recommended_strategy", {})
-    if rec.get("average_cost"): rec["average_cost"] = _c(rec["average_cost"])
-    cr = rec.get("cost_range", [])
-    if isinstance(cr, list) and len(cr) == 2: rec["cost_range"] = [_c(cr[0]), _c(cr[1])]
+    if rec.get("average_cost") is not None:
+        rec["average_cost"] = _c(rec["average_cost"])
+    if "cost_range" in rec:
+        rec["cost_range"] = _range(rec["cost_range"])
 
     for p in ps.get("region_plan", []):
-        if "estimated_cost" in p: p["estimated_cost"] = _c(p["estimated_cost"])
+        if "estimated_cost" in p:
+            p["estimated_cost"] = _c(p["estimated_cost"])
+
+    # Global optimization totals
+    go = strategy.get("global_optimization", {})
+    if isinstance(go, dict):
+        if "naive_local_cost" in go:
+            go["naive_local_cost"] = _c(go["naive_local_cost"])
+        if "optimized_cost" in go:
+            go["optimized_cost"] = _c(go["optimized_cost"])
+        if isinstance(go.get("strategies_compared"), dict):
+            go["strategies_compared"] = {
+                k: _c(v) for k, v in go["strategies_compared"].items()
+            }
+
+    # Part level decisions
+    for p in strategy.get("part_level_decisions", []):
+        if "unit_price" in p:
+            p["unit_price"] = _c(p["unit_price"])
+        if "best_cost" in p:
+            p["best_cost"] = _c(p["best_cost"])
+        if "alternative_cost" in p and p["alternative_cost"] is not None:
+            p["alternative_cost"] = _c(p["alternative_cost"])
+        if "cost_range" in p:
+            p["cost_range"] = _range(p["cost_range"])
+        if "logistics_per_unit" in p:
+            p["logistics_per_unit"] = _c(p["logistics_per_unit"])
+        if isinstance(p.get("tariff_sensitivity"), dict):
+            ts = p["tariff_sensitivity"]
+            if "total_tariff" in ts:
+                ts["total_tariff"] = _c(ts["total_tariff"])
+        if isinstance(p.get("strategy_explanation"), dict):
+            se = p["strategy_explanation"]
+            if isinstance(se.get("tradeoff_summary"), dict):
+                if "best_cost" in se["tradeoff_summary"]:
+                    se["tradeoff_summary"]["best_cost"] = _c(se["tradeoff_summary"]["best_cost"])
+
+    for r in strategy.get("part_decision_rationales", []):
+        if "best_cost" in r:
+            r["best_cost"] = _c(r["best_cost"])
+        if "alternative_cost" in r and r["alternative_cost"] is not None:
+            r["alternative_cost"] = _c(r["alternative_cost"])
+        if isinstance(r.get("strategy_explanation"), dict):
+            se = r["strategy_explanation"]
+            if isinstance(se.get("tradeoff_summary"), dict):
+                if "best_cost" in se["tradeoff_summary"]:
+                    se["tradeoff_summary"]["best_cost"] = _c(se["tradeoff_summary"]["best_cost"])
 
     strategy["currency"] = target
     strategy["forex_rate_to_usd"] = round(1 / rate, 6)
@@ -127,10 +183,17 @@ def generate_procurement_plan(strategy_output: Dict, target_currency: str = "USD
                                max_suppliers: int = 5) -> Dict:
     """
     MAIN ENTRY. Takes strategy_output → execution-ready procurement plan.
+    Preserves structured rationale, assumptions, and constraint inputs.
     """
     ps = strategy_output.get("procurement_strategy", {})
     raw_plan = ps.get("region_plan", strategy_output.get("procurement_plan", []))
     part_decisions = strategy_output.get("part_level_decisions", [])
+
+    planning_inputs = {
+        "constraint_inputs": strategy_output.get("constraint_inputs", {}),
+        "assumptions": strategy_output.get("assumptions", {}),
+        "strategy_contract_version": strategy_output.get("strategy_contract_version", "2.0"),
+    }
 
     consolidated = consolidate_suppliers(raw_plan, max_suppliers)
     split = split_local_offshore(part_decisions)
@@ -163,6 +226,11 @@ def generate_procurement_plan(strategy_output: Dict, target_currency: str = "USD
         "explanation": strategy_output.get("explanation", ""),
         "decision_summary": strategy_output.get("decision_summary", ""),
         "currency": target_currency,
+        "constraint_inputs": strategy_output.get("constraint_inputs", {}),
+        "assumptions": strategy_output.get("assumptions", {}),
+        "strategy_explanation": strategy_output.get("strategy_explanation", {}),
+        "part_decision_rationales": strategy_output.get("part_decision_rationales", []),
+        "planning_inputs": planning_inputs,
         "execution_steps": [
             "1. Review region plan and confirm part assignments",
             "2. Submit RFQ to PGI for custom/machined parts",

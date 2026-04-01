@@ -337,8 +337,8 @@ def upsert_project_from_analysis(
     else:
         project.cost_range_low = _as_float(analysis.cost_range_low)
         project.cost_range_high = _as_float(analysis.cost_range_high)
-    project.savings_percent = _as_float(cost_summary.get("savings_percent"), _as_float(analysis.savings_percent))
-    project.lead_time = _as_float(rec.get("lead_time"), _as_float(analysis.lead_time))
+        project.savings_percent = _as_float(cost_summary.get("savings_percent"), _as_float(analysis.savings_percent))
+        project.lead_time = _as_float(rec.get("lead_time"), _as_float(analysis.lead_time))
     project.decision_summary = strategy.get("decision_summary") or analysis.decision_summary
     project.analyzer_report = build_canonical_report(analyzer_output, strategy, procurement, bom, analysis)
     project.strategy = copy.deepcopy(strategy)
@@ -359,6 +359,11 @@ def upsert_project_from_analysis(
         "workflow_stage": project.workflow_stage,
         "visibility_level": project.visibility_level,
         "next_action": project_stage_action(project.workflow_stage),
+        "strategy_contract_version": strategy.get("strategy_contract_version", "2.0"),
+        "strategy_explanation": strategy.get("strategy_explanation", {}),
+        "constraint_inputs": strategy.get("constraint_inputs", {}),
+        "assumptions": strategy.get("assumptions", {}),
+        "part_decision_rationales": strategy.get("part_decision_rationales", []),
     }
 
     db.flush()
@@ -381,6 +386,9 @@ def upsert_project_from_analysis(
                 "analysis_id": str(analysis.id),
                 "total_parts": project.total_parts,
                 "priority": strategy.get("bom_summary", {}).get("priority", "cost"),
+                "strategy_contract_version": strategy.get("strategy_contract_version", "2.0"),
+                "constraint_inputs": strategy.get("constraint_inputs", {}),
+                "assumptions": strategy.get("assumptions", {}),
             },
         ))
         db.flush()
@@ -770,6 +778,10 @@ def build_canonical_report(
         "risk_level": risk.get("overall_risk_level") or risk.get("risk_level") or "MEDIUM",
         "savings_percent": _as_float(cost_summary.get("savings_percent"), _as_float(analysis.savings_percent if analysis else None)),
         "decision_summary": strategy.get("decision_summary") or (analysis.decision_summary if analysis else "") or "",
+        "strategy_contract_version": strategy.get("strategy_contract_version", "2.0"),
+        "strategy_explanation": strategy.get("strategy_explanation", {}),
+        "constraint_inputs": strategy.get("constraint_inputs", {}),
+        "assumptions": strategy.get("assumptions", {}),
         "decision_points": recommended.get("reasons", [])[:3],
         # FIXED: Fields the frontend expects (BOMAnalyzer.jsx Step 5 references these)
         "total_cost": round(total_cost, 2),
@@ -822,6 +834,19 @@ def build_canonical_report(
             "process": decision.get("process") or decision.get("detected_process") or component.get("geometry") or "",
             "price_source": decision.get("price_source") or ("external" if decision.get("unit_price") else "estimated"),
             "unit_price": decision.get("unit_price"),
+            "risk_score": decision.get("risk_score"),
+            "confidence_score": decision.get("confidence_score"),
+            "fallback_regions": decision.get("fallback_regions", []),
+            "candidate_regions": decision.get("candidate_regions", []),
+            "make_vs_buy": decision.get("make_vs_buy"),
+            "local_vs_offshore": decision.get("local_vs_offshore"),
+            "reason_codes": decision.get("reason_codes", []),
+            "constraint_inputs": decision.get("constraint_inputs", {}),
+            "assumptions": decision.get("assumptions", {}),
+            "strategy_explanation": decision.get("strategy_explanation", {}),
+            "tariff_sensitivity": decision.get("tariff_sensitivity", {}),
+            "currency_sensitivity": decision.get("currency_sensitivity", {}),
+            "lead_time_sensitivity": decision.get("lead_time_sensitivity", {}),
             "best_region": decision.get("best_region") or selected_vendor["region"],
             "best_cost": best_cost,
             "decision_mode": "exploration" if category in {"custom", "custom_mechanical", "machined", "sheet_metal", "raw_material"} else "exploit",
@@ -889,6 +914,8 @@ def build_canonical_report(
         "recommended_strategy": recommended,
         "alternative_strategies": strategy.get("alternative_strategies", []),
         "reasoning": recommended.get("reasons", [])[:3],
+        "strategy_explanation": strategy.get("strategy_explanation", {}),
+        "part_decision_rationales": strategy.get("part_decision_rationales", []),
     }
 
     exploration_decisions = [
@@ -914,6 +941,7 @@ def build_canonical_report(
         "total_iterations": max(1, len(section2)),
         "exploration_decisions": exploration_decisions,
         "high_uncertainty": high_uncertainty,
+        "strategy_contract_version": strategy.get("strategy_contract_version", "2.0"),
         "note": "Learning snapshot stored for supplier and pricing memory.",
     }
 

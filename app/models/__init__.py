@@ -8,6 +8,7 @@ from app.models.project import Project, ProjectEvent
 from app.models.bom import BOM, BOMPart
 from app.models.analysis import AnalysisResult
 from app.models.vendor import Vendor, VendorCapability
+from app.models.vendor_match import VendorMatch, VendorMatchRun
 from app.models.pricing import PricingQuote, PricingHistory  # PricingHistory = PricingQuote alias
 from app.models.rfq import RFQBatch, RFQItem, RFQQuote, RFQStatus
 from app.models.tracking import ProductionTracking, ExecutionFeedback, TrackingStage
