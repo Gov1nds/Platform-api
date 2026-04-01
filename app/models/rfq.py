@@ -1,11 +1,12 @@
-"""RFQ models — maps to sourcing.rfq_batches, rfq_items, rfq_quotes."""
+"""RFQ models — normalized quote lifecycle + backward-compatible legacy quote support."""
+import enum
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, Text, DateTime, ForeignKey, Numeric, Boolean, String
+from sqlalchemy import Column, Text, DateTime, ForeignKey, Numeric, Boolean, String, Integer, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
+
 from app.core.database import Base
-import enum
 
 
 class RFQStatus(str, enum.Enum):
@@ -17,6 +18,7 @@ class RFQStatus(str, enum.Enum):
     rejected = "rejected"
     closed = "closed"
     error = "error"
+
     # Backward compat aliases
     created = "draft"
     in_production = "approved"
@@ -87,12 +89,83 @@ class RFQBatch(Base):
             self.batch_metadata = {}
         self.batch_metadata["selected_vendor_id"] = value
 
+    @property
+    def vendor_response_deadline(self):
+        return (self.batch_metadata or {}).get("vendor_response_deadline")
+
+    @vendor_response_deadline.setter
+    def vendor_response_deadline(self, value):
+        if not self.batch_metadata:
+            self.batch_metadata = {}
+        self.batch_metadata["vendor_response_deadline"] = value
+
+    @property
+    def sent_at(self):
+        return (self.batch_metadata or {}).get("sent_at")
+
+    @sent_at.setter
+    def sent_at(self, value):
+        if not self.batch_metadata:
+            self.batch_metadata = {}
+        self.batch_metadata["sent_at"] = value
+
+    @property
+    def received_at(self):
+        return (self.batch_metadata or {}).get("received_at")
+
+    @received_at.setter
+    def received_at(self, value):
+        if not self.batch_metadata:
+            self.batch_metadata = {}
+        self.batch_metadata["received_at"] = value
+
+    @property
+    def expires_at(self):
+        return (self.batch_metadata or {}).get("expires_at")
+
+    @expires_at.setter
+    def expires_at(self, value):
+        if not self.batch_metadata:
+            self.batch_metadata = {}
+        self.batch_metadata["expires_at"] = value
+
+    @property
+    def response_status(self):
+        return (self.batch_metadata or {}).get("response_status")
+
+    @response_status.setter
+    def response_status(self, value):
+        if not self.batch_metadata:
+            self.batch_metadata = {}
+        self.batch_metadata["response_status"] = value
+
+    @property
+    def quote_status(self):
+        return (self.batch_metadata or {}).get("quote_status", self.status)
+
+    @quote_status.setter
+    def quote_status(self, value):
+        if not self.batch_metadata:
+            self.batch_metadata = {}
+        self.batch_metadata["quote_status"] = value
+
     user = relationship("User", back_populates="rfqs")
     bom = relationship("BOM", back_populates="rfqs")
     items = relationship("RFQItem", back_populates="rfq", cascade="all, delete-orphan")
+
+    # Legacy quote table
     quotes = relationship("RFQQuote", back_populates="rfq", cascade="all, delete-orphan")
-    drawings = relationship("DrawingAsset", back_populates="rfq", cascade="all, delete-orphan",
-                            primaryjoin="RFQBatch.id == foreign(DrawingAsset.rfq_batch_id)")
+
+    # Normalized quote lifecycle tables
+    quote_headers = relationship("RFQQuoteHeader", back_populates="rfq", cascade="all, delete-orphan")
+    comparison_views = relationship("RFQComparisonView", back_populates="rfq", cascade="all, delete-orphan")
+
+    drawings = relationship(
+        "DrawingAsset",
+        back_populates="rfq",
+        cascade="all, delete-orphan",
+        primaryjoin="RFQBatch.id == foreign(DrawingAsset.rfq_batch_id)",
+    )
 
 
 # Backward compat alias
@@ -194,7 +267,7 @@ class RFQItem(Base):
 
 
 class RFQQuote(Base):
-    """Maps to sourcing.rfq_quotes."""
+    """Legacy quote table — retained for backward compatibility."""
     __tablename__ = "rfq_quotes"
     __table_args__ = {"schema": "sourcing"}
 
@@ -222,3 +295,101 @@ class RFQQuote(Base):
         return self.rfq_batch_id
 
     rfq = relationship("RFQBatch", back_populates="quotes")
+
+
+class RFQQuoteHeader(Base):
+    """Normalized vendor quote header for comparison and audit."""
+    __tablename__ = "rfq_quote_headers"
+    __table_args__ = (
+        Index("ix_rfq_quote_headers_rfq", "rfq_batch_id"),
+        Index("ix_rfq_quote_headers_vendor", "vendor_id"),
+        Index("ix_rfq_quote_headers_status", "quote_status"),
+        {"schema": "sourcing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    rfq_batch_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_batches.id", ondelete="CASCADE"), nullable=False)
+    vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="SET NULL"), nullable=True)
+
+    quote_number = Column(Text, nullable=True)
+    quote_status = Column(Text, nullable=False, default="received")
+    response_status = Column(Text, nullable=False, default="received")
+
+    quote_currency = Column(String(3), nullable=False, default="USD")
+    subtotal = Column(Numeric(18, 6), nullable=True)
+    freight = Column(Numeric(18, 6), nullable=True)
+    taxes = Column(Numeric(18, 6), nullable=True)
+    total = Column(Numeric(18, 6), nullable=True)
+
+    vendor_response_deadline = Column(DateTime(timezone=True), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    received_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    valid_until = Column(DateTime(timezone=True), nullable=True)
+
+    source_snapshot_id = Column(UUID(as_uuid=False), nullable=True)
+    response_payload = Column(JSONB, nullable=False, default=dict)
+    metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
+
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    rfq = relationship("RFQBatch", back_populates="quote_headers")
+    lines = relationship("RFQQuoteLine", back_populates="header", cascade="all, delete-orphan")
+    vendor = relationship("Vendor")
+
+
+class RFQQuoteLine(Base):
+    """Normalized line-item quote for matrix comparison."""
+    __tablename__ = "rfq_quote_lines"
+    __table_args__ = (
+        Index("ix_rfq_quote_lines_header", "quote_header_id"),
+        Index("ix_rfq_quote_lines_rfq_item", "rfq_item_id"),
+        {"schema": "sourcing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    quote_header_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_quote_headers.id", ondelete="CASCADE"), nullable=False)
+    rfq_batch_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_batches.id", ondelete="CASCADE"), nullable=False)
+    rfq_item_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_items.id", ondelete="CASCADE"), nullable=False)
+    bom_part_id = Column(UUID(as_uuid=False), ForeignKey("bom.bom_parts.id", ondelete="CASCADE"), nullable=False)
+
+    part_name = Column(Text, nullable=True)
+    quantity = Column(Numeric(18, 6), nullable=False, default=1)
+    unit_price = Column(Numeric(18, 6), nullable=True)
+    lead_time = Column(Numeric(18, 6), nullable=True)
+
+    availability_status = Column(Text, nullable=False, default="unknown")
+    compliance_status = Column(Text, nullable=False, default="unknown")
+    moq = Column(Numeric(18, 6), nullable=True)
+    risk_score = Column(Numeric(12, 6), nullable=True)
+
+    line_payload = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    header = relationship("RFQQuoteHeader", back_populates="lines")
+    rfq = relationship("RFQBatch")
+    item = relationship("RFQItem")
+
+
+class RFQComparisonView(Base):
+    """Immutable comparison snapshot for the compare UI."""
+    __tablename__ = "rfq_comparison_views"
+    __table_args__ = (
+        Index("ix_rfq_comparison_views_rfq", "rfq_batch_id"),
+        Index("ix_rfq_comparison_views_version", "version"),
+        {"schema": "sourcing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    rfq_batch_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_batches.id", ondelete="CASCADE"), nullable=False)
+    version = Column(Integer, nullable=False, default=1)
+    sort_by = Column(Text, nullable=False, default="total_cost")
+    filters_json = Column(JSONB, nullable=False, default=dict)
+    comparison_json = Column(JSONB, nullable=False, default=dict)
+    summary_json = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    rfq = relationship("RFQBatch", back_populates="comparison_views")

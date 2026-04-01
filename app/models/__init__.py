@@ -18,7 +18,15 @@ from app.models.catalog import PartMaster, PartAlias, PartAttribute, PartObserva
 from app.models.geo import Country, RegionProfile, ExchangeRate, TariffRule
 from app.models.report_snapshot import ReportSnapshot
 from app.models.strategy_run import StrategyRun
-
+from app.models.rfq import (
+    RFQBatch,
+    RFQItem,
+    RFQQuote,
+    RFQQuoteHeader,
+    RFQQuoteLine,
+    RFQComparisonView,
+    RFQStatus,
+)
 # Backward-compat aliases for removed/renamed items
 RFQ = RFQBatch
 Drawing = DrawingAsset
