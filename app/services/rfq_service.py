@@ -2,7 +2,7 @@
 import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
-
+from app.services import project_service
 from app.models.rfq import RFQBatch, RFQItem, RFQQuote, RFQStatus
 from app.models.bom import BOM, BOMPart
 from app.models.analysis import AnalysisResult
@@ -78,7 +78,21 @@ def create_rfq_from_analysis(
 
     if project:
         project.rfq_status = "draft"
+        project.workflow_stage = "rfq_pending"
         project.status = "rfq_pending"
+        project.current_rfq_id = rfq.id
+        project.visibility_level = project.visibility_level or "full"
+        project.project_metadata = project.project_metadata or {}
+        project.project_metadata["workflow_stage"] = "rfq_pending"
+        project.project_metadata["next_action"] = "Send RFQ"
+        project_service.record_project_event(
+            db,
+            project,
+            "rfq_created",
+            "project_hydrated",
+            "rfq_pending",
+            {"rfq_id": rfq.id, "items": len(rfq_parts)},
+        )
 
     db.flush()
     db.refresh(rfq)
@@ -97,16 +111,40 @@ def get_user_rfqs(db: Session, user_id: str) -> List[RFQBatch]:
 def update_rfq_status(db: Session, rfq_id: str, status: str) -> Optional[RFQBatch]:
     rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
     if rfq:
+        old_status = rfq.status
         rfq.status = status
+
         project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
         if project:
             status_map = {
-                "quoted": "quoted", "approved": "approved",
-                "rejected": "ready", "closed": "completed",
+                "draft": ("rfq_pending", "draft"),
+                "sent": ("rfq_sent", "sent"),
+                "partial": ("quote_compare", "partial"),
+                "quoted": ("quote_compare", "quoted"),
+                "approved": ("vendor_selected", "approved"),
+                "rejected": ("project_hydrated", "rejected"),
+                "closed": ("completed", "closed"),
+                "error": ("error", "error"),
             }
-            if status in status_map:
-                project.status = status_map[status]
-            project.rfq_status = status
+            normalized_stage, normalized_rfq = status_map.get(status, (project.workflow_stage or project.status, status))
+
+            project.workflow_stage = normalized_stage
+            project.status = normalized_stage
+            project.rfq_status = normalized_rfq
+            project.project_metadata = project.project_metadata or {}
+            project.project_metadata["workflow_stage"] = normalized_stage
+            project.project_metadata["rfq_status"] = normalized_rfq
+            project.project_metadata["next_action"] = project_service.project_stage_action(normalized_stage)
+
+            project_service.record_project_event(
+                db,
+                project,
+                "rfq_status_updated",
+                old_status,
+                normalized_stage,
+                {"rfq_id": rfq.id, "rfq_status": status},
+            )
+
         db.flush()
         db.refresh(rfq)
     return rfq
@@ -128,14 +166,27 @@ def add_quote_to_rfq(db, rfq_id, item_quotes, vendor_id=None):
                 total += (item.quoted_price or 0) * (int(item.requested_quantity) or 1)
                 break
 
-    rfq.total_final_cost = round(total, 2)
+        rfq.total_final_cost = round(total, 2)
     rfq.selected_vendor_id = vendor_id
     rfq.status = "quoted"
 
     project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     if project:
-        project.status = "quoted"
+        project.workflow_stage = "quote_compare"
+        project.status = "quote_compare"
         project.rfq_status = "quoted"
+        project.project_metadata = project.project_metadata or {}
+        project.project_metadata["workflow_stage"] = "quote_compare"
+        project.project_metadata["rfq_status"] = "quoted"
+        project.project_metadata["next_action"] = "Compare quotes"
+        project_service.record_project_event(
+            db,
+            project,
+            "quote_received",
+            "rfq_sent",
+            "quote_compare",
+            {"rfq_id": rfq.id, "vendor_id": vendor_id, "total_final_cost": rfq.total_final_cost},
+        )
 
     db.flush()
     db.refresh(rfq)

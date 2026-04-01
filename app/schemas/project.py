@@ -1,6 +1,6 @@
-"""Project schemas — FIXED: added currency field."""
+"""Project schemas — control tower + workflow timeline."""
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -11,6 +11,9 @@ class ProjectSummary(BaseModel):
     project_id: str
     name: Optional[str] = None
     status: str
+    workflow_stage: Optional[str] = None
+    visibility_level: Optional[str] = None
+    visibility: Optional[str] = None
     total_parts: int = 0
     created_at: Optional[datetime] = None
     cost: Optional[float] = None
@@ -21,6 +24,15 @@ class ProjectSummary(BaseModel):
     currency: Optional[str] = "USD"
     rfq_status: Optional[str] = "none"
     tracking_stage: Optional[str] = "init"
+    current_vendor_match_id: Optional[str] = None
+    current_quote_id: Optional[str] = None
+    current_po_id: Optional[str] = None
+    current_shipment_id: Optional[str] = None
+    current_invoice_id: Optional[str] = None
+    analysis_status: Optional[str] = None
+    report_visibility_level: Optional[str] = None
+    unlock_status: Optional[str] = None
+    analysis_lifecycle: Optional[Dict[str, Any]] = None
     categories: Optional[Dict[str, Any]] = None
 
 
@@ -30,6 +42,9 @@ class ProjectDetail(BaseModel):
     project_id: str
     name: Optional[str] = None
     status: str
+    workflow_stage: Optional[str] = None
+    visibility_level: Optional[str] = None
+    visibility: Optional[str] = None
     total_parts: int = 0
     file_name: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -44,12 +59,75 @@ class ProjectDetail(BaseModel):
     currency: Optional[str] = "USD"
     rfq_status: Optional[str] = "none"
     tracking_stage: Optional[str] = "init"
+    current_analysis_id: Optional[str] = None
+    current_strategy_run_id: Optional[str] = None
+    current_vendor_match_id: Optional[str] = None
+    current_rfq_id: Optional[str] = None
+    current_quote_id: Optional[str] = None
+    current_po_id: Optional[str] = None
+    current_shipment_id: Optional[str] = None
+    current_invoice_id: Optional[str] = None
+    latest_report_version: Optional[int] = 0
+    latest_strategy_version: Optional[int] = 0
+    analysis_status: Optional[str] = None
+    report_visibility_level: Optional[str] = None
+    unlock_status: Optional[str] = None
+    analysis_lifecycle: Optional[Dict[str, Any]] = None
     categories: Optional[Dict[str, Any]] = None
     decision_summary: Optional[str] = None
     analyzer_report: Optional[Dict[str, Any]] = None
     strategy: Optional[Dict[str, Any]] = None
     procurement_plan: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
+
+
+class ProjectActionItem(BaseModel):
+    project_id: str
+    name: Optional[str] = None
+    status: Optional[str] = None
+    workflow_stage: Optional[str] = None
+    rfq_status: Optional[str] = None
+    tracking_stage: Optional[str] = None
+    action: Optional[str] = None
+    reason: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    cost: Optional[float] = None
+    savings_percent: Optional[float] = None
+    lead_time: Optional[float] = None
+
+
+class ProjectMetrics(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    total_projects: int = 0
+    open_projects: int = 0
+    completed_projects: int = 0
+    pending_approvals: int = 0
+    active_rfqs: int = 0
+    delayed_shipments: int = 0
+    spend_alerts: int = 0
+    total_spend: float = 0.0
+    average_savings_percent: float = 0.0
+    workflow_counts: Dict[str, int] = {}
+    rfq_counts: Dict[str, int] = {}
+    pending_approval_items: List[ProjectActionItem] = []
+    active_rfq_items: List[ProjectActionItem] = []
+    delayed_shipment_items: List[ProjectActionItem] = []
+    spend_alert_items: List[ProjectActionItem] = []
+    next_actions: List[ProjectActionItem] = []
+
+
+class ProjectEventSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    event_type: str
+    old_status: Optional[str] = None
+    new_status: Optional[str] = None
+    payload: Dict[str, Any] = {}
+    actor_user_id: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 class StatusUpdate(BaseModel):

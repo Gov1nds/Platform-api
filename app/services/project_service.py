@@ -1,13 +1,18 @@
 """Project service — canonical project projection and reporting adapters."""
 from __future__ import annotations
 
+# Standard library
 import copy
 import logging
 from collections import Counter, defaultdict
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
+# Third-party
 from sqlalchemy.orm import Session
 
+# Application
 from app.models.analysis import AnalysisResult
 from app.models.bom import BOM
 from app.models.project import Project, ProjectEvent
@@ -31,6 +36,172 @@ STATUS_ORDER = {
     "completed": 8,
 }
 
+from datetime import datetime
+
+PROJECT_WORKFLOW_STAGES = {
+    "draft",
+    "guest_preview",
+    "project_hydrated",
+    "strategy",
+    "vendor_match",
+    "rfq_pending",
+    "rfq_sent",
+    "quote_compare",
+    "negotiation",
+    "vendor_selected",
+    "po_issued",
+    "in_production",
+    "qc_inspection",
+    "shipped",
+    "delivered",
+    "spend_recorded",
+    "completed",
+    "cancelled",
+    "error",
+}
+
+PROJECT_STATUS_ALIASES = {
+    "uploaded": "draft",
+    "preview": "guest_preview",
+    "analyzed": "project_hydrated",
+    "ready": "project_hydrated",
+    "rfq_pending": "rfq_pending",
+    "quoting": "rfq_sent",
+    "quoted": "quote_compare",
+    "approved": "vendor_selected",
+    "rejected": "project_hydrated",
+    "closed": "completed",
+    "in_production": "in_production",
+    "qc_inspection": "qc_inspection",
+    "shipped": "shipped",
+    "delivered": "delivered",
+    "completed": "completed",
+}
+
+PROJECT_STAGE_ACTIONS = {
+    "draft": "Upload BOM",
+    "guest_preview": "Sign in to unlock full report",
+    "project_hydrated": "Review strategy",
+    "strategy": "Review sourcing strategy",
+    "vendor_match": "Shortlist vendors",
+    "rfq_pending": "Send RFQ",
+    "rfq_sent": "Collect quotes",
+    "quote_compare": "Compare quotes",
+    "negotiation": "Negotiate terms",
+    "vendor_selected": "Issue PO",
+    "po_issued": "Track production",
+    "in_production": "Monitor build progress",
+    "qc_inspection": "Review quality check",
+    "shipped": "Track shipment",
+    "delivered": "Confirm delivery",
+    "spend_recorded": "Review spend analytics",
+    "completed": "Closed",
+    "cancelled": "Cancelled",
+    "error": "Needs attention",
+}
+
+
+def normalize_project_stage(value: Optional[str], default: str = "draft") -> str:
+    if not value:
+        return default
+    v = str(value).strip().lower()
+    return PROJECT_STATUS_ALIASES.get(v, v) if (PROJECT_STATUS_ALIASES.get(v, v) in PROJECT_WORKFLOW_STAGES) else default
+
+
+def project_stage_action(stage: Optional[str]) -> str:
+    return PROJECT_STAGE_ACTIONS.get(normalize_project_stage(stage), "Review project")
+
+
+def record_project_event(
+    db: Session,
+    project: Project,
+    event_type: str,
+    old_status: Optional[str] = None,
+    new_status: Optional[str] = None,
+    payload: Optional[Dict[str, Any]] = None,
+    actor_user_id: Optional[str] = None,
+):
+    return _emit_event(
+        db=db,
+        project=project,
+        event_type=event_type,
+        old_status=old_status,
+        new_status=new_status,
+        payload=payload or {},
+        actor_user_id=actor_user_id,
+    )
+
+ANALYSIS_LIFECYCLE_DEFAULTS = {
+    "analysis_status": "guest_preview",
+    "report_visibility_level": "preview",
+    "unlock_status": "locked",
+}
+
+
+def _analysis_lifecycle_payload(
+    bom: BOM,
+    project: Optional[Project],
+    session_token: Optional[str],
+    analysis_status: str,
+    report_visibility_level: str,
+    unlock_status: str,
+) -> Dict[str, Any]:
+    return {
+        "guest_bom_id": str(bom.id) if bom and bom.id else None,
+        "project_id": str(project.id) if project and project.id else None,
+        "session_token": session_token or "",
+        "analysis_status": analysis_status,
+        "report_visibility_level": report_visibility_level,
+        "unlock_status": unlock_status,
+        "workspace_route": f"/project/{project.id}" if project and project.id else None,
+    }
+
+
+def persist_analysis_lifecycle(
+    db: Session,
+    bom: BOM,
+    analysis: AnalysisResult,
+    project: Project,
+    *,
+    session_token: Optional[str] = None,
+    analysis_status: str = "guest_preview",
+    report_visibility_level: str = "preview",
+    unlock_status: str = "locked",
+) -> Dict[str, Any]:
+    """
+    Persist the BOM preview/unlock lifecycle into existing JSONB columns
+    without requiring a breaking schema migration.
+    """
+    lifecycle = _analysis_lifecycle_payload(
+        bom=bom,
+        project=project,
+        session_token=session_token,
+        analysis_status=analysis_status,
+        report_visibility_level=report_visibility_level,
+        unlock_status=unlock_status,
+    )
+
+    bom.model_metadata = copy.deepcopy(bom.model_metadata or {})
+    bom.model_metadata["analysis_lifecycle"] = lifecycle
+    bom.model_metadata["analysis_status"] = analysis_status
+    bom.model_metadata["report_visibility_level"] = report_visibility_level
+    bom.model_metadata["unlock_status"] = unlock_status
+
+    analysis.structured_output = copy.deepcopy(analysis.structured_output or {})
+    analysis.structured_output["analysis_lifecycle"] = lifecycle
+    analysis.project_id = project.id
+
+    project.project_metadata = copy.deepcopy(project.project_metadata or {})
+    project.project_metadata["analysis_lifecycle"] = lifecycle
+    project.project_metadata["analysis_status"] = analysis_status
+    project.project_metadata["report_visibility_level"] = report_visibility_level
+    project.project_metadata["unlock_status"] = unlock_status
+    project.visibility = report_visibility_level
+
+    bom.project_id = project.id
+
+    db.flush()
+    return lifecycle
 
 def _emit_event(db: Session, project: Project, event_type: str,
                 old_status: Optional[str] = None, new_status: Optional[str] = None,
@@ -71,29 +242,42 @@ def _as_int(value: Any, default: int = 0) -> int:
 def _project_status_from_tracking(stage: Optional[str], current: Optional[str] = None) -> Optional[str]:
     if not stage:
         return current
+    s = str(stage).strip().lower()
     mapping = {
-        TrackingStage.T0.value: "in_production",
-        TrackingStage.T1.value: "in_production",
-        TrackingStage.T2.value: "in_production",
-        TrackingStage.T3.value: "qc_inspection",
-        TrackingStage.T4.value: "shipped",
+        TrackingStage.T0.value.lower(): "in_production",
+        TrackingStage.T1.value.lower(): "in_production",
+        TrackingStage.T2.value.lower(): "in_production",
+        TrackingStage.T3.value.lower(): "qc_inspection",
+        TrackingStage.T4.value.lower(): "shipped",
+        "delivered": "delivered",
+        "receipt_confirmed": "delivered",
+        "received": "delivered",
+        "closed": "completed",
     }
-    return mapping.get(stage, current)
+    return mapping.get(s, current)
 
 
 def _project_status_from_rfq(status: Optional[str], current: Optional[str] = None) -> Optional[str]:
     if not status:
         return current
+    s = normalize_project_stage(status, current or "project_hydrated")
     mapping = {
-        RFQStatus.created.value: "quoting",
-        RFQStatus.sent.value: "quoting",
-        RFQStatus.quoted.value: "quoted",
-        RFQStatus.approved.value: "approved",
-        RFQStatus.rejected.value: "analyzed",
-        RFQStatus.in_production.value: "in_production",
-        RFQStatus.completed.value: "completed",
+        "draft": "rfq_pending",
+        "rfq_pending": "rfq_pending",
+        "sent": "rfq_sent",
+        "rfq_sent": "rfq_sent",
+        "partial": "quote_compare",
+        "quoted": "quote_compare",
+        "quote_compare": "quote_compare",
+        "approved": "vendor_selected",
+        "vendor_selected": "vendor_selected",
+        "rejected": "project_hydrated",
+        "closed": "completed",
+        "completed": "completed",
+        "error": "error",
+        "in_production": "in_production",
     }
-    return mapping.get(status, current)
+    return mapping.get(s, current)
 
 
 def resolve_bom_id(db: Session, bom_or_project_id: str) -> Optional[str]:
@@ -137,7 +321,13 @@ def upsert_project_from_analysis(
     project.guest_session_id = bom.guest_session_id
     project.name = bom.name or bom.file_name or "Uploaded BOM"
     project.file_name = bom.file_name
-    project.status = "analyzed"
+
+    # Canonical workflow fields
+    project.workflow_stage = normalize_project_stage(project.workflow_stage or "project_hydrated", "project_hydrated")
+    project.status = project.workflow_stage
+    project.visibility_level = project.visibility_level or ("full" if project.user_id else "preview")
+    project.visibility = project.visibility_level
+
     project.total_parts = bom.total_parts or len((analyzer_output or {}).get("components", []) or [])
     project.recommended_location = rec.get("location") or analysis.recommended_location
     project.average_cost = _as_float(cost_summary.get("average"), _as_float(analysis.average_cost))
@@ -153,20 +343,27 @@ def upsert_project_from_analysis(
     project.analyzer_report = build_canonical_report(analyzer_output, strategy, procurement, bom, analysis)
     project.strategy = copy.deepcopy(strategy)
     project.procurement_plan = copy.deepcopy(procurement)
-    # FIXED: Increment version counters
+
+    # Canonical pointers
+    project.current_analysis_id = analysis.id
+
+    # Versioning
     project.latest_report_version = (project.latest_report_version or 0) + 1
     project.latest_strategy_version = (project.latest_strategy_version or 0) + 1
-    # FIXED: Set current state pointers (Item 4)
-    project.current_analysis_id = analysis.id
+
     project.project_metadata = {
         "category_summary": (analyzer_output or {}).get("summary", {}).get("categories", {}),
         "analysis_id": analysis.id,
         "risk_level": risk.get("overall_risk_level") or risk.get("risk_level"),
         "currency": strategy.get("currency") or procurement.get("currency") or "USD",
+        "workflow_stage": project.workflow_stage,
+        "visibility_level": project.visibility_level,
+        "next_action": project_stage_action(project.workflow_stage),
     }
+
     db.flush()
 
-    # FIXED: Save durable report snapshot (Item 3)
+    # Durable report snapshot
     try:
         raw_meta = (analyzer_output or {}).get("_meta", {})
         db.add(ReportSnapshot(
@@ -190,7 +387,7 @@ def upsert_project_from_analysis(
     except Exception as e:
         logger.warning(f"ReportSnapshot save failed (non-fatal): {e}")
 
-    # FIXED: Persist strategy run as first-class entity (Item 1)
+    # Strategy run
     try:
         strat_run = StrategyRun(
             project_id=project.id,
@@ -210,7 +407,7 @@ def upsert_project_from_analysis(
             lead_time_days=_as_float(rec.get("lead_time"), 0),
             decision_summary=strategy.get("decision_summary", ""),
             total_parts=project.total_parts or 0,
-            engine_version=raw_meta.get("version", "unknown") if 'raw_meta' in dir() else "unknown",
+            engine_version=(analyzer_output or {}).get("_meta", {}).get("version", "unknown"),
         )
         db.add(strat_run)
         db.flush()
@@ -220,11 +417,23 @@ def upsert_project_from_analysis(
         logger.warning(f"StrategyRun save failed (non-fatal): {e}")
 
     if is_new:
-        _emit_event(db, project, "project_created", None, "analyzed",
-                    {"total_parts": project.total_parts, "source": "bom_upload"})
+        record_project_event(
+            db,
+            project,
+            "project_created",
+            None,
+            project.workflow_stage,
+            {"total_parts": project.total_parts, "source": "bom_upload"},
+        )
     else:
-        _emit_event(db, project, "project_reanalyzed", "analyzed", "analyzed",
-                    {"total_parts": project.total_parts})
+        record_project_event(
+            db,
+            project,
+            "project_reanalyzed",
+            project.status,
+            project.workflow_stage,
+            {"total_parts": project.total_parts},
+        )
 
     return project
 
@@ -235,16 +444,31 @@ def update_project_status_from_rfq(db: Session, rfq: RFQ) -> Optional[Project]:
     project = get_project_by_bom_id(db, rfq.bom_id)
     if not project:
         return None
-    old_status = project.status
+
+    old_status = project.workflow_stage or project.status
     project.rfq_status = rfq.status
-    # FIXED: Set current RFQ pointer (Item 4)
     project.current_rfq_id = rfq.id
-    new_status = _project_status_from_rfq(rfq.status, project.status)
+
+    new_status = _project_status_from_rfq(rfq.status, project.workflow_stage or project.status)
     if new_status:
-        project.status = new_status
-    if project.status != old_status:
-        _emit_event(db, project, "rfq_status_change", old_status, project.status,
-                    {"rfq_id": rfq.id, "rfq_status": rfq.status})
+        project.workflow_stage = normalize_project_stage(new_status, project.workflow_stage or "project_hydrated")
+        project.status = project.workflow_stage
+
+    project.project_metadata = copy.deepcopy(project.project_metadata or {})
+    project.project_metadata["rfq_status"] = rfq.status
+    project.project_metadata["workflow_stage"] = project.workflow_stage
+    project.project_metadata["next_action"] = project_stage_action(project.workflow_stage)
+
+    if project.workflow_stage != old_status:
+        record_project_event(
+            db,
+            project,
+            "rfq_status_change",
+            old_status,
+            project.workflow_stage,
+            {"rfq_id": rfq.id, "rfq_status": rfq.status},
+        )
+
     db.flush()
     return project
 
@@ -256,14 +480,30 @@ def update_project_status_from_tracking(db: Session, rfq_id: str, stage: Optiona
     project = get_project_by_bom_id(db, rfq.bom_id)
     if not project:
         return None
-    old_status = project.status
+
+    old_status = project.workflow_stage or project.status
     project.tracking_stage = stage or project.tracking_stage
-    new_status = _project_status_from_tracking(stage, project.status)
+
+    new_status = _project_status_from_tracking(stage, project.workflow_stage or project.status)
     if new_status:
-        project.status = new_status
-    if project.status != old_status:
-        _emit_event(db, project, "tracking_stage_change", old_status, project.status,
-                    {"rfq_id": rfq_id, "stage": stage})
+        project.workflow_stage = normalize_project_stage(new_status, project.workflow_stage or "in_production")
+        project.status = project.workflow_stage
+
+    project.project_metadata = copy.deepcopy(project.project_metadata or {})
+    project.project_metadata["tracking_stage"] = project.tracking_stage
+    project.project_metadata["workflow_stage"] = project.workflow_stage
+    project.project_metadata["next_action"] = project_stage_action(project.workflow_stage)
+
+    if project.workflow_stage != old_status:
+        record_project_event(
+            db,
+            project,
+            "tracking_stage_change",
+            old_status,
+            project.workflow_stage,
+            {"rfq_id": rfq_id, "stage": stage},
+        )
+
     db.flush()
     return project
 
@@ -274,11 +514,25 @@ def sync_project_completion(db: Session, rfq: RFQ) -> Optional[Project]:
     project = get_project_by_bom_id(db, rfq.bom_id)
     if not project:
         return None
-    old_status = project.status
+
+    old_status = project.workflow_stage or project.status
+    project.workflow_stage = "completed"
     project.status = "completed"
     project.rfq_status = rfq.status
-    _emit_event(db, project, "project_completed", old_status, "completed",
-                {"rfq_id": rfq.id})
+    project.visibility_level = project.visibility_level or "full"
+    project.project_metadata = copy.deepcopy(project.project_metadata or {})
+    project.project_metadata["workflow_stage"] = "completed"
+    project.project_metadata["next_action"] = project_stage_action("completed")
+
+    record_project_event(
+        db,
+        project,
+        "project_completed",
+        old_status,
+        "completed",
+        {"rfq_id": rfq.id},
+    )
+
     db.flush()
     return project
 
@@ -293,10 +547,15 @@ def list_projects_for_user(db: Session, user_id: str) -> List[Project]:
 
 
 def serialize_summary(project: Project) -> Dict[str, Any]:
+    lifecycle = (project.project_metadata or {}).get("analysis_lifecycle", {}) or {}
+    workflow_stage = normalize_project_stage(project.workflow_stage or project.status, "draft")
     return {
         "project_id": project.id,
         "name": project.name,
-        "status": project.status,
+        "status": workflow_stage,
+        "workflow_stage": workflow_stage,
+        "visibility_level": project.visibility_level or project.visibility or "private",
+        "visibility": project.visibility or project.visibility_level or "private",
         "total_parts": project.total_parts or 0,
         "created_at": project.created_at,
         "cost": project.average_cost,
@@ -307,12 +566,23 @@ def serialize_summary(project: Project) -> Dict[str, Any]:
         "currency": project.currency or "USD",
         "rfq_status": project.rfq_status or "none",
         "tracking_stage": project.tracking_stage or "init",
+        "current_vendor_match_id": project.current_vendor_match_id,
+        "current_quote_id": project.current_quote_id,
+        "current_po_id": project.current_po_id,
+        "current_shipment_id": project.current_shipment_id,
+        "current_invoice_id": project.current_invoice_id,
+        "analysis_status": lifecycle.get("analysis_status"),
+        "report_visibility_level": lifecycle.get("report_visibility_level"),
+        "unlock_status": lifecycle.get("unlock_status"),
+        "analysis_lifecycle": lifecycle,
         "categories": (project.project_metadata or {}).get("category_summary", {}),
+        "next_action": (project.project_metadata or {}).get("next_action") or project_stage_action(workflow_stage),
     }
 
 
 def serialize_detail(project: Project) -> Dict[str, Any]:
     payload = serialize_summary(project)
+    lifecycle = (project.project_metadata or {}).get("analysis_lifecycle", {}) or {}
     payload.update({
         "updated_at": project.updated_at,
         "average_cost": project.average_cost,
@@ -323,16 +593,34 @@ def serialize_detail(project: Project) -> Dict[str, Any]:
         "strategy": project.strategy or {},
         "procurement_plan": project.procurement_plan or {},
         "metadata": project.project_metadata or {},
+        "current_analysis_id": project.current_analysis_id,
+        "current_strategy_run_id": project.current_strategy_run_id,
+        "current_vendor_match_id": project.current_vendor_match_id,
+        "current_rfq_id": project.current_rfq_id,
+        "current_quote_id": project.current_quote_id,
+        "current_po_id": project.current_po_id,
+        "current_shipment_id": project.current_shipment_id,
+        "current_invoice_id": project.current_invoice_id,
+        "latest_report_version": project.latest_report_version,
+        "latest_strategy_version": project.latest_strategy_version,
+        "analysis_lifecycle": lifecycle,
     })
     return payload
 
 
-def build_guest_preview(project: Project) -> Dict[str, Any]:
+def build_guest_preview(
+    project: Project,
+    session_token: Optional[str] = None,
+    analysis_status: str = "guest_preview",
+    report_visibility_level: str = "preview",
+    unlock_status: str = "locked",
+) -> Dict[str, Any]:
     report = project.analyzer_report or {}
     section1 = report.get("section_1_executive_summary", {}) or {}
     section2 = report.get("section_2_component_breakdown", []) or []
     section3 = report.get("section_3_sourcing_strategy", {}) or {}
     section5 = report.get("section_5_recommendation", {}) or {}
+    lifecycle = (project.project_metadata or {}).get("analysis_lifecycle", {}) or {}
 
     visible_parts = [
         {
@@ -350,9 +638,26 @@ def build_guest_preview(project: Project) -> Dict[str, Any]:
     lead = section1.get("lead_time", {}) or {}
     decision_summary = section1.get("decision_summary") or project.decision_summary or report.get("decision_summary", "")
     categories = section1.get("categories") or (project.project_metadata or {}).get("category_summary") or {}
+    workspace_route = lifecycle.get("workspace_route") or f"/project/{project.id}"
 
     return {
         "is_preview": True,
+        "guest_bom_id": lifecycle.get("guest_bom_id") or str(project.bom_id),
+        "project_id": project.id,
+        "session_token": session_token or lifecycle.get("session_token") or "",
+        "analysis_status": lifecycle.get("analysis_status") or analysis_status,
+        "report_visibility_level": lifecycle.get("report_visibility_level") or report_visibility_level,
+        "unlock_status": lifecycle.get("unlock_status") or unlock_status,
+        "workspace_route": workspace_route,
+        "analysis_lifecycle": {
+            "guest_bom_id": lifecycle.get("guest_bom_id") or str(project.bom_id),
+            "project_id": project.id,
+            "session_token": session_token or lifecycle.get("session_token") or "",
+            "analysis_status": lifecycle.get("analysis_status") or analysis_status,
+            "report_visibility_level": lifecycle.get("report_visibility_level") or report_visibility_level,
+            "unlock_status": lifecycle.get("unlock_status") or unlock_status,
+            "workspace_route": workspace_route,
+        },
         "currency": section1.get("currency") or project.currency or "USD",
         "cost_range": cost_range,
         "total_cost": section1.get("cost_breakdown", {}).get("total") or project.average_cost or 0,
@@ -830,3 +1135,178 @@ def project_plan_text(section1: Dict[str, Any], recommended: Dict[str, Any]) -> 
     total = section1.get("cost_breakdown", {}).get("total", 0)
     savings = section1.get("savings_percent", 0)
     return f"Manufacture through {location} with cost-optimized sourcing, projected spend {total:.2f} and savings {savings:.1f}%."
+
+def list_project_events(db: Session, project_id: str, limit: Optional[int] = None) -> List[ProjectEvent]:
+    query = (
+        db.query(ProjectEvent)
+        .filter(ProjectEvent.project_id == project_id)
+        .order_by(ProjectEvent.created_at.desc())
+    )
+    if limit:
+        query = query.limit(limit)
+    return query.all()
+
+
+@dataclass
+class ProjectActionItem:
+    project_id: str
+    name: Optional[str]
+    status: Optional[str]
+    workflow_stage: Optional[str]
+    rfq_status: Optional[str]
+    tracking_stage: Optional[str]
+    action: str
+    reason: Optional[str]
+    updated_at: Optional[datetime]
+    cost: Optional[float]
+    savings_percent: Optional[float]
+    lead_time: Optional[float]
+
+def build_project_metrics(db: Session, user_id: str) -> Dict[str, Any]:
+    from collections import Counter
+    from datetime import timedelta
+
+    projects = list_projects_for_user(db, user_id)
+    now = datetime.utcnow()
+
+    workflow_counts = Counter()
+    rfq_counts = Counter()
+    pending_approval_items = []
+    active_rfq_items = []
+    delayed_shipment_items = []
+    spend_alert_items = []
+    next_actions = []
+
+    total_spend = 0.0
+    savings_values = []
+
+    for p in projects:
+        stage = normalize_project_stage(p.workflow_stage or p.status, "draft")
+        rfq_status = (p.rfq_status or "none").lower()
+
+        workflow_counts[stage] += 1
+        rfq_counts[rfq_status] += 1
+
+        total_spend += _as_float(p.average_cost, 0.0)
+        if p.savings_percent is not None:
+            savings_values.append(_as_float(p.savings_percent, 0.0))
+
+        action = project_stage_action(stage)
+        next_actions.append(ProjectActionItem(
+            project_id=p.id,
+            name=p.name,
+            status=stage,
+            workflow_stage=stage,
+            rfq_status=p.rfq_status,
+            tracking_stage=p.tracking_stage,
+            action=action,
+            reason=(p.decision_summary or "")[:180] if p.decision_summary else action,
+            updated_at=p.updated_at,
+            cost=_as_float(p.average_cost, None),
+            savings_percent=_as_float(p.savings_percent, None),
+            lead_time=_as_float(p.lead_time, None),
+        ))
+
+        if stage in {"quote_compare", "negotiation", "vendor_selected", "po_issued"} or rfq_status in {"quoted", "partial"}:
+            pending_approval_items.append(ProjectActionItem(
+                project_id=p.id,
+                name=p.name,
+                status=stage,
+                workflow_stage=stage,
+                rfq_status=p.rfq_status,
+                tracking_stage=p.tracking_stage,
+                action="Review quotes / approve next step",
+                reason=p.decision_summary or "Waiting on sourcing approval",
+                updated_at=p.updated_at,
+                cost=_as_float(p.average_cost, None),
+                savings_percent=_as_float(p.savings_percent, None),
+                lead_time=_as_float(p.lead_time, None),
+            ))
+
+        if rfq_status in {"draft", "sent", "partial", "quoted"} or p.current_rfq_id:
+            active_rfq_items.append(ProjectActionItem(
+                project_id=p.id,
+                name=p.name,
+                status=stage,
+                workflow_stage=stage,
+                rfq_status=p.rfq_status,
+                tracking_stage=p.tracking_stage,
+                action="Continue RFQ flow",
+                reason="RFQ is active or awaiting vendor responses",
+                updated_at=p.updated_at,
+                cost=_as_float(p.average_cost, None),
+                savings_percent=_as_float(p.savings_percent, None),
+                lead_time=_as_float(p.lead_time, None),
+            ))
+
+        if stage in {"in_production", "qc_inspection", "shipped"} and p.updated_at:
+            if (now - p.updated_at.replace(tzinfo=None) if getattr(p.updated_at, "tzinfo", None) else now - p.updated_at).days >= 7:
+                delayed_shipment_items.append(ProjectActionItem(
+                    project_id=p.id,
+                    name=p.name,
+                    status=stage,
+                    workflow_stage=stage,
+                    rfq_status=p.rfq_status,
+                    tracking_stage=p.tracking_stage,
+                    action="Check shipment delay",
+                    reason="Tracking has not advanced recently",
+                    updated_at=p.updated_at,
+                    cost=_as_float(p.average_cost, None),
+                    savings_percent=_as_float(p.savings_percent, None),
+                    lead_time=_as_float(p.lead_time, None),
+                ))
+
+        budget = _as_float((p.project_metadata or {}).get("budget"), 0.0)
+        if budget > 0 and _as_float(p.average_cost, 0.0) > budget:
+            spend_alert_items.append(ProjectActionItem(
+                project_id=p.id,
+                name=p.name,
+                status=stage,
+                workflow_stage=stage,
+                rfq_status=p.rfq_status,
+                tracking_stage=p.tracking_stage,
+                action="Over budget",
+                reason=f"Estimated cost exceeds budget by {(_as_float(p.average_cost, 0.0) - budget):.2f}",
+                updated_at=p.updated_at,
+                cost=_as_float(p.average_cost, None),
+                savings_percent=_as_float(p.savings_percent, None),
+                lead_time=_as_float(p.lead_time, None),
+            ))
+        elif _as_float(p.savings_percent, 0.0) < 0:
+            spend_alert_items.append(ProjectActionItem(
+                project_id=p.id,
+                name=p.name,
+                status=stage,
+                workflow_stage=stage,
+                rfq_status=p.rfq_status,
+                tracking_stage=p.tracking_stage,
+                action="Margin risk",
+                reason="Negative savings percent detected",
+                updated_at=p.updated_at,
+                cost=_as_float(p.average_cost, None),
+                savings_percent=_as_float(p.savings_percent, None),
+                lead_time=_as_float(p.lead_time, None),
+            ))
+
+    completed_projects = workflow_counts.get("completed", 0)
+    open_projects = len(projects) - completed_projects
+    average_savings = sum(savings_values) / len(savings_values) if savings_values else 0.0
+
+    return {
+        "total_projects": len(projects),
+        "open_projects": open_projects,
+        "completed_projects": completed_projects,
+        "pending_approvals": len(pending_approval_items),
+        "active_rfqs": len(active_rfq_items),
+        "delayed_shipments": len(delayed_shipment_items),
+        "spend_alerts": len(spend_alert_items),
+        "total_spend": round(total_spend, 2),
+        "average_savings_percent": round(average_savings, 2),
+        "workflow_counts": dict(workflow_counts),
+        "rfq_counts": dict(rfq_counts),
+        "pending_approval_items": [vars(x) for x in pending_approval_items[:5]],
+        "active_rfq_items": [vars(x) for x in active_rfq_items[:5]],
+        "delayed_shipment_items": [vars(x) for x in delayed_shipment_items[:5]],
+        "spend_alert_items": [vars(x) for x in spend_alert_items[:5]],
+        "next_actions": [vars(x) for x in next_actions[:8]],
+        }

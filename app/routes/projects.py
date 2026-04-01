@@ -1,25 +1,30 @@
-"""Project routes — dashboard, project detail, snapshot history, strategy run history.
-FIXES:
-  - get_project resolves BOTH project_id AND bom_id (fixes BOMAnalyzer URL bug)
-  - Removed duplicate @router.get("")
-  - NULL user_id projects rejected with 403
-  - Snapshot history API (Item 2)
-  - Strategy run history API (Item 1)
-"""
+"""Project routes — control tower, lifecycle events, metrics, detail."""
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import desc
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.project import ProjectDetail, ProjectSummary, StatusUpdate
-from app.utils.dependencies import require_user
-from app.models.user import User
 from app.models.report_snapshot import ReportSnapshot
 from app.models.strategy_run import StrategyRun
+from app.models.user import User
+from app.schemas.project import (
+    ProjectDetail,
+    ProjectEventSchema,
+    ProjectMetrics,
+    ProjectSummary,
+    StatusUpdate,
+)
 from app.services import project_service
+from app.utils.dependencies import require_user
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+@router.get("/metrics", response_model=ProjectMetrics)
+def project_metrics(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    return project_service.build_project_metrics(db, user.id)
 
 
 @router.get("", response_model=list[ProjectSummary])
@@ -30,14 +35,11 @@ def list_projects(user: User = Depends(require_user), db: Session = Depends(get_
 
 @router.get("/{project_id}", response_model=ProjectDetail)
 def get_project(project_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    # FIXED: Try project_id first, then fall back to bom_id lookup
-    # This fixes the BOMAnalyzer.jsx bug where frontend sends bomId instead of project.id
     project = project_service.get_project_by_id(db, project_id)
     if not project:
         project = project_service.get_project_by_bom_id(db, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    # FIXED: reject NULL user_id projects
     if not project.user_id or project.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
     return project_service.serialize_detail(project)
@@ -52,14 +54,62 @@ def update_project_status(project_id: str, status_update: StatusUpdate, user: Us
         raise HTTPException(status_code=404, detail="Project not found")
     if not project.user_id or project.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
-    project.status = status_update.status or project.status
+
+    old_status = project.workflow_stage or project.status
+    new_status = project_service.normalize_project_stage(status_update.status, old_status)
+    project.status = new_status
+    project.workflow_stage = new_status
+    project.project_metadata = project.project_metadata or {}
+    project.project_metadata["workflow_stage"] = new_status
+    project.project_metadata["next_action"] = project_service.project_stage_action(new_status)
+
+    project_service.record_project_event(
+        db,
+        project,
+        "manual_status_update",
+        old_status,
+        new_status,
+        {"notes": status_update.notes},
+        actor_user_id=user.id,
+    )
+
     db.commit()
     db.refresh(project)
     return project_service.serialize_detail(project)
 
 
+@router.get("/{project_id}/events", response_model=list[ProjectEventSchema])
+def list_project_events(
+    project_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    project = project_service.get_project_by_id(db, project_id)
+    if not project:
+        project = project_service.get_project_by_bom_id(db, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project.user_id or project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    events = project_service.list_project_events(db, project.id, limit=200)
+    return [
+        {
+            "id": e.id,
+            "project_id": e.project_id,
+            "event_type": e.event_type,
+            "old_status": e.old_status,
+            "new_status": e.new_status,
+            "payload": e.payload or {},
+            "actor_user_id": e.actor_user_id,
+            "created_at": e.created_at,
+        }
+        for e in events
+    ]
+
+
 # ═══════════════════════════════════════════════════════════
-# Report Snapshot History (Item 2)
+# Report Snapshot History
 # ═══════════════════════════════════════════════════════════
 
 def _resolve_project_authed(project_id: str, user: User, db: Session):
@@ -79,7 +129,6 @@ def list_snapshots(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """List all report snapshots for a project, newest first."""
     project = _resolve_project_authed(project_id, user, db)
     snapshots = (
         db.query(ReportSnapshot)
@@ -109,7 +158,6 @@ def get_snapshot(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Fetch a specific report snapshot by version with full JSON payloads."""
     project = _resolve_project_authed(project_id, user, db)
     snapshot = (
         db.query(ReportSnapshot)
@@ -137,7 +185,7 @@ def get_snapshot(
 
 
 # ═══════════════════════════════════════════════════════════
-# Strategy Run History (Item 1)
+# Strategy Run History
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/{project_id}/strategy-runs")
@@ -146,7 +194,6 @@ def list_strategy_runs(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """List all strategy runs for a project, newest first."""
     project = _resolve_project_authed(project_id, user, db)
     runs = (
         db.query(StrategyRun)
@@ -180,7 +227,6 @@ def get_strategy_run(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Fetch a specific strategy run with full JSON payloads."""
     project = _resolve_project_authed(project_id, user, db)
     run = (
         db.query(StrategyRun)

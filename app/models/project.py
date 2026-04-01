@@ -1,10 +1,42 @@
-"""Project model — maps to projects.projects and projects.project_events."""
+"""Project model — canonical operational record for a BOM journey."""
+import enum
 import uuid
 from datetime import datetime
+
 from sqlalchemy import Column, Text, Integer, DateTime, ForeignKey, Numeric, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
+
 from app.core.database import Base
+
+
+class ProjectWorkflowStage(str, enum.Enum):
+    draft = "draft"
+    guest_preview = "guest_preview"
+    project_hydrated = "project_hydrated"
+    strategy = "strategy"
+    vendor_match = "vendor_match"
+    rfq_pending = "rfq_pending"
+    rfq_sent = "rfq_sent"
+    quote_compare = "quote_compare"
+    negotiation = "negotiation"
+    vendor_selected = "vendor_selected"
+    po_issued = "po_issued"
+    in_production = "in_production"
+    qc_inspection = "qc_inspection"
+    shipped = "shipped"
+    delivered = "delivered"
+    spend_recorded = "spend_recorded"
+    completed = "completed"
+    cancelled = "cancelled"
+    error = "error"
+
+
+class ProjectVisibilityLevel(str, enum.Enum):
+    private = "private"
+    preview = "preview"
+    full = "full"
+    admin = "admin"
 
 
 class Project(Base):
@@ -20,10 +52,16 @@ class Project(Base):
     bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False, unique=True)
     user_id = Column(UUID(as_uuid=False), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
     guest_session_id = Column(UUID(as_uuid=False), ForeignKey("auth.guest_sessions.id", ondelete="SET NULL"), nullable=True)
+
     name = Column(Text, nullable=False, default="Uploaded BOM")
     file_name = Column(Text, nullable=True)
-    status = Column(Text, nullable=False, default="draft")
-    visibility = Column(Text, nullable=False, default="private")
+
+    # Unified project state
+    status = Column(Text, nullable=False, default=ProjectWorkflowStage.draft.value)
+    workflow_stage = Column(Text, nullable=False, default=ProjectWorkflowStage.draft.value)
+    visibility = Column(Text, nullable=False, default=ProjectVisibilityLevel.private.value)
+    visibility_level = Column(Text, nullable=False, default=ProjectVisibilityLevel.private.value)
+
     total_parts = Column(Integer, nullable=False, default=0)
     recommended_location = Column(Text, nullable=True)
     average_cost = Column(Numeric(18, 6), nullable=True)
@@ -32,17 +70,28 @@ class Project(Base):
     savings_percent = Column(Numeric(12, 6), nullable=True)
     lead_time_days = Column(Numeric(12, 2), nullable=True)
     decision_summary = Column(Text, nullable=True)
+
+    # Canonical workflow pointers
     current_analysis_id = Column(UUID(as_uuid=False), nullable=True)
     current_strategy_run_id = Column(UUID(as_uuid=False), nullable=True)
+    current_vendor_match_id = Column(UUID(as_uuid=False), nullable=True)
     current_rfq_id = Column(UUID(as_uuid=False), nullable=True)
+    current_quote_id = Column(UUID(as_uuid=False), nullable=True)
+    current_po_id = Column(UUID(as_uuid=False), nullable=True)
+    current_shipment_id = Column(UUID(as_uuid=False), nullable=True)
+    current_invoice_id = Column(UUID(as_uuid=False), nullable=True)
+
     latest_report_version = Column(Integer, nullable=False, default=0)
     latest_strategy_version = Column(Integer, nullable=False, default=0)
+
     project_metadata = Column(JSONB, nullable=False, default=dict)
     analyzer_report = Column(JSONB, nullable=False, default=dict)
     strategy = Column(JSONB, nullable=False, default=dict)
     procurement_plan = Column(JSONB, nullable=False, default=dict)
+
     rfq_status = Column(Text, nullable=False, default="none")
     tracking_stage = Column(Text, nullable=False, default="init")
+
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -167,60 +167,50 @@ async def bom_upload(
         procurement=procurement,
     )
 
+    lifecycle = project_service.persist_analysis_lifecycle(
+        db,
+        bom=bom,
+        analysis=analysis,
+        project=project,
+        session_token=session_token or bom.session_token or "",
+        analysis_status="guest_preview" if not user else "authenticated_unlocked",
+        report_visibility_level="preview" if not user else "full",
+        unlock_status="locked" if not user else "unlocked",
+    )
+
     # ── 8. Resolver: canonical part matching + learning loop ──────────────────
-    #
-    # resolve_and_learn:
-    #   - Scores every BOM part against the PartMaster catalog
-    #   - auto_matched  → reinforces observation count + merges specs + aliases
-    #   - review_needed → same reinforcement, queued for human review
-    #   - create_new    → upserts a new PartMaster candidate from this observation
-    #   - error         → logs warning, appends error record, never aborts batch
-    #
-    # update_bom_parts_with_matches:
-    #   - Writes part_master_id, canonical_part_key, review_status back to BOMPart rows
-    #   - Single bulk fetch + dict lookup (no N+1)
-    #
-    # Both calls are wrapped independently so a resolver failure never
-    # prevents the BOM upload from completing.
-    # ─────────────────────────────────────────────────────────────────────────
     match_results: list = []
 
     try:
+        source_file = bom.source_file_name or filename
 
-     source_file = bom.source_file_name or filename
+        logger.info(f"[Resolver] Starting for BOM {bom.id} with {len(parts)} parts")
 
-     logger.info(f"[Resolver] Starting for BOM {bom.id} with {len(parts)} parts")
+        match_results = resolver_service.resolve_and_learn(
+            db,
+            parts,
+            bom.id,
+            source_file=source_file,
+        )
 
-     match_results = resolver_service.resolve_and_learn(
-        db,
-        parts,
-        bom.id,
-        source_file=source_file,
-      )
+        logger.info(
+            f"[Resolver] Completed for BOM {bom.id} | "
+            f"results={len(match_results)}"
+        )
 
-     logger.info(
-        f"[Resolver] Completed for BOM {bom.id} | "
-        f"results={len(match_results)}"
-      )
+        resolver_service.update_bom_parts_with_matches(
+            db,
+            bom.id,
+            match_results,
+            parts,
+        )
 
-     resolver_service.update_bom_parts_with_matches(
-        db,
-        bom.id,
-        match_results,
-        parts,
-      )
+        logger.info(f"[Resolver] BOMPart linkage updated for BOM {bom.id}")
 
-     logger.info(f"[Resolver] BOMPart linkage updated for BOM {bom.id}")
- 
     except Exception as e:
-     logger.warning(f"[Resolver] failed (non-fatal): {e}", exc_info=True)
+        logger.warning(f"[Resolver] failed (non-fatal): {e}", exc_info=True)
 
     # ── 9. Review queue: surface unresolved / soft-match parts ────────────────
-    #
-    # Creates ReviewItem rows for every part whose match_status is
-    # "unresolved" or "review_needed" so ops can manually verify them.
-    # Non-fatal: a queue failure must not roll back the BOM upload.
-    # ─────────────────────────────────────────────────────────────────────────
     try:
         if match_results:
             review_service.create_review_items_from_resolver(
@@ -235,24 +225,33 @@ async def bom_upload(
     db.refresh(analysis)
     db.refresh(project)
 
-    # ── 11. Response ──────────────────────────────────────────────────────────
-    if user:
-        return BOMUploadResponse(
-            bom_id=bom.id,
-            session_token="",
-            total_parts=bom.total_parts,
-            status=bom.status,
-            preview=_build_authenticated_preview(
-                project, analysis, strategy, procurement
-            ),
+    workspace_route = f"/project/{project.id}"
+    preview_payload = (
+        project_service.build_guest_preview(
+            project,
+            session_token=session_token or bom.session_token or "",
+            analysis_status="guest_preview" if not user else "authenticated_unlocked",
+            report_visibility_level="preview" if not user else "full",
+            unlock_status="locked" if not user else "unlocked",
         )
+        if not user
+        else _build_authenticated_preview(project, analysis, strategy, procurement)
+    )
 
+    # ── 11. Response ──────────────────────────────────────────────────────────
     return BOMUploadResponse(
         bom_id=bom.id,
-        session_token=bom.session_token or "",
+        guest_bom_id=bom.id if not user else None,
+        session_token=(session_token or bom.session_token or "") if not user else "",
+        analysis_status="guest_preview" if not user else "authenticated_unlocked",
+        report_visibility_level="preview" if not user else "full",
+        unlock_status="locked" if not user else "unlocked",
+        project_id=project.id,
+        workspace_route=workspace_route,
         total_parts=bom.total_parts,
         status=bom.status,
-        preview=project_service.build_guest_preview(project),
+        analysis_lifecycle=lifecycle,
+        preview=preview_payload,
     )
 
 
@@ -308,11 +307,33 @@ def bom_unlock(
     if not analysis or not project:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
+    lifecycle = project_service.persist_analysis_lifecycle(
+        db,
+        bom=bom,
+        analysis=analysis,
+        project=project,
+        session_token=body.session_token or bom.session_token or "",
+        analysis_status="authenticated_unlocked" if user else "guest_unlocked",
+        report_visibility_level="full",
+        unlock_status="unlocked",
+    )
+
     full_report = project.analyzer_report or {}
+    workspace_route = lifecycle.get("workspace_route") or f"/project/{project.id}"
+
     return BOMUnlockResponse(
         bom_id=bom.id,
+        guest_bom_id=bom.id,
+        session_token=body.session_token or bom.session_token or "",
+        analysis_status=lifecycle["analysis_status"],
+        report_visibility_level=lifecycle["report_visibility_level"],
+        unlock_status=lifecycle["unlock_status"],
+        project_id=project.id,
+        workspace_route=workspace_route,
+        analysis_lifecycle=lifecycle,
         full_report=full_report,
         strategy=project.strategy or analysis.strategy_output or {},
+        procurement_plan=project.procurement_plan or analysis.enriched_output.get("procurement_plan") or {},
     )
 
 
@@ -360,8 +381,26 @@ def _build_authenticated_preview(
     Full response payload for authenticated users.
     Guests receive a stripped version via project_service.build_guest_preview.
     """
+    lifecycle = (project.project_metadata or {}).get("analysis_lifecycle", {}) or {}
+    workspace_route = lifecycle.get("workspace_route") or f"/project/{project.id}"
+
     return {
         "is_preview": False,
+        "guest_bom_id": lifecycle.get("guest_bom_id") or str(project.bom_id),
+        "session_token": lifecycle.get("session_token") or "",
+        "analysis_status": lifecycle.get("analysis_status") or "authenticated_unlocked",
+        "report_visibility_level": lifecycle.get("report_visibility_level") or "full",
+        "unlock_status": lifecycle.get("unlock_status") or "unlocked",
+        "workspace_route": workspace_route,
+        "analysis_lifecycle": {
+            "guest_bom_id": lifecycle.get("guest_bom_id") or str(project.bom_id),
+            "project_id": project.id,
+            "session_token": lifecycle.get("session_token") or "",
+            "analysis_status": lifecycle.get("analysis_status") or "authenticated_unlocked",
+            "report_visibility_level": lifecycle.get("report_visibility_level") or "full",
+            "unlock_status": lifecycle.get("unlock_status") or "unlocked",
+            "workspace_route": workspace_route,
+        },
         "project_id": project.id,
         "bom_id": project.bom_id,
         "analyzer_report": project.analyzer_report or {},
