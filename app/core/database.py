@@ -114,7 +114,7 @@ def init_db():
     Import all models so SQLAlchemy registers them, then ensure schemas/tables exist.
     """
 
-    # Import models (CRITICAL for metadata registration)
+    # Import models (CRITICAL)
     import app.models.user
     import app.models.project
     import app.models.bom
@@ -134,27 +134,23 @@ def init_db():
     import app.models.analytics
 
     # -------------------------------------------------------------------
-    # PostgreSQL Schema Creation
+    # PostgreSQL Schema Creation (ISOLATED — NO TRANSACTION)
     # -------------------------------------------------------------------
-    schemas = ()
-
     if settings.is_postgres:
+
         schemas = (
             "auth", "bom", "projects", "pricing",
             "sourcing", "ops", "geo", "catalog",
             "collaboration", "analytics"
         )
 
-    if schemas:
-        with engine.begin() as conn:
-            # 🔥 disable streaming for DDL
-            conn = conn.execution_options(stream_results=False)
-
+        # 🔥 IMPORTANT: use AUTOCOMMIT to avoid transaction abort
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             for schema in schemas:
                 try:
                     conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
                 except Exception as e:
-                    logger.error(f"Failed creating schema {schema}: {e}")
+                    logger.error(f"Schema creation failed: {schema}: {e}")
                     raise
 
     # -------------------------------------------------------------------
