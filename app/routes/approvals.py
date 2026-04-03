@@ -1,7 +1,7 @@
 """Approval routes — request listing, approve, reject, and creation."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
