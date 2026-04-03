@@ -32,3 +32,11 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+class TokenResponse(BaseModel):
+    access_token: str
+    user: UserResponse
+    merged_project_id: Optional[str] = None  # ADD THIS
+
+    class Config:
+        from_attributes = True

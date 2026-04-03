@@ -13,6 +13,9 @@ Integration points (in upload order):
 
 Updated for PostgreSQL schema.
 """
+ALLOWED_BOM_EXTENSIONS = {".csv", ".xlsx", ".xls", ".tsv"}
+MAX_BOM_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+
 from __future__ import annotations
 
 import hashlib
@@ -61,6 +64,20 @@ async def bom_upload(
     db: Session = Depends(get_db),
 ):
     content = await file.read()
+    # ── 0. Input validation ───────────────────────────────────────────────
+    ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
+    if ext not in ALLOWED_BOM_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext}'. Accepted: {', '.join(sorted(ALLOWED_BOM_EXTENSIONS))}"
+        )
+    if len(content) > MAX_BOM_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File size ({len(content) / 1024 / 1024:.1f} MB) exceeds limit ({MAX_BOM_FILE_SIZE / 1024 / 1024:.0f} MB)"
+        )
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
     filename = file.filename or "upload.csv"
 
     command, cached = begin_command(

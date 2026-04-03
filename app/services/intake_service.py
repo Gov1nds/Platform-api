@@ -1345,3 +1345,129 @@ def list_sessions(
 
 def get_session(db: Session, session_id: str) -> Optional[IntakeSession]:
     return db.query(IntakeSession).filter(IntakeSession.id == session_id).first()
+async def finalize_intake_to_project(
+    db: Session,
+    intake_session: IntakeSession,
+    user: Optional[User] = None,
+) -> Dict[str, Any]:
+    """
+    Finalize an intake session into a full BOM + Analysis + Project.
+
+    This bridges the intake path to the existing BOM upload pipeline,
+    ensuring both paths produce the same output.
+    """
+    from app.services import (
+        analyzer_service,
+        bom_service,
+        pricing_service,
+        vendor_service,
+        project_service,
+    )
+    from app.services.strategy_service import build_strategy_output
+    from app.services.procurement_planner import generate_procurement_plan
+    from app.models.analysis import AnalysisResult
+
+    if not intake_session.source_file_path:
+        raise ValueError("Intake session has no source file")
+
+    # 1. Call BOM engine
+    with open(intake_session.source_file_path, "rb") as f:
+        file_bytes = f.read()
+
+    analyzer_output = await analyzer_service.call_analyzer(
+        file_bytes=file_bytes,
+        filename=intake_session.source_file_name or "upload.csv",
+        user_location=intake_session.delivery_location or "India",
+        target_currency=intake_session.target_currency or "USD",
+    )
+
+    # 2. Create BOM + BOMParts
+    bom = bom_service.create_bom_from_analyzer(
+        db,
+        analyzer_output,
+        file_name=intake_session.source_file_name or "upload.csv",
+        file_type=intake_session.source_file_type or "csv",
+        user_id=user.id if user else None,
+        session_token=intake_session.session_token,
+    )
+
+    # 3. Strategy
+    components = analyzer_output.get("components", [])
+    strategy_input = {"section_2_component_breakdown": components}
+    priority = intake_session.priority or "cost"
+    location = intake_session.delivery_location or "India"
+    currency = intake_session.target_currency or "USD"
+
+    parts = bom_service.get_bom_parts_as_dicts(db, bom.id)
+    external_pricing = pricing_service.fetch_external_pricing(parts)
+    enriched = pricing_service.enrich_analysis_with_pricing(strategy_input, db, external_pricing)
+
+    vendor_memories = vendor_service.get_vendor_memories(db)
+    strategy = build_strategy_output(
+        strategy_input, location, vendor_memories,
+        pricing_history=[], external_pricing=external_pricing,
+        db=db, priority=priority, target_currency=currency,
+    )
+    procurement = generate_procurement_plan(strategy, currency, max_suppliers=5)
+
+    # 4. AnalysisResult
+    ps = strategy.get("procurement_strategy", {})
+    cs = ps.get("cost_summary", {})
+    rec = strategy.get("recommended_strategy", {})
+    cost_range = cs.get("range", [0, 0])
+
+    analysis = AnalysisResult(
+        bom_id=bom.id,
+        user_id=user.id if user else None,
+        guest_session_id=bom.guest_session_id,
+        raw_analyzer_output=analyzer_output,
+        structured_output={
+            "strategy": strategy,
+            "enriched": {
+                "analyzer": enriched,
+                "procurement_plan": procurement,
+                "external_pricing": {k: v for k, v in external_pricing.items() if v},
+                "priority": priority,
+            },
+        },
+        recommended_location=rec.get("location", ""),
+        average_cost=cs.get("average", rec.get("average_cost", 0)),
+        cost_range_low=cost_range[0] if len(cost_range) > 0 else 0,
+        cost_range_high=cost_range[1] if len(cost_range) > 1 else 0,
+        savings_percent=cs.get("savings_percent", rec.get("savings_percent", 0)),
+        lead_time_days=rec.get("lead_time", 0),
+        decision_summary=strategy.get("decision_summary", ""),
+        source_version=analyzer_output.get("_meta", {}).get("version", "unknown"),
+    )
+    db.add(analysis)
+    db.flush()
+
+    bom.status = "analyzed"
+
+    # 5. Project
+    project = project_service.upsert_project_from_analysis(
+        db, bom=bom, analysis=analysis,
+        analyzer_output=analyzer_output,
+        strategy=strategy, procurement=procurement,
+    )
+
+    # 6. Link intake session
+    intake_session.bom_id = str(bom.id)
+    intake_session.analysis_id = str(analysis.id)
+    intake_session.project_id = str(project.id)
+    intake_session.status = "completed"
+    intake_session.analysis_status = "completed"
+    intake_session.workflow_status = "completed"
+
+    db.flush()
+
+    return {
+        "intake_session_id": intake_session.id,
+        "bom_id": str(bom.id),
+        "project_id": str(project.id),
+        "analysis_id": str(analysis.id),
+        "session_token": intake_session.session_token,
+        "analysis_status": "guest_preview" if not user else "authenticated_unlocked",
+        "workspace_route": f"/project/{project.id}",
+        "total_parts": bom.total_parts,
+    }

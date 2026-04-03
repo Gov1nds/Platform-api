@@ -117,7 +117,9 @@ class Project(Base):
     bom = relationship("BOM", foreign_keys=[bom_id])
     user = relationship("User", back_populates="projects")
     events = relationship("ProjectEvent", back_populates="project", cascade="all, delete-orphan")
-
+    events = relationship("ProjectEvent", back_populates="project", cascade="all, delete-orphan")
+    chat_threads = relationship("ChatThread", back_populates="project", cascade="all, delete-orphan")
+    approval_requests = relationship("ApprovalRequest", back_populates="project", cascade="all, delete-orphan")
 
 class ProjectEvent(Base):
     __tablename__ = "project_events"
@@ -131,6 +133,4 @@ class ProjectEvent(Base):
     payload = Column(JSONB, nullable=False, default=dict)
     actor_user_id = Column(UUID(as_uuid=False), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    chat_threads = relationship("ChatThread", back_populates="project", cascade="all, delete-orphan")
-    approval_requests = relationship("ApprovalRequest", back_populates="project", cascade="all, delete-orphan")
     project = relationship("Project", back_populates="events")

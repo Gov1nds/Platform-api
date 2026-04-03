@@ -107,7 +107,108 @@ PROJECT_STAGE_ACTIONS = {
     "cancelled": "Cancelled",
     "error": "Needs attention",
 }
+# ═══════════════════════════════════════════════════════════════
+# STATE MACHINE — Transition Validation
+# ═══════════════════════════════════════════════════════════════
 
+VALID_TRANSITIONS: Dict[str, set] = {
+    "draft":            {"guest_preview", "project_hydrated", "error", "cancelled"},
+    "guest_preview":    {"project_hydrated", "error", "cancelled"},
+    "project_hydrated": {"strategy", "vendor_match", "rfq_pending", "error", "cancelled"},
+    "strategy":         {"vendor_match", "rfq_pending", "error", "cancelled"},
+    "vendor_match":     {"rfq_pending", "error", "cancelled"},
+    "rfq_pending":      {"rfq_sent", "error", "cancelled"},
+    "rfq_sent":         {"quote_compare", "partial", "error", "cancelled"},
+    "quote_compare":    {"negotiation", "vendor_selected", "rfq_sent", "error", "cancelled"},
+    "negotiation":      {"vendor_selected", "quote_compare", "error", "cancelled"},
+    "vendor_selected":  {"po_issued", "error", "cancelled"},
+    "po_issued":        {"in_production", "error", "cancelled"},
+    "in_production":    {"qc_inspection", "shipped", "error", "cancelled"},
+    "qc_inspection":    {"shipped", "in_production", "error", "cancelled"},
+    "shipped":          {"delivered", "error"},
+    "delivered":        {"spend_recorded", "completed", "error"},
+    "spend_recorded":   {"completed"},
+    "completed":        set(),
+    "cancelled":        {"draft"},
+    "error":            {"draft", "guest_preview", "project_hydrated", "rfq_pending"},
+}
+
+
+def advance_project_stage(
+    db: Session,
+    project: Project,
+    new_stage: str,
+    *,
+    actor_user_id: Optional[str] = None,
+    payload: Optional[Dict[str, Any]] = None,
+    force: bool = False,
+) -> Project:
+    """
+    Advance a project to a new workflow stage with transition validation.
+
+    Args:
+        db: Database session
+        project: Project to advance
+        new_stage: Target stage
+        actor_user_id: User performing the action
+        payload: Event metadata
+        force: Skip validation (admin override)
+
+    Returns:
+        Updated project
+
+    Raises:
+        ValueError: If transition is invalid
+    """
+    current = project.workflow_stage or "draft"
+    new_stage = normalize_project_stage(new_stage, current)
+
+    if not force:
+        allowed = VALID_TRANSITIONS.get(current, set())
+        if new_stage not in allowed and new_stage != current:
+            raise ValueError(
+                f"Invalid workflow transition: '{current}' → '{new_stage}'. "
+                f"Allowed transitions from '{current}': {sorted(allowed) if allowed else 'none (terminal state)'}"
+            )
+
+    old_stage = project.workflow_stage
+    project.workflow_stage = new_stage
+    project.status = new_stage
+    project.updated_at = datetime.utcnow()
+
+    # Update metadata
+    meta = dict(project.project_metadata or {})
+    meta["workflow_stage"] = new_stage
+    meta["next_action"] = project_stage_action(new_stage)
+    meta["last_transition"] = {
+        "from": old_stage,
+        "to": new_stage,
+        "at": datetime.utcnow().isoformat(),
+        "actor": actor_user_id,
+    }
+    project.project_metadata = meta
+
+    # Log event
+    record_project_event(
+        db,
+        project,
+        event_type="stage_transition",
+        old_status=old_stage,
+        new_status=new_stage,
+        payload=payload or {},
+        actor_user_id=actor_user_id or project.user_id,
+    )
+
+    db.flush()
+    logger.info(f"Project {project.id}: {old_stage} → {new_stage}")
+    return project
+
+
+def can_advance_to(project: Project, target_stage: str) -> bool:
+    """Check if a project can transition to a given stage."""
+    current = project.workflow_stage or "draft"
+    allowed = VALID_TRANSITIONS.get(current, set())
+    return normalize_project_stage(target_stage, current) in allowed
 
 def normalize_project_stage(value: Optional[str], default: str = "draft") -> str:
     if not value:

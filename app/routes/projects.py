@@ -55,23 +55,16 @@ def update_project_status(project_id: str, status_update: StatusUpdate, user: Us
     if not project.user_id or project.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    old_status = project.workflow_stage or project.status
-    new_status = project_service.normalize_project_stage(status_update.status, old_status)
-    project.status = new_status
-    project.workflow_stage = new_status
-    project.project_metadata = project.project_metadata or {}
-    project.project_metadata["workflow_stage"] = new_status
-    project.project_metadata["next_action"] = project_service.project_stage_action(new_status)
-
-    project_service.record_project_event(
-        db,
-        project,
-        "manual_status_update",
-        old_status,
-        new_status,
-        {"notes": status_update.notes},
-        actor_user_id=user.id,
-    )
+    try:
+        project = project_service.advance_project_stage(
+            db,
+            project,
+            status_update.status,
+            actor_user_id=user.id,
+            payload={"notes": status_update.notes, "source": "manual_update"},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     db.commit()
     db.refresh(project)
