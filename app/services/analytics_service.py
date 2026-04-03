@@ -996,29 +996,3 @@ def backfill_spend_ledger(db: Session, reset: bool = False):
     shipments = db.query(Shipment).all()
     for s in shipments:
         record_delivery_performance(db, s)
-        
-def record_spend_from_po(db: Session, po: "PurchaseOrder") -> Optional["SpendLedger"]:
-    """Auto-create a SpendLedger entry from a fulfilled PurchaseOrder."""
-    from app.models.analytics import SpendLedger
-
-    existing = db.query(SpendLedger).filter(
-        SpendLedger.po_id == po.id
-    ).first()
-    if existing:
-        return existing
-
-    entry = SpendLedger(
-        project_id=po.project_id,
-        rfq_id=po.rfq_id,
-        po_id=po.id,
-        vendor_id=po.vendor_id,
-        category=po.po_metadata.get("category", "general") if po.po_metadata else "general",
-        amount=float(po.total_amount or 0),
-        currency=po.currency or "USD",
-        recorded_at=datetime.utcnow(),
-        source="auto_delivery_confirm",
-        metadata_={"auto_generated": True},
-    )
-    db.add(entry)
-    db.flush()
-    return entry      

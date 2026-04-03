@@ -1,20 +1,4 @@
-"""Tracking Service — legacy stage progression + fulfillment execution layer.
-
-Responsibilities:
-  - Legacy T0–T4 stage tracking
-  - Full fulfillment lifecycle: PO → Shipment → Customs → Delivery → Invoice → Payment
-  - Execution state derivation from child entities
-  - Timeline construction for UI
-  - Project synchronization on every state change
-  - Analytics recording on PO, shipment, delivery, invoice, payment events
-  - Supplier memory updates on delivery outcomes
-
-FIXED (from prior version):
-  - Replaced all __import__ hacks with proper imports
-  - Fixed purchase_order → po variable name in confirm_goods_receipt
-  - Added proper type annotations and error boundaries
-"""
-
+"""Tracking Service — legacy stage progression + fulfillment execution layer."""
 import logging
 import uuid
 from datetime import datetime
@@ -22,7 +6,6 @@ from typing import Optional, List, Dict, Any
 
 from sqlalchemy.orm import Session
 
-from app.models.project import Project
 from app.models.tracking import (
     ProductionTracking,
     ExecutionFeedback,
@@ -45,11 +28,6 @@ from app.services import project_service
 from app.services import analytics_service, memory_service
 
 logger = logging.getLogger("tracking_service")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CONSTANTS
-# ═══════════════════════════════════════════════════════════════════════════════
 
 STAGE_PROGRESS = {
     TrackingStage.T0.value: 0,
@@ -85,28 +63,6 @@ FULFILLMENT_FLOW = [
     FulfillmentState.closed.value,
 ]
 
-FULFILLMENT_NEXT_ACTIONS = {
-    FulfillmentState.rfq_sent.value: "Collect quotes",
-    FulfillmentState.quote_received.value: "Compare quotes",
-    FulfillmentState.quote_accepted.value: "Issue PO",
-    FulfillmentState.po_issued.value: "Confirm order",
-    FulfillmentState.order_confirmed.value: "Start production",
-    FulfillmentState.production_started.value: "Monitor build progress",
-    FulfillmentState.qc_passed.value: "Await shipment",
-    FulfillmentState.shipped.value: "Track transit",
-    FulfillmentState.in_transit.value: "Watch customs / arrival",
-    FulfillmentState.customs.value: "Resolve customs hold",
-    FulfillmentState.delivered.value: "Confirm receipt",
-    FulfillmentState.receipt_confirmed.value: "Match invoice",
-    FulfillmentState.invoice_matched.value: "Capture payment",
-    FulfillmentState.paid.value: "Close project",
-    FulfillmentState.closed.value: "Closed",
-}
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# INTERNAL HELPERS
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def _safe_float(value, default=None):
     try:
@@ -121,8 +77,20 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
-def _next_action_for_state(state: str) -> str:
-    return FULFILLMENT_NEXT_ACTIONS.get(state, "Review project")
+def _record_event_safe(db: Session, project, event_type: str, old_status: Optional[str], new_status: Optional[str], payload: Dict[str, Any], actor_user_id: Optional[str] = None):
+    try:
+        if hasattr(project_service, "record_project_event"):
+            project_service.record_project_event(
+                db=db,
+                project=project,
+                event_type=event_type,
+                old_status=old_status,
+                new_status=new_status,
+                payload=payload or {},
+                actor_user_id=actor_user_id,
+            )
+    except Exception as e:
+        logger.warning("Project event record failed (non-fatal): %s", e)
 
 
 def _normalize_po_number(po_number: Optional[str], rfq_id: str) -> str:
@@ -142,89 +110,6 @@ def _normalize_shipment_number(shipment_number: Optional[str], po_id: str) -> st
         return shipment_number.strip()
     return f"SHP-{po_id[:8].upper()}"
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PROJECT SYNC HELPERS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _resolve_project_for_rfq(db: Session, rfq: Optional[RFQ]) -> Optional[Project]:
-    """Resolve the Project linked to an RFQ via bom_id."""
-    if not rfq or not rfq.bom_id:
-        return None
-    return db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
-
-
-def _record_event_safe(
-    db: Session,
-    project: Optional[Project],
-    event_type: str,
-    old_status: Optional[str],
-    new_status: Optional[str],
-    payload: Dict[str, Any],
-    actor_user_id: Optional[str] = None,
-):
-    """Log a project event without crashing on failure."""
-    if not project:
-        return
-    try:
-        if hasattr(project_service, "record_project_event"):
-            project_service.record_project_event(
-                db=db,
-                project=project,
-                event_type=event_type,
-                old_status=old_status,
-                new_status=new_status,
-                payload=payload or {},
-                actor_user_id=actor_user_id,
-            )
-    except Exception as e:
-        logger.warning("Project event record failed (non-fatal): %s", e)
-
-
-def _update_project_from_fulfillment(
-    db: Session,
-    rfq: Optional[RFQ],
-    state: str,
-    pointer_payload: Dict[str, Any],
-    actor: Optional[str] = None,
-) -> Optional[Project]:
-    """
-    Synchronize project fields after a fulfillment state change.
-
-    Updates workflow_stage, tracking_stage, and canonical pointers (po_id, shipment_id, etc.).
-    """
-    project = _resolve_project_for_rfq(db, rfq)
-    if not project:
-        return None
-
-    old_status = project.workflow_stage or project.status
-    project.workflow_stage = state
-    project.status = state
-    project.rfq_status = rfq.status if rfq else getattr(project, "rfq_status", "none")
-    project.tracking_stage = pointer_payload.get("tracking_stage", project.tracking_stage or "init")
-    project.current_po_id = pointer_payload.get("po_id", project.current_po_id)
-    project.current_shipment_id = pointer_payload.get("shipment_id", project.current_shipment_id)
-    project.current_invoice_id = pointer_payload.get("invoice_id", project.current_invoice_id)
-    project.project_metadata = project.project_metadata or {}
-    project.project_metadata["workflow_stage"] = state
-    project.project_metadata["next_action"] = _next_action_for_state(state)
-    project.project_metadata["fulfillment_state"] = state
-    project.project_metadata["fulfillment_pointer"] = pointer_payload
-
-    _record_event_safe(
-        db, project,
-        f"fulfillment_{state}",
-        old_status, state,
-        pointer_payload,
-        actor_user_id=actor,
-    )
-    db.flush()
-    return project
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SERIALIZERS
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def _serialize_tracking_row(row: ProductionTracking) -> Dict[str, Any]:
     return {
@@ -379,16 +264,7 @@ def _serialize_payment_state(p: PaymentState) -> Dict[str, Any]:
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# EXECUTION STATE DERIVATION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _has_goods_receipt(db: Session, po_id: str) -> bool:
-    return db.query(GoodsReceipt).filter(GoodsReceipt.purchase_order_id == po_id).count() > 0
-
-
 def _derive_execution_state(db: Session, rfq_id: str) -> str:
-    """Derive the current execution state from the latest child entities."""
     rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
     if not rfq:
         return FulfillmentState.rfq_sent.value
@@ -413,7 +289,6 @@ def _derive_execution_state(db: Session, rfq_id: str) -> str:
     if po.status in (FulfillmentState.paid.value, "paid"):
         return FulfillmentState.paid.value
 
-    # Check payment
     payment = (
         db.query(PaymentState)
         .join(Invoice, Invoice.id == PaymentState.invoice_id)
@@ -427,7 +302,6 @@ def _derive_execution_state(db: Session, rfq_id: str) -> str:
         if payment.status == "matched":
             return FulfillmentState.invoice_matched.value
 
-    # Check invoice
     invoice = (
         db.query(Invoice)
         .filter(Invoice.purchase_order_id == po.id)
@@ -440,7 +314,6 @@ def _derive_execution_state(db: Session, rfq_id: str) -> str:
         if invoice.invoice_status in ("issued", "sent"):
             return FulfillmentState.receipt_confirmed.value if _has_goods_receipt(db, po.id) else FulfillmentState.invoice_matched.value
 
-    # Check goods receipt
     receipt = (
         db.query(GoodsReceipt)
         .filter(GoodsReceipt.purchase_order_id == po.id)
@@ -450,7 +323,6 @@ def _derive_execution_state(db: Session, rfq_id: str) -> str:
     if receipt and receipt.receipt_status in ("confirmed", "received", "accepted"):
         return FulfillmentState.receipt_confirmed.value
 
-    # Check shipment
     shipment = (
         db.query(Shipment)
         .filter(Shipment.purchase_order_id == po.id)
@@ -460,11 +332,11 @@ def _derive_execution_state(db: Session, rfq_id: str) -> str:
     if shipment:
         if shipment.delivered_at:
             return FulfillmentState.delivered.value
-        if shipment.status == "customs":
+        if shipment.status in ("customs",):
             return FulfillmentState.customs.value
-        if shipment.status == "in_transit":
+        if shipment.status in ("in_transit",):
             return FulfillmentState.in_transit.value
-        if shipment.status == "shipped":
+        if shipment.status in ("shipped",):
             return FulfillmentState.shipped.value
 
     if po.confirmed_at:
@@ -473,12 +345,16 @@ def _derive_execution_state(db: Session, rfq_id: str) -> str:
     return FulfillmentState.po_issued.value
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TIMELINE BUILDER
-# ═══════════════════════════════════════════════════════════════════════════════
+def _has_goods_receipt(db: Session, po_id: str) -> bool:
+    return (
+        db.query(GoodsReceipt)
+        .filter(GoodsReceipt.purchase_order_id == po_id)
+        .count()
+        > 0
+    )
+
 
 def _build_timeline(db: Session, rfq_id: str) -> List[Dict[str, Any]]:
-    """Build a unified timeline of all tracking + fulfillment events."""
     rows = (
         db.query(ProductionTracking)
         .filter(ProductionTracking.rfq_id == rfq_id)
@@ -597,9 +473,62 @@ def _build_timeline(db: Session, rfq_id: str) -> List[Dict[str, Any]]:
     return timeline
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# LEGACY TRACKING (T0–T4)
-# ═══════════════════════════════════════════════════════════════════════════════
+def _update_project_from_fulfillment(db: Session, rfq: RFQ, state: str, pointer_payload: Dict[str, Any], actor: Optional[str] = None):
+    project = None
+    if rfq and rfq.bom_id:
+        project = db.query(__import__("app.models.project", fromlist=["Project"]).Project).filter(
+            __import__("app.models.project", fromlist=["Project"]).Project.bom_id == rfq.bom_id
+        ).first()
+
+    if not project:
+        return None
+
+    old_status = getattr(project, "workflow_stage", None) or getattr(project, "status", None)
+    project.workflow_stage = state
+    project.status = state
+    project.rfq_status = rfq.status if rfq else getattr(project, "rfq_status", "none")
+    project.tracking_stage = pointer_payload.get("tracking_stage", getattr(project, "tracking_stage", "init"))
+    project.current_po_id = pointer_payload.get("po_id", getattr(project, "current_po_id", None))
+    project.current_shipment_id = pointer_payload.get("shipment_id", getattr(project, "current_shipment_id", None))
+    project.current_invoice_id = pointer_payload.get("invoice_id", getattr(project, "current_invoice_id", None))
+    project.project_metadata = project.project_metadata or {}
+    project.project_metadata["workflow_stage"] = state
+    project.project_metadata["next_action"] = _next_action_for_state(state)
+    project.project_metadata["fulfillment_state"] = state
+    project.project_metadata["fulfillment_pointer"] = pointer_payload
+    _record_event_safe(
+        db,
+        project,
+        f"fulfillment_{state}",
+        old_status,
+        state,
+        pointer_payload,
+        actor_user_id=actor,
+    )
+    db.flush()
+    return project
+
+
+def _next_action_for_state(state: str) -> str:
+    mapping = {
+        FulfillmentState.rfq_sent.value: "Collect quotes",
+        FulfillmentState.quote_received.value: "Compare quotes",
+        FulfillmentState.quote_accepted.value: "Issue PO",
+        FulfillmentState.po_issued.value: "Confirm order",
+        FulfillmentState.order_confirmed.value: "Start production",
+        FulfillmentState.production_started.value: "Monitor build progress",
+        FulfillmentState.qc_passed.value: "Await shipment",
+        FulfillmentState.shipped.value: "Track transit",
+        FulfillmentState.in_transit.value: "Watch customs / arrival",
+        FulfillmentState.customs.value: "Resolve customs hold",
+        FulfillmentState.delivered.value: "Confirm receipt",
+        FulfillmentState.receipt_confirmed.value: "Match invoice",
+        FulfillmentState.invoice_matched.value: "Capture payment",
+        FulfillmentState.paid.value: "Close project",
+        FulfillmentState.closed.value: "Closed",
+    }
+    return mapping.get(state, "Review project")
+
 
 def create_tracking(db: Session, rfq_id: str) -> ProductionTracking:
     rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
@@ -638,10 +567,10 @@ def advance_stage(db: Session, rfq_id: str, updated_by: str = "system") -> Optio
         rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
         if rfq:
             rfq.status = RFQStatus.completed.value if hasattr(RFQStatus, "completed") else rfq.status
-            if hasattr(project_service, "sync_project_completion"):
-                project_service.sync_project_completion(db, rfq)
+            project = project_service.sync_project_completion(db, rfq) if hasattr(project_service, "sync_project_completion") else None
             _update_project_from_fulfillment(
-                db, rfq,
+                db,
+                rfq,
                 FulfillmentState.closed.value,
                 {"tracking_stage": TrackingStage.T4.value},
                 actor=updated_by,
@@ -675,16 +604,16 @@ def get_tracking(db: Session, rfq_id: str) -> List[ProductionTracking]:
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FULFILLMENT CONTEXT (READ)
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def get_fulfillment_context(db: Session, rfq_id: str) -> Dict[str, Any]:
     rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
 
-    project = _resolve_project_for_rfq(db, rfq)
+    project = None
+    if rfq.bom_id:
+        project = db.query(__import__("app.models.project", fromlist=["Project"]).Project).filter(
+            __import__("app.models.project", fromlist=["Project"]).Project.bom_id == rfq.bom_id
+        ).first()
 
     po = (
         db.query(PurchaseOrder)
@@ -692,28 +621,72 @@ def get_fulfillment_context(db: Session, rfq_id: str) -> Dict[str, Any]:
         .order_by(PurchaseOrder.created_at.desc())
         .first()
     )
-    shipments: List[Shipment] = []
-    shipment_events: List[ShipmentEvent] = []
-    carrier_milestones: List[CarrierMilestone] = []
-    customs_events: List[CustomsEvent] = []
-    goods_receipts: List[GoodsReceipt] = []
-    invoices: List[Invoice] = []
+    shipments = []
+    shipment_events = []
+    carrier_milestones = []
+    customs_events = []
+    goods_receipts = []
+    invoices = []
     payment_state = None
 
     if po:
-        shipments = db.query(Shipment).filter(Shipment.purchase_order_id == po.id).order_by(Shipment.created_at.asc()).all()
-        goods_receipts = db.query(GoodsReceipt).filter(GoodsReceipt.purchase_order_id == po.id).order_by(GoodsReceipt.created_at.asc()).all()
-        invoices = db.query(Invoice).filter(Invoice.purchase_order_id == po.id).order_by(Invoice.created_at.asc()).all()
+        shipments = (
+            db.query(Shipment)
+            .filter(Shipment.purchase_order_id == po.id)
+            .order_by(Shipment.created_at.asc())
+            .all()
+        )
+        goods_receipts = (
+            db.query(GoodsReceipt)
+            .filter(GoodsReceipt.purchase_order_id == po.id)
+            .order_by(GoodsReceipt.created_at.asc())
+            .all()
+        )
+        invoices = (
+            db.query(Invoice)
+            .filter(Invoice.purchase_order_id == po.id)
+            .order_by(Invoice.created_at.asc())
+            .all()
+        )
         if invoices:
-            payment_state = db.query(PaymentState).filter(PaymentState.invoice_id == invoices[-1].id).first()
+            payment_state = (
+                db.query(PaymentState)
+                .filter(PaymentState.invoice_id == invoices[-1].id)
+                .first()
+            )
         for sh in shipments:
-            shipment_events.extend(db.query(ShipmentEvent).filter(ShipmentEvent.shipment_id == sh.id).order_by(ShipmentEvent.occurred_at.asc()).all())
-            carrier_milestones.extend(db.query(CarrierMilestone).filter(CarrierMilestone.shipment_id == sh.id).order_by(CarrierMilestone.created_at.asc()).all())
-            customs_events.extend(db.query(CustomsEvent).filter(CustomsEvent.shipment_id == sh.id).order_by(CustomsEvent.created_at.asc()).all())
+            shipment_events.extend(
+                db.query(ShipmentEvent)
+                .filter(ShipmentEvent.shipment_id == sh.id)
+                .order_by(ShipmentEvent.occurred_at.asc())
+                .all()
+            )
+            carrier_milestones.extend(
+                db.query(CarrierMilestone)
+                .filter(CarrierMilestone.shipment_id == sh.id)
+                .order_by(CarrierMilestone.created_at.asc())
+                .all()
+            )
+            customs_events.extend(
+                db.query(CustomsEvent)
+                .filter(CustomsEvent.shipment_id == sh.id)
+                .order_by(CustomsEvent.created_at.asc())
+                .all()
+            )
 
     tracking_history = get_tracking(db, rfq_id)
     execution_state = _derive_execution_state(db, rfq_id)
     timeline = _build_timeline(db, rfq_id)
+
+    po_number = po.po_number if po else None
+    vendor_confirmation = po.vendor_confirmation_number if po else None
+    tracking_number = shipments[-1].tracking_number if shipments else None
+    carrier_name = shipments[-1].carrier_name if shipments else None
+    eta = shipments[-1].eta if shipments else None
+    delay_reason = shipments[-1].delay_reason if shipments else None
+    receipt_confirmation = None
+    if goods_receipts:
+        receipt_confirmation = goods_receipts[-1].receipt_status
 
     return {
         "rfq_id": rfq.id,
@@ -731,19 +704,15 @@ def get_fulfillment_context(db: Session, rfq_id: str) -> Dict[str, Any]:
         "payment_state": _serialize_payment_state(payment_state) if payment_state else None,
         "tracking_history": [_serialize_tracking_row(t) for t in tracking_history],
         "timeline": timeline,
-        "po_number": po.po_number if po else None,
-        "vendor_confirmation": po.vendor_confirmation_number if po else None,
-        "tracking_number": shipments[-1].tracking_number if shipments else None,
-        "carrier_name": shipments[-1].carrier_name if shipments else None,
-        "eta": shipments[-1].eta if shipments else None,
-        "delay_reason": shipments[-1].delay_reason if shipments else None,
-        "receipt_confirmation": goods_receipts[-1].receipt_status if goods_receipts else None,
+        "po_number": po_number,
+        "vendor_confirmation": vendor_confirmation,
+        "tracking_number": tracking_number,
+        "carrier_name": carrier_name,
+        "eta": eta,
+        "delay_reason": delay_reason,
+        "receipt_confirmation": receipt_confirmation,
     }
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PURCHASE ORDER
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def create_purchase_order(
     db: Session,
@@ -763,9 +732,13 @@ def create_purchase_order(
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
 
-    project = _resolve_project_for_rfq(db, rfq)
-    vendor_id = vendor_id or rfq.selected_vendor_id
+    project = None
+    if rfq.bom_id:
+        project = db.query(__import__("app.models.project", fromlist=["Project"]).Project).filter(
+            __import__("app.models.project", fromlist=["Project"]).Project.bom_id == rfq.bom_id
+        ).first()
 
+    vendor_id = vendor_id or rfq.selected_vendor_id
     po = PurchaseOrder(
         project_id=project.id if project else None,
         rfq_id=rfq.id,
@@ -785,7 +758,13 @@ def create_purchase_order(
     db.add(po)
     db.flush()
 
-    analytics_service.record_purchase_order_spend(db, po, project=project, rfq=rfq, actor=user)
+    analytics_service.record_purchase_order_spend(
+        db,
+        po,
+        project=project,
+        rfq=rfq,
+        actor=user,
+    )
 
     if rfq:
         rfq.status = RFQStatus.approved.value
@@ -806,12 +785,14 @@ def create_purchase_order(
 
     if project:
         _update_project_from_fulfillment(
-            db, rfq,
+            db,
+            rfq,
             FulfillmentState.po_issued.value,
             {"po_id": po.id, "tracking_stage": TrackingStage.T0.value},
             actor=user.id if user else None,
         )
         project.current_po_id = po.id
+        project.current_vendor_match_id = project.current_vendor_match_id or None
 
     db.flush()
     db.refresh(po)
@@ -852,7 +833,8 @@ def confirm_purchase_order(
 
     if rfq:
         _update_project_from_fulfillment(
-            db, rfq,
+            db,
+            rfq,
             FulfillmentState.order_confirmed.value,
             {"po_id": po.id, "tracking_stage": TrackingStage.T1.value},
             actor=user.id if user else None,
@@ -862,10 +844,6 @@ def confirm_purchase_order(
     db.refresh(po)
     return po
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SHIPMENT
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def create_shipment(
     db: Session,
@@ -924,13 +902,23 @@ def create_shipment(
     db.flush()
 
     rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
-    project = _resolve_project_for_rfq(db, rfq) if rfq else None
+    project = None
+    if rfq and rfq.bom_id:
+        Project = __import__("app.models.project", fromlist=["Project"]).Project
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
 
-    analytics_service.record_delivery_performance(db, shipment, project=project, rfq=rfq, actor=user)
+    analytics_service.record_delivery_performance(
+        db,
+        shipment,
+        project=project,
+        rfq=rfq,
+        actor=user,
+    )
 
     if rfq:
         _update_project_from_fulfillment(
-            db, rfq,
+            db,
+            rfq,
             FulfillmentState.shipped.value if status != "in_transit" else FulfillmentState.in_transit.value,
             {"po_id": po.id, "shipment_id": shipment.id, "tracking_stage": TrackingStage.T4.value},
             actor=user.id if user else None,
@@ -976,7 +964,11 @@ def add_shipment_event(
         shipment.status = FulfillmentState.customs.value
         shipment.delay_reason = message or shipment.delay_reason
 
-    analytics_service.record_delivery_performance(db, shipment, actor=user)
+    analytics_service.record_delivery_performance(
+        db,
+        shipment,
+        actor=user,
+    )
 
     db.flush()
     return event
@@ -1049,10 +1041,6 @@ def add_customs_event(
     return customs
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GOODS RECEIPT
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def confirm_goods_receipt(
     db: Session,
     po_id: str,
@@ -1083,46 +1071,32 @@ def confirm_goods_receipt(
     db.add(receipt)
     db.flush()
 
-    # ── Auto-record spend on delivery confirmation ────────────────────────
-    # FIXED: use `po` (the local variable), not `purchase_order`
-    try:
-        if hasattr(analytics_service, "record_spend_from_po"):
-            analytics_service.record_spend_from_po(db, po)
-
-        if po.project_id:
-            project = db.query(Project).filter(Project.id == po.project_id).first()
-            if project and hasattr(project_service, "advance_project_stage"):
-                try:
-                    project_service.advance_project_stage(
-                        db, project, "spend_recorded",
-                        payload={"po_id": str(po.id), "source": "delivery_confirmed"},
-                    )
-                except ValueError:
-                    pass
-    except Exception as e:
-        logger.warning(f"Auto spend recording failed (non-fatal): {e}")
-
-    # ── Update project fulfillment state ──────────────────────────────────
     rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
     if rfq:
         _update_project_from_fulfillment(
-            db, rfq,
+            db,
+            rfq,
             FulfillmentState.receipt_confirmed.value,
             {"po_id": po.id, "shipment_id": shipment_id, "tracking_stage": TrackingStage.T4.value},
             actor=user.id if user else None,
         )
 
-    # ── Update delivery performance analytics ─────────────────────────────
     if shipment_id:
         shipment = db.query(Shipment).filter(Shipment.id == shipment_id).first()
         if shipment:
-            project = _resolve_project_for_rfq(db, rfq) if rfq else None
+            project = None
+            if rfq and rfq.bom_id:
+                Project = __import__("app.models.project", fromlist=["Project"]).Project
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
             analytics_service.record_delivery_performance(
-                db, shipment, project=project, rfq=rfq, actor=user,
+                db,
+                shipment,
+                project=project,
+                rfq=rfq,
+                actor=user,
             )
 
-    # ── Update supplier memory ────────────────────────────────────────────
-    if po.vendor_id:
+    if po and po.vendor_id:
         memory_service.record_delivery_outcome(
             db,
             vendor_id=po.vendor_id,
@@ -1134,10 +1108,6 @@ def confirm_goods_receipt(
     db.flush()
     return receipt
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# INVOICE
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def create_invoice(
     db: Session,
@@ -1160,7 +1130,10 @@ def create_invoice(
         raise ValueError(f"Purchase order not found: {po_id}")
 
     rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
-    project = _resolve_project_for_rfq(db, rfq) if rfq else None
+    project = None
+    if rfq and rfq.bom_id:
+        Project = __import__("app.models.project", fromlist=["Project"]).Project
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
 
     inv = Invoice(
         purchase_order_id=po.id,
@@ -1179,7 +1152,14 @@ def create_invoice(
     db.add(inv)
     db.flush()
 
-    analytics_service.record_invoice_spend(db, inv, po=po, project=project, rfq=rfq, actor=user)
+    analytics_service.record_invoice_spend(
+        db,
+        inv,
+        po=po,
+        project=project,
+        rfq=rfq,
+        actor=user,
+    )
 
     po_row_tracking = ProductionTracking(
         rfq_id=po.rfq_id,
@@ -1196,10 +1176,6 @@ def create_invoice(
     db.flush()
     return inv
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PAYMENT
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def update_payment_state(
     db: Session,
@@ -1237,33 +1213,35 @@ def update_payment_state(
 
     db.flush()
     inv.invoice_status = "paid" if status == "paid" else inv.invoice_status
-
     if status == "paid":
         po = db.query(PurchaseOrder).filter(PurchaseOrder.id == inv.purchase_order_id).first()
         if po:
             po.status = FulfillmentState.closed.value
             rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
-            project = _resolve_project_for_rfq(db, rfq) if rfq else None
-
+            project = None
+            if rfq and rfq.bom_id:
+                Project = __import__("app.models.project", fromlist=["Project"]).Project
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
             analytics_service.record_payment_spend(
-                db, payment, inv, po=po, project=project, rfq=rfq, actor=user,
+                db,
+                payment,
+                inv,
+                po=po,
+                project=project,
+                rfq=rfq,
+                actor=user,
             )
-
             if rfq:
                 _update_project_from_fulfillment(
-                    db, rfq,
+                    db,
+                    rfq,
                     FulfillmentState.closed.value,
                     {"po_id": po.id, "invoice_id": inv.id, "tracking_stage": TrackingStage.T4.value},
                     actor=user.id if user else None,
                 )
-
     db.flush()
     return payment
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# EXECUTION FEEDBACK
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def submit_feedback(
     db: Session,
@@ -1308,7 +1286,7 @@ def get_rfq_for_feedback(db: Session, rfq_id: str) -> Optional[RFQ]:
 
 
 def _get_predicted_lead_time(db: Session, rfq_id: str) -> float:
-    """Get predicted lead time from analysis/strategy, not hardcoded 14."""
+    """FIXED: Get predicted lead time from analysis/strategy, not hardcoded 14."""
     rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
     if rfq and rfq.bom_id:
         analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == rfq.bom_id).first()
@@ -1322,7 +1300,6 @@ def _get_predicted_lead_time(db: Session, rfq_id: str) -> float:
 
 
 def _update_memory(db: Session, vendor_id: str, cost_delta: Optional[float], lead_delta: Optional[float]):
-    """Update supplier memory scores based on execution feedback."""
     mem = db.query(SupplierMemory).filter(SupplierMemory.vendor_id == vendor_id).first()
     if not mem:
         return

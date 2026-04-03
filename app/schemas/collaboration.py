@@ -40,6 +40,7 @@ class ChatThreadSchema(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     unread_count: int = 0
     last_message: Optional[Dict[str, Any]] = None
+    access: Optional[Dict[str, Any]] = None
 
 
 class ChatThreadListResponse(BaseModel):
@@ -47,6 +48,7 @@ class ChatThreadListResponse(BaseModel):
     threads: List[ChatThreadSchema] = Field(default_factory=list)
     pending_approvals: List[Dict[str, Any]] = Field(default_factory=list)
     notification_counts: Dict[str, int] = Field(default_factory=dict)
+    access: Optional[Dict[str, Any]] = None
 
 
 class ChatMessageCreate(BaseModel):
@@ -75,11 +77,13 @@ class ChatMessageSchema(BaseModel):
     read_by: List[Dict[str, Any]] = Field(default_factory=list)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    access: Optional[Dict[str, Any]] = None
 
 
 class ChatThreadMessagesResponse(BaseModel):
     thread: ChatThreadSchema
     messages: List[ChatMessageSchema] = Field(default_factory=list)
+    access: Optional[Dict[str, Any]] = None
 
 
 class ApprovalCreateRequest(BaseModel):

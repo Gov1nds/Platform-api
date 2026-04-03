@@ -45,6 +45,8 @@ class Project(Base):
         Index("ix_projects_user_id", "user_id"),
         Index("ix_projects_guest_session", "guest_session_id"),
         Index("ix_projects_status", "status"),
+        Index("ix_projects_analysis_status", "analysis_status"),
+        Index("ix_projects_visibility_level", "visibility_level"),
         {"schema": "projects"},
     )
 
@@ -61,6 +63,11 @@ class Project(Base):
     workflow_stage = Column(Text, nullable=False, default=ProjectWorkflowStage.draft.value)
     visibility = Column(Text, nullable=False, default=ProjectVisibilityLevel.private.value)
     visibility_level = Column(Text, nullable=False, default=ProjectVisibilityLevel.private.value)
+
+    analysis_status = Column(Text, nullable=False, default="guest_preview")
+    report_visibility_level = Column(Text, nullable=False, default="preview")
+    unlock_status = Column(Text, nullable=False, default="locked")
+    workspace_route = Column(Text, nullable=True)
 
     total_parts = Column(Integer, nullable=False, default=0)
     recommended_location = Column(Text, nullable=True)
@@ -94,6 +101,14 @@ class Project(Base):
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def owner_user_id(self):
+        return self.user_id
+
+    @owner_user_id.setter
+    def owner_user_id(self, value):
+        self.user_id = value
     
     # Backward-compat aliases
     @property
@@ -116,10 +131,9 @@ class Project(Base):
 
     bom = relationship("BOM", foreign_keys=[bom_id])
     user = relationship("User", back_populates="projects")
+    participants = relationship("ProjectParticipant", back_populates="project", cascade="all, delete-orphan")
     events = relationship("ProjectEvent", back_populates="project", cascade="all, delete-orphan")
-    events = relationship("ProjectEvent", back_populates="project", cascade="all, delete-orphan")
-    chat_threads = relationship("ChatThread", back_populates="project", cascade="all, delete-orphan")
-    approval_requests = relationship("ApprovalRequest", back_populates="project", cascade="all, delete-orphan")
+
 
 class ProjectEvent(Base):
     __tablename__ = "project_events"

@@ -149,6 +149,7 @@ class ApprovalRequest(Base):
     thread = relationship("ChatThread", back_populates="approvals")
     requested_by = relationship("User", foreign_keys=[requested_by_user_id])
     assigned_to = relationship("User", foreign_keys=[assigned_to_user_id])
+    participants = relationship("ProjectParticipant", back_populates="approval_request", cascade="all, delete-orphan")
     actions = relationship("ApprovalAction", back_populates="approval_request", cascade="all, delete-orphan")
 
 

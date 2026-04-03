@@ -26,6 +26,9 @@ class IntakeSession(Base):
         Index("uq_intake_sessions_namespace_key", "namespace", "idempotency_key", unique=True),
         Index("ix_intake_sessions_user_id", "user_id"),
         Index("ix_intake_sessions_guest_session_id", "guest_session_id"),
+        Index("ix_intake_sessions_session_token", "session_token"),
+        Index("ix_intake_sessions_idempotency_key", "idempotency_key"),
+        Index("ix_intake_sessions_request_hash", "request_hash"),
         Index("ix_intake_sessions_status", "status"),
         Index("ix_intake_sessions_input_type", "input_type"),
         Index("ix_intake_sessions_project_id", "project_id"),
@@ -39,7 +42,7 @@ class IntakeSession(Base):
     request_hash = Column(String(128), nullable=False, default="")
 
     user_id = Column(String(36), nullable=True, index=True)
-    guest_session_id = Column(String(36), nullable=True, index=True)
+    guest_session_id = Column(String(36), ForeignKey("auth.guest_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
     session_token = Column(String(120), nullable=True, index=True)
 
     input_type = Column(String(40), nullable=False, default="auto")
@@ -85,6 +88,7 @@ class IntakeSession(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
+    guest_session = relationship("GuestSession")
     items = relationship(
         "IntakeItem",
         back_populates="session",

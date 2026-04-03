@@ -133,6 +133,14 @@ class IntakeParseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     intake_session: IntakeSessionSchema
+    session_token: Optional[str] = None
+    guest_session_id: Optional[str] = None
+    bom_id: Optional[str] = None
+    project_id: Optional[str] = None
+    workspace_route: Optional[str] = None
+    analysis_status: str = "pending"
+    report_visibility_level: str = "preview"
+    unlock_status: str = "locked"
     input_type: str
     intent: str
     normalized_text: str

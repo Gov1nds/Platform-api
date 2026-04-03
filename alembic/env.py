@@ -42,7 +42,7 @@ target_metadata = Base.metadata
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 # Schemas to include in autogenerate
-INCLUDE_SCHEMAS = {"auth", "bom", "projects", "pricing", "sourcing", "ops", "geo", "catalog"}
+INCLUDE_SCHEMAS = {"auth", "bom", "projects", "pricing", "sourcing", "ops", "geo", "catalog", "collaboration", "analytics"}
 
 
 def include_object(object, name, type_, reflected, compare_to):

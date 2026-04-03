@@ -16,6 +16,7 @@ import logging
 import httpx
 import os
 import asyncio
+from pathlib import Path
 from typing import Dict, Any
 from app.core.config import settings
 
@@ -42,56 +43,23 @@ async def analyze_bom(
     email: str,
 ) -> Dict[str, Any]:
     """
-    Async-safe call to BOM engine using file path.
-    Includes retry, timeout, and structured error handling.
+    Async-safe analyzer bridge that preserves the existing call signature,
+    but forwards the actual file bytes using the engine's multipart contract.
     """
 
-    timeout = httpx.Timeout(60.0, connect=10.0)
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"BOM file not found: {file_path}")
 
-    headers = {
-        "X-Internal-Key": INTERNAL_API_KEY or "",
-    }
+    file_bytes = path.read_bytes()
+    filename = path.name
 
-    payload = {
-        "file_path": file_path,
-        "user_location": user_location,
-        "target_currency": target_currency,
-        "email": email,
-    }
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        for attempt in range(3):
-            try:
-                resp = await client.post(
-                    f"{ENGINE_URL}/api/analyze-bom",
-                    json=payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                result = resp.json()
-                return _normalize_response(result)
-
-            except httpx.TimeoutException:
-                logger.error("Analyzer timeout (attempt %s)", attempt + 1)
-                if attempt == 2:
-                    raise RuntimeError("Analysis timed out")
-
-            except httpx.ConnectError:
-                logger.error("Analyzer unreachable")
-                if attempt == 2:
-                    raise RuntimeError("Analyzer service unavailable")
-
-            except httpx.HTTPStatusError as e:
-                logger.error("Analyzer HTTP error: %s", e.response.status_code)
-                if attempt == 2:
-                    raise RuntimeError(f"Analyzer error {e.response.status_code}")
-
-            except Exception as e:
-                logger.error("Unexpected analyzer error: %s", str(e))
-                if attempt == 2:
-                    raise
-
-            await asyncio.sleep(0.5 * (attempt + 1))
+    return await call_analyzer(
+        file_bytes=file_bytes,
+        filename=filename,
+        user_location=user_location,
+        target_currency=target_currency,
+    )
 
 
 # -------------------------------------------------------------------
@@ -143,6 +111,107 @@ async def call_analyzer(
     result = resp.json()
     return _normalize_response(result)
 
+
+def call_analyzer_sync(
+    file_bytes: bytes,
+    filename: str,
+    user_location: str = "",
+    target_currency: str = "USD",
+) -> Dict[str, Any]:
+    """
+    Synchronous convenience wrapper used by the intake pipeline.
+    Keeps the actual HTTP contract identical to call_analyzer().
+    """
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(
+            call_analyzer(
+                file_bytes=file_bytes,
+                filename=filename,
+                user_location=user_location,
+                target_currency=target_currency,
+            )
+        )
+
+    if loop.is_running():
+        # Avoid nested loop failures in worker contexts.
+        import threading
+
+        result: Dict[str, Any] = {}
+        error: list[BaseException] = []
+
+        def _runner():
+            try:
+                result["value"] = asyncio.run(
+                    call_analyzer(
+                        file_bytes=file_bytes,
+                        filename=filename,
+                        user_location=user_location,
+                        target_currency=target_currency,
+                    )
+                )
+            except BaseException as exc:  # pragma: no cover - defensive
+                error.append(exc)
+
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()
+        thread.join()
+        if error:
+            raise error[0]
+        return result["value"]
+
+    return loop.run_until_complete(
+        call_analyzer(
+            file_bytes=file_bytes,
+            filename=filename,
+            user_location=user_location,
+            target_currency=target_currency,
+        )
+    )
+
+
+
+
+
+def call_analyzer_sync(
+    file_bytes: bytes,
+    filename: str,
+    user_location: str = "",
+    target_currency: str = "USD",
+) -> Dict[str, Any]:
+    """
+    Synchronous bridge to the engine using the canonical multipart upload contract.
+    """
+    url = f"{ENGINE_URL}/api/analyze-bom"
+    headers = {}
+    if INTERNAL_API_KEY:
+        headers["X-Internal-Key"] = INTERNAL_API_KEY
+
+    with httpx.Client(timeout=TIMEOUT) as client:
+        try:
+            resp = client.post(
+                url,
+                files={"file": (filename, file_bytes)},
+                data={
+                    "user_location": user_location,
+                    "target_currency": target_currency,
+                },
+                headers=headers,
+            )
+            resp.raise_for_status()
+        except httpx.TimeoutException:
+            logger.error("BOM Analyzer timed out")
+            raise RuntimeError("Analysis timed out. Try a smaller BOM file.")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Analyzer HTTP {e.response.status_code}")
+            raise RuntimeError(f"Analysis service error: {e.response.status_code}")
+        except httpx.ConnectError:
+            logger.error("Cannot reach BOM Analyzer")
+            raise RuntimeError("Analysis service unavailable")
+
+    return _normalize_response(resp.json())
 
 # -------------------------------------------------------------------
 # NORMALIZATION (SHARED)

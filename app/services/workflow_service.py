@@ -140,7 +140,14 @@ def can_access_project(user, project) -> bool:
     role = str(getattr(user, "role", "")).lower()
     if role == "admin":
         return True
-    return bool(project.user_id and project.user_id == user.id)
+    if getattr(project, "user_id", None) and str(project.user_id) == str(user.id):
+        return True
+    participants = list(getattr(project, "participants", []) or [])
+    for participant in participants:
+        if getattr(participant, "user_id", None) and str(participant.user_id) == str(user.id):
+            if str(getattr(participant, "status", "")).lower() in {"active", "invited", "pending"}:
+                return True
+    return False
 
 
 def schedule_post_upload_finalize(bom_id: str, project_id: str):

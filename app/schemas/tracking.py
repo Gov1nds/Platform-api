@@ -48,6 +48,7 @@ class PurchaseOrderSchema(BaseModel):
     shipments: List[Dict[str, Any]] = Field(default_factory=list)
     goods_receipts: List[Dict[str, Any]] = Field(default_factory=list)
     invoices: List[Dict[str, Any]] = Field(default_factory=list)
+    access: Optional[Dict[str, Any]] = None
 
 
 class ShipmentEventSchema(BaseModel):
@@ -138,6 +139,46 @@ class PaymentStateSchema(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class FulfillmentEventSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    rfq_id: Optional[str] = None
+    project_id: Optional[str] = None
+    purchase_order_id: Optional[str] = None
+    shipment_id: Optional[str] = None
+    invoice_id: Optional[str] = None
+    payment_state_id: Optional[str] = None
+    event_type: str
+    event_state: Optional[str] = None
+    source_entity: Optional[str] = None
+    source_id: Optional[str] = None
+    context_json: Dict[str, Any] = Field(default_factory=dict)
+    occurred_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class FulfillmentEventSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    rfq_id: Optional[str] = None
+    project_id: Optional[str] = None
+    purchase_order_id: Optional[str] = None
+    shipment_id: Optional[str] = None
+    invoice_id: Optional[str] = None
+    payment_state_id: Optional[str] = None
+    event_type: str
+    event_state: Optional[str] = None
+    source_entity: Optional[str] = None
+    source_id: Optional[str] = None
+    context_json: Dict[str, Any] = Field(default_factory=dict)
+    occurred_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class FulfillmentContextResponse(BaseModel):
     rfq_id: str
     project_id: Optional[str] = None
@@ -161,6 +202,8 @@ class FulfillmentContextResponse(BaseModel):
     eta: Optional[datetime] = None
     delay_reason: Optional[str] = None
     receipt_confirmation: Optional[str] = None
+    fulfillment_events: List[FulfillmentEventSchema] = Field(default_factory=list)
+    access: Optional[Dict[str, Any]] = None
 
 
 class PurchaseOrderCreateRequest(BaseModel):

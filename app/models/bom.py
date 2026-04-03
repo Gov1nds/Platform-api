@@ -13,6 +13,8 @@ class BOM(Base):
         Index("ix_boms_user_id", "uploaded_by_user_id"),
         Index("ix_boms_guest_session", "guest_session_id"),
         Index("ix_boms_project_id", "project_id"),
+        Index("ix_boms_analysis_status", "analysis_status"),
+        Index("ix_boms_visibility_level", "report_visibility_level"),
         Index("ix_boms_checksum", "source_checksum"),
         {"schema": "bom"},
     )
@@ -33,6 +35,10 @@ class BOM(Base):
     target_currency = Column(String(3), nullable=False, default="USD")
     priority = Column(Text, nullable=False, default="balanced")
     status = Column(Text, nullable=False, default="uploaded")
+    analysis_status = Column(Text, nullable=False, default="guest_preview")
+    report_visibility_level = Column(Text, nullable=False, default="preview")
+    unlock_status = Column(Text, nullable=False, default="locked")
+    workspace_route = Column(Text, nullable=True)
     raw_payload = Column(JSONB, nullable=False, default=dict)
     parse_summary = Column(JSONB, nullable=False, default=dict)
     total_parts = Column(Integer, nullable=False, default=0)

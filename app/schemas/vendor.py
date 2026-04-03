@@ -33,7 +33,18 @@ class VendorProfileSchema(BaseModel):
     contact_phone: Optional[str] = None
     reliability_score: Optional[float] = 0.0
     avg_lead_time_days: Optional[float] = 0.0
+    default_currency: Optional[str] = "USD"
+    default_moq: Optional[float] = None
+    lead_time_profile: Dict[str, Any] = {}
+    incoterms: List[str] = []
+    payment_terms: List[str] = []
+    regions_served: List[Dict[str, Any]] = []
     certifications: List[str] = []
+    capacity_profile: Dict[str, Any] = {}
+    quality_rating: Optional[float] = None
+    logistics_capability: Dict[str, Any] = {}
+    sample_order_available: Optional[bool] = False
+    quote_validity_days: Optional[int] = 14
     capabilities: List[str] = []
     memory: Optional[Dict[str, Any]] = None
     capability_entries: List[VendorCapabilitySchema] = []
@@ -87,6 +98,7 @@ class VendorMatchRunSchema(BaseModel):
     items: List[VendorMatchItemSchema] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    access: Optional[Dict[str, Any]] = None
 
 
 class VendorScorecardSchema(BaseModel):
@@ -100,6 +112,7 @@ class VendorScorecardSchema(BaseModel):
     capability_summary: Optional[Dict[str, Any]] = None
     recent_matches: List[Dict[str, Any]] = []
     scorecard: Dict[str, Any] = {}
+    access: Optional[Dict[str, Any]] = None
 
 
 class VendorFeedbackRequest(BaseModel):

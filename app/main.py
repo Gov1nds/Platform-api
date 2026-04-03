@@ -121,7 +121,7 @@ def _run_runtime_bootstrap():
 @app.on_event("startup")
 def startup():
     logger.info("Initializing database...")
-    init_db()
+    init_db(create_schemas=settings.ENABLE_RUNTIME_SCHEMA_BOOTSTRAP)
     _run_runtime_bootstrap()
     logger.info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
 

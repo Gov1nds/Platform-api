@@ -277,6 +277,13 @@ class RFQQuote(Base):
     quote_number = Column(Text, nullable=True)
     status = Column(Text, nullable=False, default="received")
     quote_currency = Column(String(3), nullable=False, default="USD")
+    quote_version = Column(Integer, nullable=False, default=1)
+    acceptance_status = Column(Text, nullable=False, default="pending")
+    incoterms = Column(Text, nullable=True)
+    tax_assumptions = Column(JSONB, nullable=False, default=dict)
+    duty_assumptions = Column(JSONB, nullable=False, default=dict)
+    tier_pricing_json = Column(JSONB, nullable=False, default=dict)
+    line_normalization_source = Column(Text, nullable=True)
     subtotal = Column(Numeric(18, 6), nullable=True)
     freight = Column(Numeric(18, 6), nullable=True)
     taxes = Column(Numeric(18, 6), nullable=True)
@@ -316,10 +323,17 @@ class RFQQuoteHeader(Base):
     response_status = Column(Text, nullable=False, default="received")
 
     quote_currency = Column(String(3), nullable=False, default="USD")
+    quote_version = Column(Integer, nullable=False, default=1)
+    acceptance_status = Column(Text, nullable=False, default="pending")
+    incoterms = Column(Text, nullable=True)
     subtotal = Column(Numeric(18, 6), nullable=True)
     freight = Column(Numeric(18, 6), nullable=True)
     taxes = Column(Numeric(18, 6), nullable=True)
     total = Column(Numeric(18, 6), nullable=True)
+    tax_assumptions = Column(JSONB, nullable=False, default=dict)
+    duty_assumptions = Column(JSONB, nullable=False, default=dict)
+    tier_pricing_json = Column(JSONB, nullable=False, default=dict)
+    line_normalization_source = Column(Text, nullable=True)
 
     vendor_response_deadline = Column(DateTime(timezone=True), nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True)
@@ -365,11 +379,12 @@ class RFQQuoteLine(Base):
     risk_score = Column(Numeric(12, 6), nullable=True)
 
     line_payload = Column(JSONB, nullable=False, default=dict)
+    normalization_source = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     header = relationship("RFQQuoteHeader", back_populates="lines")
-    rfq = relationship("RFQBatch")
+    rfq = relationship("RFQBatch", back_populates="fulfillment_events")
     item = relationship("RFQItem")
 
 

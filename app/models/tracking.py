@@ -344,3 +344,42 @@ class ExecutionFeedback(Base):
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     rfq = relationship("RFQBatch", foreign_keys=[rfq_id])
+
+class FulfillmentEvent(Base):
+    __tablename__ = "fulfillment_events"
+    __table_args__ = (
+        Index("ix_fulfillment_events_rfq", "rfq_id"),
+        Index("ix_fulfillment_events_project", "project_id"),
+        Index("ix_fulfillment_events_po", "purchase_order_id"),
+        Index("ix_fulfillment_events_shipment", "shipment_id"),
+        Index("ix_fulfillment_events_invoice", "invoice_id"),
+        Index("ix_fulfillment_events_type", "event_type"),
+        Index("ix_fulfillment_events_occurred", "occurred_at"),
+        {"schema": "ops"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    rfq_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_batches.id", ondelete="CASCADE"), nullable=True)
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=True)
+    purchase_order_id = Column(UUID(as_uuid=False), ForeignKey("ops.purchase_orders.id", ondelete="SET NULL"), nullable=True)
+    shipment_id = Column(UUID(as_uuid=False), ForeignKey("ops.shipments.id", ondelete="SET NULL"), nullable=True)
+    invoice_id = Column(UUID(as_uuid=False), ForeignKey("ops.invoices.id", ondelete="SET NULL"), nullable=True)
+    payment_state_id = Column(UUID(as_uuid=False), ForeignKey("ops.payment_states.id", ondelete="SET NULL"), nullable=True)
+
+    event_type = Column(Text, nullable=False)
+    event_state = Column(Text, nullable=True)
+    source_entity = Column(Text, nullable=True)
+    source_id = Column(Text, nullable=True)
+    context_json = Column(JSONB, nullable=False, default=dict)
+
+    occurred_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    rfq = relationship("RFQBatch", back_populates="fulfillment_events")
+    project = relationship("Project", back_populates="fulfillment_events")
+    purchase_order = relationship("PurchaseOrder")
+    shipment = relationship("Shipment")
+    invoice = relationship("Invoice")
+    payment_state = relationship("PaymentState")
+

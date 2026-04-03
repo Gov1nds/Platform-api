@@ -138,8 +138,17 @@ async def parse_intake(
         db.commit()
 
         session = result["session"]
+        lifecycle = session.preview_payload or {}
         return IntakeParseResponse(
             intake_session=_to_session_schema(session),
+            session_token=session.session_token,
+            guest_session_id=session.guest_session_id,
+            bom_id=session.bom_id,
+            project_id=session.project_id,
+            workspace_route=lifecycle.get("workspace_route"),
+            analysis_status=session.analysis_status,
+            report_visibility_level=lifecycle.get("report_visibility_level", "preview"),
+            unlock_status=lifecycle.get("unlock_status", "locked"),
             input_type=result["input_type"],
             intent=result["intent"],
             normalized_text=result["normalized_text"],

@@ -14,18 +14,16 @@ from app.schemas.vendor import (
 )
 from app.services import vendor_service
 from app.services.workflow_service import begin_command, complete_command, fail_command
-from app.utils.dependencies import require_user, require_roles
+from app.services import project_service
+from app.utils.dependencies import require_user, can_access_project, build_project_access_context
 
 router = APIRouter(prefix="/vendors", tags=["vendors"])
 
 
-def _project_accessible(project, user: User) -> bool:
+def _project_accessible(project, user: User, db: Session = None) -> bool:
     if not project or not user:
         return False
-    role = str(getattr(user, "role", "")).lower()
-    if role == "admin":
-        return True
-    return bool(project and project.user_id and project.user_id == user.id)
+    return can_access_project(user, project, db)
 
 
 @router.get("/match", response_model=VendorMatchRunSchema)
@@ -38,13 +36,13 @@ def match_vendors(
     max_price: Optional[float] = Query(None),
     search: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=50),
-    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
     project = vendor_service._project_context(db, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if not _project_accessible(project, user):
+    if not _project_accessible(project, user, db):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     filters: Dict[str, Any] = {
@@ -65,6 +63,7 @@ def match_vendors(
         filters=filters,
         limit=limit,
     )
+    result["access"] = build_project_access_context(user, project, db)
     return result
 
 
@@ -87,12 +86,14 @@ def get_vendor_scorecard(
         project = vendor_service._project_context(db, project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        if not _project_accessible(project, user):
+        if not _project_accessible(project, user, db):
             raise HTTPException(status_code=403, detail="Not authorized")
 
     scorecard = vendor_service.build_vendor_scorecard(db, vendor_id, project_id=project_id)
     if not scorecard:
         raise HTTPException(status_code=404, detail="Vendor not found")
+    if project_id:
+        scorecard["access"] = build_project_access_context(user, project, db)
     return scorecard
 
 
@@ -100,11 +101,18 @@ def get_vendor_scorecard(
 def submit_vendor_feedback(
     vendor_id: str,
     body: VendorFeedbackRequest,
-    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     payload = body.model_dump(exclude_none=True)
+    if body.project_id:
+        project = vendor_service._project_context(db, body.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if not _project_accessible(project, user, db):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
     command, cached = begin_command(
         db,
         namespace="vendor.feedback",
@@ -126,6 +134,8 @@ def submit_vendor_feedback(
         result = vendor_service.record_vendor_feedback(db, vendor_id, payload, user_id=user.id)
         if result.get("status") != "updated":
             raise HTTPException(status_code=400, detail="Feedback could not be recorded")
+        if body.project_id:
+            result["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, result)
         db.commit()
         return result

@@ -1,7 +1,7 @@
 """Vendor model — maps to pricing.vendors and pricing.vendor_capabilities in PostgreSQL."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, Text, Boolean, DateTime, Numeric, ForeignKey, Index
+from sqlalchemy import Column, Text, Boolean, DateTime, Numeric, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -21,6 +21,18 @@ class Vendor(Base):
     contact_phone = Column(Text, nullable=True)
     reliability_score = Column(Numeric(12, 6), nullable=False, default=1.0)
     avg_lead_time_days = Column(Numeric(12, 2), nullable=True)
+    default_currency = Column(String(3), nullable=False, default="USD")
+    default_moq = Column(Numeric(18, 6), nullable=True)
+    lead_time_profile = Column(JSONB, nullable=False, default=dict)
+    incoterms = Column(JSONB, nullable=False, default=list)
+    payment_terms = Column(JSONB, nullable=False, default=list)
+    regions_served = Column(JSONB, nullable=False, default=list)
+    certifications = Column(JSONB, nullable=False, default=list)
+    capacity_profile = Column(JSONB, nullable=False, default=dict)
+    quality_rating = Column(Numeric(12, 6), nullable=False, default=0)
+    logistics_capability = Column(JSONB, nullable=False, default=dict)
+    sample_order_available = Column(Boolean, nullable=False, default=False)
+    quote_validity_days = Column(Integer, nullable=False, default=14)
     is_active = Column(Boolean, nullable=False, default=True)
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
@@ -72,6 +84,22 @@ class Vendor(Base):
     @avg_lead_time.setter
     def avg_lead_time(self, value):
         self.avg_lead_time_days = value
+
+    @property
+    def moq(self):
+        return float(self.default_moq) if self.default_moq is not None else None
+
+    @moq.setter
+    def moq(self, value):
+        self.default_moq = value
+
+    @property
+    def currency(self):
+        return self.default_currency
+
+    @currency.setter
+    def currency(self, value):
+        self.default_currency = value or "USD"
 
     pricing_history = relationship("PricingQuote", back_populates="vendor", cascade="all, delete-orphan")
     memory = relationship("SupplierMemory", back_populates="vendor", uselist=False, cascade="all, delete-orphan")

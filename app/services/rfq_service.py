@@ -1,19 +1,4 @@
-"""RFQ Service — normalized quote lifecycle, comparison, selection, and project synchronization.
-
-Responsibilities:
-  - Create RFQ batches from analyzed BOMs
-  - Send RFQs and track vendor response deadlines
-  - Ingest vendor quotes (normalized headers + line items + legacy compat)
-  - Build side-by-side comparison matrices with filtering/sorting
-  - Select / reject vendors with project stage advancement
-  - Persist immutable comparison snapshots for audit
-
-Integration points:
-  - project_service  — stage advancement + event logging
-  - analytics_service — (future) spend recording on PO creation
-  - email_service     — notification on RFQ send (called from route layer)
-"""
-
+"""RFQ Service — normalized quote lifecycle + comparison support."""
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -39,16 +24,11 @@ from app.models.user import User
 
 logger = logging.getLogger("rfq_service")
 
-# Backward-compat alias
+# Alias for backward compat
 RFQ = RFQBatch
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# INTERNAL HELPERS
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def _as_float(value, default=0.0) -> float:
-    """Safe float conversion with fallback."""
     try:
         if value is None:
             return default
@@ -58,7 +38,6 @@ def _as_float(value, default=0.0) -> float:
 
 
 def _as_dt(value):
-    """Safe datetime conversion from string or datetime."""
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
@@ -70,134 +49,67 @@ def _as_dt(value):
 
 
 def _batch_meta_get(rfq: RFQBatch, key: str, default=None):
-    """Read a value from rfq.batch_metadata JSONB."""
     return (rfq.batch_metadata or {}).get(key, default)
 
 
 def _batch_meta_set(rfq: RFQBatch, key: str, value):
-    """Write a value into rfq.batch_metadata JSONB."""
     if not rfq.batch_metadata:
         rfq.batch_metadata = {}
     rfq.batch_metadata[key] = value
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# PROJECT SYNCHRONIZATION HELPERS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _resolve_project_for_rfq(db: Session, rfq: RFQBatch) -> Optional[Project]:
-    """Resolve the Project linked to an RFQ via project_id or bom_id."""
-    if rfq.project_id:
-        project = db.query(Project).filter(Project.id == rfq.project_id).first()
-        if project:
-            return project
-    if rfq.bom_id:
-        return db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
-    return None
-
-
 def _ensure_project_fields(project: Project, stage: str, next_action: str):
-    """Set project workflow fields consistently."""
     if not project:
         return
     project.workflow_stage = stage
     project.status = stage
-    if stage in ("draft", "sent", "partial", "quoted", "approved", "rejected", "closed", "error"):
-        project.rfq_status = stage
+    project.rfq_status = stage if stage in ("draft", "sent", "partial", "quoted", "approved", "rejected", "closed", "error") else project.rfq_status
     project.project_metadata = project.project_metadata or {}
     project.project_metadata["workflow_stage"] = stage
     project.project_metadata["next_action"] = next_action
 
 
-def _advance_project_stage_safe(
-    db: Session,
-    project: Optional[Project],
-    target_stage: str,
-    *,
-    actor_user_id: Optional[str] = None,
-    payload: Optional[Dict[str, Any]] = None,
-) -> bool:
-    """
-    Attempt to advance the project stage using project_service.advance_project_stage
-    if it exists, otherwise return False so caller can fall back to direct writes.
-    """
-    if not project:
-        return False
+def _emit_project_event_safe(db: Session, project: Project, event_type: str, old_status: Optional[str], new_status: Optional[str], payload: Optional[Dict[str, Any]] = None):
     try:
-        from app.services import project_service as _ps
-        if hasattr(_ps, "advance_project_stage"):
-            _ps.advance_project_stage(
-                db, project, target_stage,
-                actor_user_id=actor_user_id,
-                payload=payload or {},
-            )
-            return True
-    except (ValueError, ImportError):
-        pass
-    return False
-
-
-def _emit_project_event_safe(
-    db: Session,
-    project: Project,
-    event_type: str,
-    old_status: Optional[str],
-    new_status: Optional[str],
-    payload: Optional[Dict[str, Any]] = None,
-):
-    """Log a project event without crashing on failure."""
-    try:
-        from app.services import project_service as _ps
-        if hasattr(_ps, "record_project_event"):
-            _ps.record_project_event(
-                db, project, event_type,
-                old_status, new_status,
+        from app.services import project_service
+        if hasattr(project_service, "record_project_event"):
+            project_service.record_project_event(
+                db,
+                project,
+                event_type,
+                old_status,
+                new_status,
                 payload or {},
             )
     except Exception as e:
         logger.warning("Project event emission failed (non-fatal): %s", e)
 
 
-def _sync_project_rfq_status(
-    db: Session,
-    rfq: RFQBatch,
-    project: Optional[Project],
-    target_stage: str,
-    next_action: str,
-    event_type: str,
-    event_payload: Dict[str, Any],
-    *,
-    actor_user_id: Optional[str] = None,
-):
-    """
-    Unified helper to synchronize project state after an RFQ lifecycle change.
-    Attempts advance_project_stage first, falls back to direct field writes.
-    """
-    if not project:
-        return
+def _build_rfq_items(db: Session, bom: BOM) -> List[RFQItem]:
+    parts = db.query(BOMPart).filter(BOMPart.bom_id == bom.id).all()
+    rfq_parts = [
+        p for p in parts
+        if p.rfq_required
+        or p.procurement_class in ("rfq_required", "custom_manufacture", "sheet_metal", "machined_part")
+        or p.is_custom
+    ]
+    if not rfq_parts:
+        rfq_parts = [p for p in parts if p.is_custom or p.procurement_class == "unknown"]
 
-    old_status = project.workflow_stage or project.status
+    items = []
+    for p in rfq_parts:
+        items.append(RFQItem(
+            rfq_batch_id=bom.id,  # placeholder, overwritten by caller after flush
+            bom_part_id=p.id,
+            part_key=p.canonical_name or p.description or "",
+            requested_quantity=int(p.quantity) if p.quantity else 1,
+            requested_material=p.material or "",
+            requested_process=p.process_hint or "",
+            drawing_required=p.drawing_required or False,
+            canonical_part_key=p.canonical_part_key or "",
+        ))
+    return items
 
-    # Try state-machine advancement
-    advanced = _advance_project_stage_safe(
-        db, project, target_stage,
-        actor_user_id=actor_user_id,
-        payload=event_payload,
-    )
-
-    if not advanced:
-        # Fallback: direct write + manual event
-        _ensure_project_fields(project, target_stage, next_action)
-        _emit_project_event_safe(db, project, event_type, old_status, target_stage, event_payload)
-
-    # Always set canonical pointers
-    project.current_rfq_id = rfq.id
-    project.rfq_status = rfq.status
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# RFQ CREATION
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def create_rfq_from_analysis(
     db: Session,
@@ -205,16 +117,6 @@ def create_rfq_from_analysis(
     user_id: Optional[str] = None,
     notes: str = "",
 ) -> RFQBatch:
-    """
-    Create an RFQ batch from a BOM or Project ID.
-
-    - Resolves BOM and Project
-    - Selects parts requiring RFQ (custom, machined, sheet_metal, rfq_required)
-    - Falls back to custom/unknown parts if no rfq_required parts found
-    - Creates RFQBatch + RFQItem rows
-    - Advances project to rfq_pending
-    """
-    # ── Resolve BOM + Project ─────────────────────────────────────────────
     bom = db.query(BOM).filter(BOM.id == bom_or_project_id).first()
     project = None
     if not bom:
@@ -230,7 +132,6 @@ def create_rfq_from_analysis(
     analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
     currency = project.currency if project and getattr(project, "currency", None) else "USD"
 
-    # ── Create RFQ batch ──────────────────────────────────────────────────
     rfq = RFQBatch(
         requested_by_user_id=user_id or bom.uploaded_by_user_id,
         bom_id=bom.id,
@@ -248,7 +149,6 @@ def create_rfq_from_analysis(
     db.add(rfq)
     db.flush()
 
-    # ── Select parts for RFQ ─────────────────────────────────────────────
     parts = db.query(BOMPart).filter(BOMPart.bom_id == bom.id).all()
     rfq_parts = [
         p for p in parts
@@ -271,15 +171,17 @@ def create_rfq_from_analysis(
             canonical_part_key=p.canonical_part_key or "",
         ))
 
-    # ── Advance project stage ─────────────────────────────────────────────
     if project:
-        _sync_project_rfq_status(
-            db, rfq, project,
-            target_stage="rfq_pending",
-            next_action="Send RFQ",
-            event_type="rfq_created",
-            event_payload={"rfq_id": rfq.id, "items": len(rfq_parts)},
-            actor_user_id=user_id,
+        old_status = project.workflow_stage or project.status
+        _ensure_project_fields(project, "rfq_pending", "Send RFQ")
+        project.current_rfq_id = rfq.id
+        _emit_project_event_safe(
+            db,
+            project,
+            "rfq_created",
+            old_status,
+            "rfq_pending",
+            {"rfq_id": rfq.id, "items": len(rfq_parts)},
         )
 
     db.flush()
@@ -287,10 +189,6 @@ def create_rfq_from_analysis(
     logger.info("RFQ created: %s with %d items (of %d total parts)", rfq.id, len(rfq_parts), len(parts))
     return rfq
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# RFQ READS
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def get_rfq(db: Session, rfq_id: str) -> Optional[RFQBatch]:
     return db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
@@ -300,19 +198,14 @@ def get_user_rfqs(db: Session, user_id: str) -> List[RFQBatch]:
     return db.query(RFQBatch).filter(RFQBatch.requested_by_user_id == user_id).order_by(RFQBatch.created_at.desc()).all()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# RFQ STATUS UPDATE
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def update_rfq_status(db: Session, rfq_id: str, status: str) -> Optional[RFQBatch]:
-    """Update RFQ status and synchronize the linked project."""
     rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
     if not rfq:
         return None
 
     rfq.status = status
 
-    project = _resolve_project_for_rfq(db, rfq)
+    project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     if project:
         old_status = project.workflow_stage or project.status
         status_map = {
@@ -326,20 +219,22 @@ def update_rfq_status(db: Session, rfq_id: str, status: str) -> Optional[RFQBatc
             "error": ("error", "error"),
         }
         normalized_stage, normalized_rfq = status_map.get(status, (project.workflow_stage or project.status, status))
-        next_actions = {
+        _ensure_project_fields(project, normalized_stage, {
             "rfq_pending": "Send RFQ",
             "rfq_sent": "Collect quotes",
             "quote_compare": "Compare quotes",
             "vendor_selected": "Issue PO",
             "completed": "Closed",
             "error": "Needs attention",
-        }
-        _ensure_project_fields(project, normalized_stage, next_actions.get(normalized_stage, "Review project"))
+        }.get(normalized_stage, "Review project"))
         project.rfq_status = normalized_rfq
         project.current_rfq_id = rfq.id
         _emit_project_event_safe(
-            db, project, "rfq_status_updated",
-            old_status, project.workflow_stage,
+            db,
+            project,
+            "rfq_status_updated",
+            old_status,
+            project.workflow_stage,
             {"rfq_id": rfq.id, "rfq_status": status},
         )
 
@@ -347,10 +242,6 @@ def update_rfq_status(db: Session, rfq_id: str, status: str) -> Optional[RFQBatc
     db.refresh(rfq)
     return rfq
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# QUOTE INGESTION
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def _quote_header_payload_from_request(body: Dict[str, Any], vendor_id: Optional[str]) -> Dict[str, Any]:
     return {
@@ -380,19 +271,6 @@ def add_quote_to_rfq(
     vendor_id: Optional[str] = None,
     quote_meta: Optional[Dict[str, Any]] = None,
 ):
-    """
-    Ingest a vendor quote response.
-
-    Creates:
-      - RFQQuoteHeader (normalized)
-      - RFQQuoteLine per matched item (normalized)
-      - RFQQuote (legacy compat)
-
-    Updates:
-      - RFQItem.spec_summary with quoted data
-      - RFQ batch status and metadata
-      - Project to quote_compare stage
-    """
     rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
@@ -400,7 +278,7 @@ def add_quote_to_rfq(
     quote_meta = quote_meta or {}
     items = db.query(RFQItem).filter(RFQItem.rfq_batch_id == rfq_id).all()
 
-    # ── Legacy: update item spec_summary ──────────────────────────────────
+    # Legacy behavior preserved: update item spec_summary for backward compatibility
     total = 0.0
     for item in items:
         for quote in item_quotes:
@@ -416,7 +294,7 @@ def add_quote_to_rfq(
                 total += (_as_float(item.quoted_price, 0.0) * (_as_float(item.requested_quantity, 1.0) or 1.0))
                 break
 
-    # ── Normalized quote header ───────────────────────────────────────────
+    # Normalized quote header
     header = RFQQuoteHeader(
         rfq_batch_id=rfq.id,
         vendor_id=vendor_id,
@@ -440,7 +318,7 @@ def add_quote_to_rfq(
     db.add(header)
     db.flush()
 
-    # ── Normalized quote lines ────────────────────────────────────────────
+    # Normalized quote lines
     item_lookup = {i.part_key: i for i in items}
     for quote in item_quotes:
         item = item_lookup.get(quote.get("part_name"))
@@ -463,7 +341,7 @@ def add_quote_to_rfq(
         )
         db.add(line)
 
-    # ── Legacy quote row (backward compat) ────────────────────────────────
+    # Legacy quote table row remains for compatibility
     legacy_total = _as_float(quote_meta.get("total"), None)
     if legacy_total is None:
         legacy_total = round(total, 2)
@@ -485,7 +363,6 @@ def add_quote_to_rfq(
     )
     db.add(legacy_quote)
 
-    # ── Update RFQ batch metadata ─────────────────────────────────────────
     rfq.total_final_cost = legacy_total
     rfq.selected_vendor_id = vendor_id
     rfq.status = "quoted"
@@ -493,31 +370,26 @@ def add_quote_to_rfq(
     _batch_meta_set(rfq, "response_status", "received")
     _batch_meta_set(rfq, "latest_quote_header_id", header.id)
 
-    # ── Advance project to quote_compare ──────────────────────────────────
-    project = _resolve_project_for_rfq(db, rfq)
+    project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     if project:
-        _sync_project_rfq_status(
-            db, rfq, project,
-            target_stage="quote_compare",
-            next_action="Compare quotes",
-            event_type="quote_received",
-            event_payload={
-                "rfq_id": rfq.id,
-                "quote_header_id": header.id,
-                "vendor_id": vendor_id,
-                "total_final_cost": legacy_total,
-            },
-        )
+        old_status = project.workflow_stage or project.status
+        _ensure_project_fields(project, "quote_compare", "Compare quotes")
+        project.rfq_status = "quoted"
+        project.current_rfq_id = rfq.id
         project.current_quote_id = header.id
+        _emit_project_event_safe(
+            db,
+            project,
+            "quote_received",
+            old_status,
+            "quote_compare",
+            {"rfq_id": rfq.id, "quote_header_id": header.id, "vendor_id": vendor_id, "total_final_cost": legacy_total},
+        )
 
     db.flush()
     db.refresh(rfq)
     return rfq
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# RFQ SEND
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def send_rfq(
     db: Session,
@@ -526,17 +398,10 @@ def send_rfq(
     vendor_response_deadline_days: int = 7,
     notes: Optional[str] = None,
 ):
-    """
-    Mark RFQ as sent and record vendor response deadline.
-
-    In a production system this would also dispatch emails/webhooks
-    to the selected vendors. Currently updates status and metadata.
-    """
     rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
 
-    # ── Update RFQ fields ─────────────────────────────────────────────────
     rfq.status = "sent"
     rfq.notes = notes or rfq.notes
     sent_at = datetime.utcnow()
@@ -553,21 +418,19 @@ def send_rfq(
     _batch_meta_set(rfq, "quote_status", "sent")
     _batch_meta_set(rfq, "response_status", "sent")
 
-    # ── Advance project to rfq_sent ───────────────────────────────────────
-    # FIXED: resolve project BEFORE using it
-    project = _resolve_project_for_rfq(db, rfq)
+    project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     if project:
-        _sync_project_rfq_status(
-            db, rfq, project,
-            target_stage="rfq_sent",
-            next_action="Collect quotes",
-            event_type="rfq_sent",
-            event_payload={
-                "rfq_id": rfq.id,
-                "vendor_ids": vendor_ids or [],
-                "deadline": rfq.vendor_response_deadline,
-            },
-            actor_user_id=rfq.requested_by_user_id,
+        old_status = project.workflow_stage or project.status
+        _ensure_project_fields(project, "rfq_sent", "Collect quotes")
+        project.rfq_status = "sent"
+        project.current_rfq_id = rfq.id
+        _emit_project_event_safe(
+            db,
+            project,
+            "rfq_sent",
+            old_status,
+            "rfq_sent",
+            {"rfq_id": rfq.id, "vendor_ids": vendor_ids or [], "deadline": rfq.vendor_response_deadline},
         )
 
     db.flush()
@@ -575,12 +438,7 @@ def send_rfq(
     return rfq
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# QUOTE READS & COMPARISON
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def _vendor_latest_header_map(db: Session, rfq_id: str) -> Dict[str, RFQQuoteHeader]:
-    """Return the latest quote header per vendor for an RFQ."""
     headers = (
         db.query(RFQQuoteHeader)
         .options(joinedload(RFQQuoteHeader.lines))
@@ -597,7 +455,6 @@ def _vendor_latest_header_map(db: Session, rfq_id: str) -> Dict[str, RFQQuoteHea
 
 
 def _serialize_quote_header(db: Session, header: RFQQuoteHeader) -> Dict[str, Any]:
-    """Serialize a quote header + its lines for API response."""
     vendor = db.query(Vendor).filter(Vendor.id == header.vendor_id).first() if header.vendor_id else None
     return {
         "id": header.id,
@@ -641,7 +498,6 @@ def _serialize_quote_header(db: Session, header: RFQQuoteHeader) -> Dict[str, An
 
 
 def get_rfq_quotes(db: Session, rfq_id: str) -> Dict[str, Any]:
-    """Return all quote headers for an RFQ, grouped by vendor."""
     rfq = get_rfq(db, rfq_id)
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
@@ -680,16 +536,6 @@ def build_rfq_comparison(
     filters: Optional[Dict[str, Any]] = None,
     persist: bool = True,
 ) -> Dict[str, Any]:
-    """
-    Build a side-by-side comparison matrix of all vendor quotes for an RFQ.
-
-    Output structure:
-      vendors: [{vendor_id, vendor_name, total_cost, avg_lead_time, ...}]
-      rows:    [{rfq_item_id, part_name, cells: {vendor_id: {price, lead_time, ...}}, best_*}]
-      summary: {vendor_count, line_count, best_total_cost_vendor_id, ...}
-
-    Optionally persists an immutable RFQComparisonView snapshot.
-    """
     rfq = get_rfq(db, rfq_id)
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
@@ -697,16 +543,14 @@ def build_rfq_comparison(
 
     items = db.query(RFQItem).filter(RFQItem.rfq_batch_id == rfq.id).all()
     latest_headers = _vendor_latest_header_map(db, rfq.id)
-
-    # ── Build vendor-level aggregates ─────────────────────────────────────
-    vendors: List[Dict[str, Any]] = []
+    vendors = []
     for key, header in latest_headers.items():
         vendor = db.query(Vendor).filter(Vendor.id == header.vendor_id).first() if header.vendor_id else None
         lines_map = {str(l.rfq_item_id): l for l in header.lines}
         total_cost = 0.0
-        lead_times: List[float] = []
-        moqs: List[float] = []
-        risks: List[float] = []
+        lead_times = []
+        moqs = []
+        risks = []
         availability_hits = 0
         compliance_hits = 0
         line_count = 0
@@ -732,7 +576,7 @@ def build_rfq_comparison(
 
         vendors.append({
             "vendor_id": header.vendor_id,
-            "vendor_name": vendor.name if vendor else (header.metadata_.get("vendor_name") if header.metadata_ else None),
+            "vendor_name": vendor.name if vendor else header.metadata_.get("vendor_name") if header.metadata_ else None,
             "quote_header_id": header.id,
             "quote_status": header.quote_status,
             "response_status": header.response_status,
@@ -748,38 +592,39 @@ def build_rfq_comparison(
             "sent_at": header.sent_at.isoformat() if header.sent_at else None,
         })
 
-    # ── Filter vendors ────────────────────────────────────────────────────
+    # sort / filter vendors
     def _passes(v):
-        if filters.get("min_vendor_score") is not None and _as_float(v.get("vendor_score"), 0.0) < _as_float(filters["min_vendor_score"], 0.0):
+        if filters.get("min_vendor_score") is not None and _as_float(v.get("vendor_score"), 0.0) < _as_float(filters.get("min_vendor_score"), 0.0):
             return False
-        if filters.get("max_cost") is not None and _as_float(v.get("total_cost"), 0.0) > _as_float(filters["max_cost"], 0.0):
+        if filters.get("max_cost") is not None and _as_float(v.get("total_cost"), 0.0) > _as_float(filters.get("max_cost"), 0.0):
             return False
-        if filters.get("max_lead_time") is not None and v.get("avg_lead_time") is not None and _as_float(v["avg_lead_time"], 0.0) > _as_float(filters["max_lead_time"], 0.0):
+        if filters.get("max_lead_time") is not None and (v.get("avg_lead_time") is not None and _as_float(v.get("avg_lead_time"), 0.0) > _as_float(filters.get("max_lead_time"), 0.0)):
             return False
-        if filters.get("max_moq") is not None and v.get("moq") is not None and _as_float(v["moq"], 0.0) > _as_float(filters["max_moq"], 0.0):
+        if filters.get("max_moq") is not None and (v.get("moq") is not None and _as_float(v.get("moq"), 0.0) > _as_float(filters.get("max_moq"), 0.0)):
             return False
-        if filters.get("max_risk") is not None and v.get("risk_score") is not None and _as_float(v["risk_score"], 0.0) > _as_float(filters["max_risk"], 0.0):
+        if filters.get("max_risk") is not None and (v.get("risk_score") is not None and _as_float(v.get("risk_score"), 0.0) > _as_float(filters.get("max_risk"), 0.0)):
             return False
         return True
 
     vendors = [v for v in vendors if _passes(v)]
 
-    # ── Sort vendors ──────────────────────────────────────────────────────
     sort_by = sort_by or "total_cost"
-    sort_configs = {
-        "lead_time": lambda x: (x.get("avg_lead_time") is None, x.get("avg_lead_time") or 0),
-        "vendor_score": lambda x: -(x.get("vendor_score") or 0),
-        "moq": lambda x: (x.get("moq") is None, x.get("moq") or 0),
-        "risk": lambda x: (x.get("risk_score") is None, x.get("risk_score") or 0),
-    }
-    vendors.sort(key=sort_configs.get(sort_by, lambda x: x.get("total_cost") or 0))
+    if sort_by == "lead_time":
+        vendors.sort(key=lambda x: (x.get("avg_lead_time") is None, x.get("avg_lead_time") or 0))
+    elif sort_by == "vendor_score":
+        vendors.sort(key=lambda x: x.get("vendor_score") or 0, reverse=True)
+    elif sort_by == "moq":
+        vendors.sort(key=lambda x: (x.get("moq") is None, x.get("moq") or 0))
+    elif sort_by == "risk":
+        vendors.sort(key=lambda x: (x.get("risk_score") is None, x.get("risk_score") or 0))
+    else:
+        vendors.sort(key=lambda x: x.get("total_cost") or 0)
 
     vendor_lookup = {str(v["vendor_id"]): v for v in vendors if v.get("vendor_id")}
 
-    # ── Build per-item rows ───────────────────────────────────────────────
-    rows: List[Dict[str, Any]] = []
+    rows = []
     for item in items:
-        cells: Dict[str, Dict[str, Any]] = {}
+        cells = {}
         best_vendor_id = None
         best_vendor_name = None
         best_price = None
@@ -787,16 +632,14 @@ def build_rfq_comparison(
         best_total = None
 
         for vendor_key, header in latest_headers.items():
-            vid = str(header.vendor_id)
-            if vid not in vendor_lookup:
+            if str(header.vendor_id) not in vendor_lookup:
                 continue
             line = next((l for l in header.lines if str(l.rfq_item_id) == str(item.id)), None)
             if not line:
                 continue
-
             cell = {
-                "vendor_id": vid,
-                "vendor_name": vendor_lookup[vid]["vendor_name"],
+                "vendor_id": str(header.vendor_id),
+                "vendor_name": vendor_lookup[str(header.vendor_id)]["vendor_name"],
                 "quote_header_id": header.id,
                 "price": _as_float(line.unit_price, None),
                 "lead_time": _as_float(line.lead_time, None),
@@ -807,7 +650,7 @@ def build_rfq_comparison(
                 "quote_status": header.quote_status,
                 "response_status": header.response_status,
             }
-            cells[vid] = cell
+            cells[str(header.vendor_id)] = cell
 
             unit_price = _as_float(line.unit_price, None)
             if unit_price is not None:
@@ -816,8 +659,8 @@ def build_rfq_comparison(
                     best_total = total_line_cost
                     best_price = unit_price
                     best_lead = _as_float(line.lead_time, None)
-                    best_vendor_id = vid
-                    best_vendor_name = vendor_lookup[vid]["vendor_name"]
+                    best_vendor_id = str(header.vendor_id)
+                    best_vendor_name = vendor_lookup[str(header.vendor_id)]["vendor_name"]
 
         rows.append({
             "rfq_item_id": str(item.id),
@@ -833,16 +676,12 @@ def build_rfq_comparison(
             "best_lead_time": best_lead,
         })
 
-    # ── Summary ───────────────────────────────────────────────────────────
     summary = {
         "vendor_count": len(vendors),
         "line_count": len(rows),
         "best_total_cost_vendor_id": vendors[0]["vendor_id"] if vendors else None,
         "best_total_cost": vendors[0]["total_cost"] if vendors else None,
-        "best_lead_time_vendor_id": (
-            min(vendors, key=lambda x: (x.get("avg_lead_time") is None, x.get("avg_lead_time") or 0))["vendor_id"]
-            if vendors else None
-        ),
+        "best_lead_time_vendor_id": min(vendors, key=lambda x: (x.get("avg_lead_time") is None, x.get("avg_lead_time") or 0))["vendor_id"] if vendors else None,
     }
 
     payload = {
@@ -862,11 +701,8 @@ def build_rfq_comparison(
         "updated_at": datetime.utcnow().isoformat(),
     }
 
-    # ── Persist snapshot ──────────────────────────────────────────────────
     if persist:
-        current_count = db.query(func.count(RFQComparisonView.id)).filter(
-            RFQComparisonView.rfq_batch_id == rfq.id
-        ).scalar() or 0
+        current_count = db.query(func.count(RFQComparisonView.id)).filter(RFQComparisonView.rfq_batch_id == rfq.id).scalar() or 0
         view = RFQComparisonView(
             rfq_batch_id=rfq.id,
             version=int(current_count) + 1,
@@ -885,10 +721,6 @@ def build_rfq_comparison(
     return payload
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# VENDOR SELECTION
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def select_vendor_for_rfq(
     db: Session,
     rfq_id: str,
@@ -896,24 +728,13 @@ def select_vendor_for_rfq(
     quote_id: Optional[str] = None,
     reason: Optional[str] = None,
 ):
-    """
-    Select a winning vendor for an RFQ.
-
-    - Marks the selected quote header as "selected" / "awarded"
-    - Updates RFQ status to "approved"
-    - Advances project to "vendor_selected"
-    """
     rfq = get_rfq(db, rfq_id)
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
 
-    # ── Resolve the selected quote header ─────────────────────────────────
     header = None
     if quote_id:
-        header = db.query(RFQQuoteHeader).filter(
-            RFQQuoteHeader.id == quote_id,
-            RFQQuoteHeader.rfq_batch_id == rfq.id,
-        ).first()
+        header = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.id == quote_id, RFQQuoteHeader.rfq_batch_id == rfq.id).first()
     elif vendor_id:
         header = (
             db.query(RFQQuoteHeader)
@@ -924,47 +745,40 @@ def select_vendor_for_rfq(
     if not header:
         raise ValueError("Quote / vendor not found")
 
-    # FIXED: derive winning vendor from header, not undefined variable
-    winning_vendor_id = str(header.vendor_id) if header.vendor_id else vendor_id
-
-    # ── Update RFQ batch ──────────────────────────────────────────────────
-    rfq.selected_vendor_id = winning_vendor_id
+    rfq.selected_vendor_id = str(header.vendor_id)
     rfq.status = "approved"
     _batch_meta_set(rfq, "quote_status", "approved")
     _batch_meta_set(rfq, "response_status", "selected")
     _batch_meta_set(rfq, "selected_quote_header_id", header.id)
 
-    # ── Mark headers: selected vs. not ────────────────────────────────────
-    all_headers = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.rfq_batch_id == rfq.id).all()
-    for h in all_headers:
+    # mark selected quote and reject others
+    headers = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.rfq_batch_id == rfq.id).all()
+    for h in headers:
         if h.id == header.id:
             h.quote_status = "selected"
             h.response_status = "awarded"
-        elif winning_vendor_id and str(h.vendor_id) == winning_vendor_id:
+        elif vendor_id and str(h.vendor_id) == str(vendor_id):
             h.quote_status = "selected"
             h.response_status = "awarded"
         else:
             h.quote_status = h.quote_status or "received"
 
-    # ── Advance project to vendor_selected ────────────────────────────────
-    # FIXED: resolve project BEFORE using it in advance call
-    project = _resolve_project_for_rfq(db, rfq)
+    project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     if project:
-        _sync_project_rfq_status(
-            db, rfq, project,
-            target_stage="vendor_selected",
-            next_action="Issue PO",
-            event_type="vendor_selected",
-            event_payload={
-                "rfq_id": rfq.id,
-                "vendor_id": winning_vendor_id,
-                "quote_id": header.id,
-                "reason": reason,
-            },
-            actor_user_id=rfq.requested_by_user_id,
-        )
+        old_status = project.workflow_stage or project.status
+        _ensure_project_fields(project, "vendor_selected", "Issue PO")
+        project.rfq_status = "approved"
+        project.current_rfq_id = rfq.id
         project.current_quote_id = header.id
         project.current_vendor_match_id = project.current_vendor_match_id or None
+        _emit_project_event_safe(
+            db,
+            project,
+            "vendor_selected",
+            old_status,
+            "vendor_selected",
+            {"rfq_id": rfq.id, "vendor_id": str(header.vendor_id), "quote_id": header.id, "reason": reason},
+        )
 
     db.flush()
     db.refresh(rfq)
@@ -975,10 +789,6 @@ def select_vendor_for_rfq(
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# VENDOR REJECTION
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def reject_vendor_for_rfq(
     db: Session,
     rfq_id: str,
@@ -986,19 +796,13 @@ def reject_vendor_for_rfq(
     quote_id: Optional[str] = None,
     reason: Optional[str] = None,
 ):
-    """
-    Reject a vendor quote. Returns the RFQ to quote_compare stage.
-    """
     rfq = get_rfq(db, rfq_id)
     if not rfq:
         raise ValueError(f"RFQ not found: {rfq_id}")
 
     header = None
     if quote_id:
-        header = db.query(RFQQuoteHeader).filter(
-            RFQQuoteHeader.id == quote_id,
-            RFQQuoteHeader.rfq_batch_id == rfq.id,
-        ).first()
+        header = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.id == quote_id, RFQQuoteHeader.rfq_batch_id == rfq.id).first()
     elif vendor_id:
         header = (
             db.query(RFQQuoteHeader)
@@ -1018,19 +822,19 @@ def reject_vendor_for_rfq(
     _batch_meta_set(rfq, "quote_status", "quoted")
     _batch_meta_set(rfq, "response_status", "partial")
 
-    project = _resolve_project_for_rfq(db, rfq)
+    project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     if project:
-        _sync_project_rfq_status(
-            db, rfq, project,
-            target_stage="quote_compare",
-            next_action="Compare quotes",
-            event_type="vendor_rejected",
-            event_payload={
-                "rfq_id": rfq.id,
-                "vendor_id": str(header.vendor_id),
-                "quote_id": header.id,
-                "reason": reason,
-            },
+        old_status = project.workflow_stage or project.status
+        _ensure_project_fields(project, "quote_compare", "Compare quotes")
+        project.rfq_status = "quoted"
+        project.current_rfq_id = rfq.id
+        _emit_project_event_safe(
+            db,
+            project,
+            "vendor_rejected",
+            old_status,
+            "quote_compare",
+            {"rfq_id": rfq.id, "vendor_id": str(header.vendor_id), "quote_id": header.id, "reason": reason},
         )
 
     db.flush()
@@ -1042,17 +846,7 @@ def reject_vendor_for_rfq(
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FULL RFQ RESPONSE BUILDER
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def build_rfq_response(
-    db: Session,
-    rfq: RFQBatch,
-    comparison_filters: Optional[Dict[str, Any]] = None,
-    comparison_sort: str = "total_cost",
-) -> Dict[str, Any]:
-    """Build the full RFQ response payload including items, quotes, and comparison."""
+def build_rfq_response(db: Session, rfq: RFQBatch, comparison_filters: Optional[Dict[str, Any]] = None, comparison_sort: str = "total_cost") -> Dict[str, Any]:
     items = db.query(RFQItem).filter(RFQItem.rfq_batch_id == rfq.id).all()
     quote_history = get_rfq_quotes(db, rfq.id)
     comparison = build_rfq_comparison(db, rfq.id, sort_by=comparison_sort, filters=comparison_filters or {}, persist=False)

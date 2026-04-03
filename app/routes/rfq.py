@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.user import User
 from app.models.rfq import RFQBatch
+from app.models.bom import BOM
+from app.models.project import Project
 from app.schemas.rfq import (
     RFQCreateRequest,
     RFQResponse,
@@ -16,14 +18,33 @@ from app.schemas.rfq import (
     RFQSelectRequest,
     RFQRejectVendorRequest,
 )
-from app.utils.dependencies import require_user
-from app.services import rfq_service, email_service
+from app.utils.dependencies import require_user, can_access_project
+from app.services import rfq_service, email_service, project_service
 from app.services.workflow_service import begin_command, complete_command, fail_command
 import logging
 
 logger = logging.getLogger("routes.rfq")
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
+
+
+def _resolve_project_for_rfq(db: Session, rfq: RFQBatch):
+    if rfq.project_id:
+        project = project_service.get_project_by_id(db, str(rfq.project_id))
+        if project:
+            return project
+    if rfq.bom_id:
+        return project_service.get_project_by_bom_id(db, str(rfq.bom_id))
+    return None
+
+
+def _require_rfq_access(db: Session, rfq: RFQBatch, user: User) -> None:
+    project = _resolve_project_for_rfq(db, rfq)
+    if project and can_access_project(user, project):
+        return
+    if rfq.requested_by_user_id and str(rfq.requested_by_user_id) == str(user.id):
+        return
+    raise HTTPException(status_code=403, detail="Not authorized")
 
 
 @router.post("/create", response_model=RFQResponse, status_code=201)
@@ -33,6 +54,15 @@ def create_rfq(
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    bom = db.query(BOM).filter(BOM.id == body.bom_id).first()
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM not found")
+    project = project_service.get_project_by_bom_id(db, body.bom_id)
+    if project and not can_access_project(user, project):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if not project and bom.uploaded_by_user_id and str(bom.uploaded_by_user_id) != str(user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     command, cached = begin_command(
         db,
         namespace="rfq.create",
@@ -113,6 +143,11 @@ def send_rfq(
     if cached:
         return RFQResponse.model_validate(cached)
 
+    rfq = rfq_service.get_rfq(db, rfq_id)
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    _require_rfq_access(db, rfq, user)
+
     try:
         rfq = rfq_service.send_rfq(
             db,
@@ -146,8 +181,7 @@ def get_rfq(rfq_id: str, user: User = Depends(require_user), db: Session = Depen
     rfq = rfq_service.get_rfq(db, rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    if rfq.requested_by_user_id and rfq.requested_by_user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    _require_rfq_access(db, rfq, user)
     return _rfq_to_response(rfq, db)
 
 
@@ -160,8 +194,7 @@ def get_rfq_quotes(
     rfq = rfq_service.get_rfq(db, rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    if rfq.requested_by_user_id and rfq.requested_by_user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    _require_rfq_access(db, rfq, user)
     return _rfq_to_response(rfq, db)
 
 
@@ -180,8 +213,7 @@ def get_rfq_compare(
     rfq = rfq_service.get_rfq(db, rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    if rfq.requested_by_user_id and rfq.requested_by_user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    _require_rfq_access(db, rfq, user)
 
     filters = {
         "min_vendor_score": min_vendor_score,
@@ -207,6 +239,7 @@ def add_quote(
     rfq = rfq_service.get_rfq(db, rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
+    _require_rfq_access(db, rfq, user)
 
     command, cached = begin_command(
         db,
@@ -324,6 +357,11 @@ def select_vendor(
     if cached:
         return RFQResponse.model_validate(cached)
 
+    rfq = rfq_service.get_rfq(db, rfq_id)
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    _require_rfq_access(db, rfq, user)
+
     try:
         result = rfq_service.select_vendor_for_rfq(
             db,
@@ -378,6 +416,11 @@ def reject_vendor(
     if cached:
         return RFQResponse.model_validate(cached)
 
+    rfq = rfq_service.get_rfq(db, rfq_id)
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    _require_rfq_access(db, rfq, user)
+
     try:
         result = rfq_service.reject_vendor_for_rfq(
             db,
@@ -430,6 +473,7 @@ def approve_rfq(
         rfq = rfq_service.get_rfq(db, rfq_id)
         if not rfq:
             raise HTTPException(status_code=404, detail="RFQ not found")
+        _require_rfq_access(db, rfq, user)
         if rfq.status not in ("quoted", "draft", "sent", "partial"):
             raise HTTPException(status_code=400, detail=f"Cannot approve RFQ in '{rfq.status}' status")
         rfq = rfq_service.update_rfq_status(db, rfq_id, "approved")
@@ -474,6 +518,10 @@ def reject_rfq(
         return RFQResponse.model_validate(cached)
 
     try:
+        rfq = rfq_service.get_rfq(db, rfq_id)
+        if not rfq:
+            raise HTTPException(status_code=404, detail="RFQ not found")
+        _require_rfq_access(db, rfq, user)
         rfq = rfq_service.update_rfq_status(db, rfq_id, "rejected")
         if not rfq:
             raise HTTPException(status_code=404, detail="RFQ not found")

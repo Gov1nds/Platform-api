@@ -1,7 +1,7 @@
 """Analysis result model — maps to bom.analysis_results in PostgreSQL."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, DateTime, ForeignKey, Text, Numeric
+from sqlalchemy import Column, DateTime, ForeignKey, Text, Numeric, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -9,7 +9,11 @@ from app.core.database import Base
 
 class AnalysisResult(Base):
     __tablename__ = "analysis_results"
-    __table_args__ = {"schema": "bom"}
+    __table_args__ = (
+        Index("ix_analysis_results_analysis_status", "analysis_status"),
+        Index("ix_analysis_results_report_visibility_level", "report_visibility_level"),
+        {"schema": "bom"},
+    )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False, unique=True)
@@ -26,6 +30,10 @@ class AnalysisResult(Base):
     cost_range_high = Column(Numeric(18, 6), nullable=True)
     savings_percent = Column(Numeric(12, 6), nullable=True)
     lead_time_days = Column(Numeric(12, 2), nullable=True)
+    analysis_status = Column(Text, nullable=False, default="guest_preview")
+    report_visibility_level = Column(Text, nullable=False, default="preview")
+    unlock_status = Column(Text, nullable=False, default="locked")
+    workspace_route = Column(Text, nullable=True)
     source_version = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

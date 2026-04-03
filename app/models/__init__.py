@@ -11,7 +11,7 @@ from app.models.vendor import Vendor, VendorCapability
 from app.models.vendor_match import VendorMatch, VendorMatchRun
 from app.models.pricing import PricingQuote, PricingHistory  # PricingHistory = PricingQuote alias
 from app.models.rfq import RFQBatch, RFQItem, RFQQuote, RFQStatus
-from app.models.tracking import ProductionTracking, ExecutionFeedback, TrackingStage
+from app.models.tracking import ProductionTracking, ExecutionFeedback, TrackingStage, FulfillmentEvent
 from app.models.memory import SupplierMemory, SupplierMemoryHistory
 from app.models.drawing import DrawingAsset
 from app.models.catalog import PartMaster, PartAlias, PartAttribute, PartObservation, ReviewQueueItem
@@ -46,6 +46,7 @@ from app.models.analytics import (
 )
 from app.models.workflow_command import WorkflowCommand
 from app.models.intake import IntakeSession, IntakeItem
+from app.models.project_access import ProjectParticipant, ProjectParticipantType, ProjectParticipantStatus, ProjectParticipantAccessLevel
 
 # Backward-compat aliases for removed/renamed items
 RFQ = RFQBatch

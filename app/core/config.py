@@ -28,22 +28,10 @@ class Settings:
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     DATABASE_URL: str = _normalize_database_url(os.getenv("DATABASE_URL"))
 
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
-    if not SECRET_KEY:
-        if ENVIRONMENT == "production":
-            raise RuntimeError(
-                "FATAL: SECRET_KEY environment variable must be set in production. "
-                "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\""
-            )
-        else:
-            import secrets as _secrets
-            SECRET_KEY = f"dev-ephemeral-{_secrets.token_hex(16)}"
-            import warnings
-            warnings.warn(
-                "SECRET_KEY not set — using ephemeral dev key. "
-                "JWTs will be invalidated on restart. Set SECRET_KEY env var for persistence.",
-                stacklevel=2,
-            )
+    _secret = os.getenv("SECRET_KEY")
+    SECRET_KEY: str = _secret if _secret else ("pgi-dev-secret-change-in-production-2024" if ENVIRONMENT != "production" else "")
+    if ENVIRONMENT == "production" and not SECRET_KEY:
+        raise RuntimeError("SECRET_KEY must be set in production")
 
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
@@ -67,6 +55,10 @@ class Settings:
 
     ENABLE_RUNTIME_BOOTSTRAP: bool = _env_bool(
         "ENABLE_RUNTIME_BOOTSTRAP",
+        "true" if ENVIRONMENT != "production" else "false",
+    )
+    ENABLE_RUNTIME_SCHEMA_BOOTSTRAP: bool = _env_bool(
+        "ENABLE_RUNTIME_SCHEMA_BOOTSTRAP",
         "true" if ENVIRONMENT != "production" else "false",
     )
     ENABLE_RUNTIME_MIGRATIONS: bool = _env_bool(

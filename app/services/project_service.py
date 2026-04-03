@@ -107,108 +107,7 @@ PROJECT_STAGE_ACTIONS = {
     "cancelled": "Cancelled",
     "error": "Needs attention",
 }
-# ═══════════════════════════════════════════════════════════════
-# STATE MACHINE — Transition Validation
-# ═══════════════════════════════════════════════════════════════
 
-VALID_TRANSITIONS: Dict[str, set] = {
-    "draft":            {"guest_preview", "project_hydrated", "error", "cancelled"},
-    "guest_preview":    {"project_hydrated", "error", "cancelled"},
-    "project_hydrated": {"strategy", "vendor_match", "rfq_pending", "error", "cancelled"},
-    "strategy":         {"vendor_match", "rfq_pending", "error", "cancelled"},
-    "vendor_match":     {"rfq_pending", "error", "cancelled"},
-    "rfq_pending":      {"rfq_sent", "error", "cancelled"},
-    "rfq_sent":         {"quote_compare", "partial", "error", "cancelled"},
-    "quote_compare":    {"negotiation", "vendor_selected", "rfq_sent", "error", "cancelled"},
-    "negotiation":      {"vendor_selected", "quote_compare", "error", "cancelled"},
-    "vendor_selected":  {"po_issued", "error", "cancelled"},
-    "po_issued":        {"in_production", "error", "cancelled"},
-    "in_production":    {"qc_inspection", "shipped", "error", "cancelled"},
-    "qc_inspection":    {"shipped", "in_production", "error", "cancelled"},
-    "shipped":          {"delivered", "error"},
-    "delivered":        {"spend_recorded", "completed", "error"},
-    "spend_recorded":   {"completed"},
-    "completed":        set(),
-    "cancelled":        {"draft"},
-    "error":            {"draft", "guest_preview", "project_hydrated", "rfq_pending"},
-}
-
-
-def advance_project_stage(
-    db: Session,
-    project: Project,
-    new_stage: str,
-    *,
-    actor_user_id: Optional[str] = None,
-    payload: Optional[Dict[str, Any]] = None,
-    force: bool = False,
-) -> Project:
-    """
-    Advance a project to a new workflow stage with transition validation.
-
-    Args:
-        db: Database session
-        project: Project to advance
-        new_stage: Target stage
-        actor_user_id: User performing the action
-        payload: Event metadata
-        force: Skip validation (admin override)
-
-    Returns:
-        Updated project
-
-    Raises:
-        ValueError: If transition is invalid
-    """
-    current = project.workflow_stage or "draft"
-    new_stage = normalize_project_stage(new_stage, current)
-
-    if not force:
-        allowed = VALID_TRANSITIONS.get(current, set())
-        if new_stage not in allowed and new_stage != current:
-            raise ValueError(
-                f"Invalid workflow transition: '{current}' → '{new_stage}'. "
-                f"Allowed transitions from '{current}': {sorted(allowed) if allowed else 'none (terminal state)'}"
-            )
-
-    old_stage = project.workflow_stage
-    project.workflow_stage = new_stage
-    project.status = new_stage
-    project.updated_at = datetime.utcnow()
-
-    # Update metadata
-    meta = dict(project.project_metadata or {})
-    meta["workflow_stage"] = new_stage
-    meta["next_action"] = project_stage_action(new_stage)
-    meta["last_transition"] = {
-        "from": old_stage,
-        "to": new_stage,
-        "at": datetime.utcnow().isoformat(),
-        "actor": actor_user_id,
-    }
-    project.project_metadata = meta
-
-    # Log event
-    record_project_event(
-        db,
-        project,
-        event_type="stage_transition",
-        old_status=old_stage,
-        new_status=new_stage,
-        payload=payload or {},
-        actor_user_id=actor_user_id or project.user_id,
-    )
-
-    db.flush()
-    logger.info(f"Project {project.id}: {old_stage} → {new_stage}")
-    return project
-
-
-def can_advance_to(project: Project, target_stage: str) -> bool:
-    """Check if a project can transition to a given stage."""
-    current = project.workflow_stage or "draft"
-    allowed = VALID_TRANSITIONS.get(current, set())
-    return normalize_project_stage(target_stage, current) in allowed
 
 def normalize_project_stage(value: Optional[str], default: str = "draft") -> str:
     if not value:
@@ -219,6 +118,19 @@ def normalize_project_stage(value: Optional[str], default: str = "draft") -> str
 
 def project_stage_action(stage: Optional[str]) -> str:
     return PROJECT_STAGE_ACTIONS.get(normalize_project_stage(stage), "Review project")
+
+
+def _derive_visibility_level(project: Project) -> str:
+    lifecycle = (project.project_metadata or {}).get("analysis_lifecycle", {}) or {}
+    unlock_status = str(lifecycle.get("unlock_status") or "").lower()
+    report_visibility_level = str(lifecycle.get("report_visibility_level") or "").lower()
+    if unlock_status in {"unlocked", "full"} or report_visibility_level == "full":
+        return "full"
+    if project.user_id:
+        return "full"
+    if project.guest_session_id:
+        return "preview"
+    return project.visibility_level or project.visibility or "private"
 
 
 def record_project_event(
@@ -245,6 +157,22 @@ ANALYSIS_LIFECYCLE_DEFAULTS = {
     "report_visibility_level": "preview",
     "unlock_status": "locked",
 }
+
+
+def _project_lifecycle_state(project: Project) -> Dict[str, Any]:
+    metadata = copy.deepcopy(project.project_metadata or {})
+    lifecycle = copy.deepcopy(metadata.get("analysis_lifecycle", {}) or {})
+    return {
+        "guest_bom_id": str(getattr(project, "bom_id", None)) if getattr(project, "bom_id", None) else lifecycle.get("guest_bom_id"),
+        "project_id": str(project.id) if getattr(project, "id", None) else lifecycle.get("project_id"),
+        "session_token": lifecycle.get("session_token", ""),
+        "analysis_status": getattr(project, "analysis_status", None) or lifecycle.get("analysis_status") or ANALYSIS_LIFECYCLE_DEFAULTS["analysis_status"],
+        "report_visibility_level": getattr(project, "report_visibility_level", None) or lifecycle.get("report_visibility_level") or ANALYSIS_LIFECYCLE_DEFAULTS["report_visibility_level"],
+        "unlock_status": getattr(project, "unlock_status", None) or lifecycle.get("unlock_status") or ANALYSIS_LIFECYCLE_DEFAULTS["unlock_status"],
+        "workspace_route": getattr(project, "workspace_route", None) or lifecycle.get("workspace_route") or (f"/project/{project.id}" if getattr(project, "id", None) else None),
+        "owner_user_id": str(project.user_id) if getattr(project, "user_id", None) else lifecycle.get("owner_user_id"),
+        "guest_session_id": str(project.guest_session_id) if getattr(project, "guest_session_id", None) else lifecycle.get("guest_session_id"),
+    }
 
 
 def _analysis_lifecycle_payload(
@@ -295,9 +223,17 @@ def persist_analysis_lifecycle(
     bom.model_metadata["analysis_status"] = analysis_status
     bom.model_metadata["report_visibility_level"] = report_visibility_level
     bom.model_metadata["unlock_status"] = unlock_status
+    bom.analysis_status = analysis_status
+    bom.report_visibility_level = report_visibility_level
+    bom.unlock_status = unlock_status
+    bom.workspace_route = lifecycle.get("workspace_route")
 
     analysis.structured_output = copy.deepcopy(analysis.structured_output or {})
     analysis.structured_output["analysis_lifecycle"] = lifecycle
+    analysis.analysis_status = analysis_status
+    analysis.report_visibility_level = report_visibility_level
+    analysis.unlock_status = unlock_status
+    analysis.workspace_route = lifecycle.get("workspace_route")
     analysis.project_id = project.id
 
     project.project_metadata = copy.deepcopy(project.project_metadata or {})
@@ -305,6 +241,11 @@ def persist_analysis_lifecycle(
     project.project_metadata["analysis_status"] = analysis_status
     project.project_metadata["report_visibility_level"] = report_visibility_level
     project.project_metadata["unlock_status"] = unlock_status
+    project.project_metadata["workspace_route"] = lifecycle.get("workspace_route")
+    project.analysis_status = analysis_status
+    project.report_visibility_level = report_visibility_level
+    project.unlock_status = unlock_status
+    project.workspace_route = lifecycle.get("workspace_route")
     project.visibility = report_visibility_level
 
     bom.project_id = project.id
@@ -434,7 +375,11 @@ def upsert_project_from_analysis(
     # Canonical workflow fields
     project.workflow_stage = normalize_project_stage(project.workflow_stage or "project_hydrated", "project_hydrated")
     project.status = project.workflow_stage
-    project.visibility_level = project.visibility_level or ("full" if project.user_id else "preview")
+    project.analysis_status = "project_hydrated" if project.user_id else (project.analysis_status or "guest_preview")
+    project.report_visibility_level = "full" if project.user_id else (project.report_visibility_level or "preview")
+    project.unlock_status = "unlocked" if project.user_id else (project.unlock_status or "locked")
+    project.workspace_route = project.workspace_route or (f"/project/{project.id}" if project.id else None)
+    project.visibility_level = _derive_visibility_level(project)
     project.visibility = project.visibility_level
 
     project.total_parts = bom.total_parts or len((analyzer_output or {}).get("components", []) or [])
@@ -446,8 +391,8 @@ def upsert_project_from_analysis(
     else:
         project.cost_range_low = _as_float(analysis.cost_range_low)
         project.cost_range_high = _as_float(analysis.cost_range_high)
-        project.savings_percent = _as_float(cost_summary.get("savings_percent"), _as_float(analysis.savings_percent))
-        project.lead_time = _as_float(rec.get("lead_time"), _as_float(analysis.lead_time))
+    project.savings_percent = _as_float(cost_summary.get("savings_percent"), _as_float(analysis.savings_percent))
+    project.lead_time = _as_float(rec.get("lead_time"), _as_float(analysis.lead_time))
     project.decision_summary = strategy.get("decision_summary") or analysis.decision_summary
     project.analyzer_report = build_canonical_report(analyzer_output, strategy, procurement, bom, analysis)
     project.strategy = copy.deepcopy(strategy)
@@ -467,6 +412,7 @@ def upsert_project_from_analysis(
         "currency": strategy.get("currency") or procurement.get("currency") or "USD",
         "workflow_stage": project.workflow_stage,
         "visibility_level": project.visibility_level,
+        "workspace_route": project.workspace_route or lifecycle.get("workspace_route"),
         "next_action": project_stage_action(project.workflow_stage),
         "strategy_contract_version": strategy.get("strategy_contract_version", "2.0"),
         "strategy_explanation": strategy.get("strategy_explanation", {}),
@@ -636,7 +582,7 @@ def sync_project_completion(db: Session, rfq: RFQ) -> Optional[Project]:
     project.workflow_stage = "completed"
     project.status = "completed"
     project.rfq_status = rfq.status
-    project.visibility_level = project.visibility_level or "full"
+    project.visibility_level = "full"
     project.project_metadata = copy.deepcopy(project.project_metadata or {})
     project.project_metadata["workflow_stage"] = "completed"
     project.project_metadata["next_action"] = project_stage_action("completed")
@@ -664,7 +610,7 @@ def list_projects_for_user(db: Session, user_id: str) -> List[Project]:
 
 
 def serialize_summary(project: Project) -> Dict[str, Any]:
-    lifecycle = (project.project_metadata or {}).get("analysis_lifecycle", {}) or {}
+    lifecycle = _project_lifecycle_state(project)
     workflow_stage = normalize_project_stage(project.workflow_stage or project.status, "draft")
     return {
         "project_id": project.id,
@@ -691,6 +637,7 @@ def serialize_summary(project: Project) -> Dict[str, Any]:
         "analysis_status": lifecycle.get("analysis_status"),
         "report_visibility_level": lifecycle.get("report_visibility_level"),
         "unlock_status": lifecycle.get("unlock_status"),
+        "workspace_route": lifecycle.get("workspace_route"),
         "analysis_lifecycle": lifecycle,
         "categories": (project.project_metadata or {}).get("category_summary", {}),
         "next_action": (project.project_metadata or {}).get("next_action") or project_stage_action(workflow_stage),
@@ -704,7 +651,7 @@ def serialize_summary(project: Project) -> Dict[str, Any]:
 
 def serialize_detail(project: Project) -> Dict[str, Any]:
     payload = serialize_summary(project)
-    lifecycle = (project.project_metadata or {}).get("analysis_lifecycle", {}) or {}
+    lifecycle = _project_lifecycle_state(project)
     payload.update({
         "updated_at": project.updated_at,
         "average_cost": project.average_cost,
@@ -747,7 +694,7 @@ def build_guest_preview(
     section2 = report.get("section_2_component_breakdown", []) or []
     section3 = report.get("section_3_sourcing_strategy", {}) or {}
     section5 = report.get("section_5_recommendation", {}) or {}
-    lifecycle = (project.project_metadata or {}).get("analysis_lifecycle", {}) or {}
+    lifecycle = _project_lifecycle_state(project)
 
     visible_parts = [
         {

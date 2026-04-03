@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.user import User
+from app.models.project import Project
 from app.schemas.collaboration import (
     ChatThreadCreate,
     ChatThreadSchema,
@@ -16,7 +17,7 @@ from app.schemas.collaboration import (
 )
 from app.services import collaboration_service
 from app.services.workflow_service import begin_command, complete_command, fail_command
-from app.utils.dependencies import require_user, require_roles
+from app.utils.dependencies import require_user, build_project_access_context, can_access_project
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -28,7 +29,10 @@ def list_threads(
     db: Session = Depends(get_db),
 ):
     try:
-        return collaboration_service.list_threads(db, project_id, user)
+        response = collaboration_service.list_threads(db, project_id, user)
+        project = db.query(Project).filter(Project.id == project_id).first()
+        response["access"] = build_project_access_context(user, project, db)
+        return response
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
@@ -38,7 +42,7 @@ def list_threads(
 @router.post("/threads", response_model=ChatThreadSchema, status_code=201)
 def create_thread(
     body: ChatThreadCreate,
-    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing", "vendor")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -70,6 +74,8 @@ def create_thread(
         )
         db.commit()
         response = collaboration_service.serialize_thread(db, thread, user)
+        project = db.query(Project).filter(Project.id == thread.project_id).first()
+        response.access = build_project_access_context(user, project, db)
         complete_command(db, command, response.model_dump(mode="json"))
         db.commit()
         return response
@@ -103,7 +109,11 @@ def get_thread_messages(
     db: Session = Depends(get_db),
 ):
     try:
-        return collaboration_service.get_thread_messages(db, thread_id, user)
+        response = collaboration_service.get_thread_messages(db, thread_id, user)
+        thread = collaboration_service.get_thread(db, thread_id, user)
+        project = db.query(Project).filter(Project.id == thread.project_id).first()
+        response.access = build_project_access_context(user, project, db)
+        return response
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
@@ -119,7 +129,7 @@ def post_message(
     reply_to_message_id: Optional[str] = Form(None),
     metadata_json: Optional[str] = Form(None),
     attachments: List[UploadFile] = File(default=[]),
-    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing", "vendor")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):

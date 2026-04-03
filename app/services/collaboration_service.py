@@ -20,6 +20,7 @@ from app.models.collaboration import (
     ApprovalAction,
 )
 from app.models.project import Project
+from app.models.project_access import ProjectParticipant
 from app.models.rfq import RFQBatch
 from app.models.vendor import Vendor
 from app.models.user import User
@@ -35,29 +36,72 @@ def _safe_role(value: Optional[str]) -> str:
     return (value or "user").lower().strip()
 
 
+def _vendor_identity(user: Optional[User]) -> Optional[str]:
+    if not user:
+        return None
+    metadata = getattr(user, "metadata_", None) or {}
+    if isinstance(metadata, dict):
+        vendor_id = metadata.get("vendor_id") or metadata.get("supplier_id") or metadata.get("organization_id")
+        if vendor_id:
+            return str(vendor_id)
+        vendor_email = metadata.get("vendor_email")
+        if vendor_email:
+            return str(vendor_email).lower()
+    return None
+
+
+def _project_owner_or_collaborator(project: Project, user: User) -> bool:
+    if not project or not user:
+        return False
+    if getattr(project, "user_id", None) and str(project.user_id) == str(user.id):
+        return True
+    try:
+        from app.utils.dependencies import can_access_project
+        return can_access_project(user, project)
+    except Exception:
+        return False
+
+
 def _require_project_access(project: Project, user: User, thread: Optional[ChatThread] = None):
     if not project:
         raise ValueError("Project not found")
-    if user and project.user_id and str(project.user_id) == str(user.id):
+
+    role = _safe_role(getattr(user, "role", None))
+    if role == "admin":
         return True
-    if user and _safe_role(user.role) in {"admin", "manager", "sourcing", "buyer"}:
+
+    if _project_owner_or_collaborator(project, user):
         return True
+
     if thread and not thread.is_internal_only:
-        # vendor-linked thread may be visible to internal users in current system
-        return _safe_role(user.role) in {"admin", "manager", "sourcing", "buyer"}
+        vendor_identity = _vendor_identity(user)
+        if vendor_identity and str(thread.vendor_id or "") in {vendor_identity, str(thread.vendor_id)}:
+            return True
+        if role in {"vendor", "manager", "sourcing", "buyer"}:
+            return True
+
     raise PermissionError("Not authorized")
 
 
-def _require_approval_access(approval: ApprovalRequest, user: User):
+def _require_approval_access(db: Session, approval: ApprovalRequest, user: User):
     if not approval:
         raise ValueError("Approval request not found")
+
+    role = _safe_role(getattr(user, "role", None))
+    if role == "admin":
+        return True
+
+    project = db.query(Project).filter(Project.id == approval.project_id).first()
+    if project and _project_owner_or_collaborator(project, user):
+        return True
+
     if user and approval.requested_by_user_id and str(approval.requested_by_user_id) == str(user.id):
         return True
-    if user and _safe_role(user.role) in {"admin"}:
+    if user and approval.assigned_to_user_id and str(approval.assigned_to_user_id) == str(user.id):
         return True
-    if user and _safe_role(user.role) == _safe_role(approval.required_role):
+    if user and role == _safe_role(approval.required_role):
         return True
-    if user and _safe_role(user.role) in {"manager", "sourcing", "buyer"} and _safe_role(approval.required_role) in {"manager", "buyer", "sourcing"}:
+    if user and role in {"manager", "sourcing", "buyer"} and _safe_role(approval.required_role) in {"manager", "buyer", "sourcing"}:
         return True
     raise PermissionError("Not authorized for this approval")
 
@@ -575,7 +619,7 @@ def approve_request(db: Session, approval_id: str, user: User, note: Optional[st
     approval = db.query(ApprovalRequest).filter(ApprovalRequest.id == approval_id).first()
     if not approval:
         raise ValueError("Approval request not found")
-    _require_approval_access(approval, user)
+    _require_approval_access(db, approval, user)
 
     approval.status = "approved"
     approval.resolved_at = datetime.utcnow()
@@ -601,7 +645,7 @@ def reject_request(db: Session, approval_id: str, user: User, note: Optional[str
     approval = db.query(ApprovalRequest).filter(ApprovalRequest.id == approval_id).first()
     if not approval:
         raise ValueError("Approval request not found")
-    _require_approval_access(approval, user)
+    _require_approval_access(db, approval, user)
 
     approval.status = "rejected"
     approval.resolved_at = datetime.utcnow()
@@ -627,7 +671,7 @@ def get_approval(db: Session, approval_id: str, user: User) -> ApprovalRequest:
     approval = db.query(ApprovalRequest).filter(ApprovalRequest.id == approval_id).first()
     if not approval:
         raise ValueError("Approval request not found")
-    _require_approval_access(approval, user)
+    _require_approval_access(db, approval, user)
     return approval
 
 

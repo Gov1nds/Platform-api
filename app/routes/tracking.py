@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.user import User
-from app.utils.dependencies import require_user, require_roles
+from app.models.project import Project
+from app.models.rfq import RFQ
+from app.utils.dependencies import require_user, build_project_access_context, can_access_project
 from app.schemas.tracking import (
     FulfillmentContextResponse,
     TrackingEntrySchema,
@@ -29,11 +31,33 @@ logger = logging.getLogger("routes.tracking")
 router = APIRouter(prefix="/tracking", tags=["tracking"])
 
 
+def _require_rfq_project_access(db: Session, rfq_id: str, user: User) -> None:
+    context = tracking_service.get_fulfillment_context(db, rfq_id)
+    project_id = context.get("project_id")
+    if not project_id:
+        return
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not can_access_project(user, project):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+
 @router.get("/rfq/{rfq_id}", response_model=FulfillmentContextResponse)
 def get_tracking(rfq_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
     """Returns the full fulfillment context, not just stage history."""
     try:
-        return tracking_service.get_fulfillment_context(db, rfq_id)
+        _require_rfq_project_access(db, rfq_id, user)
+        response = tracking_service.get_fulfillment_context(db, rfq_id)
+        project = None
+        if response.get("project_id"):
+            project = db.query(Project).filter(Project.id == response["project_id"]).first()
+        if not project:
+            rfq = db.query(RFQ).filter(RFQ.id == rfq_id).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        response["access"] = build_project_access_context(user, project, db)
+        return response
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -58,6 +82,8 @@ def start_production(
     if cached:
         return TrackingEntrySchema.model_validate(cached)
 
+    _require_rfq_project_access(db, rfq_id, user)
+
     try:
         entry = tracking_service.create_tracking(db, rfq_id)
         response = {
@@ -76,6 +102,12 @@ def start_production(
             "created_at": entry.created_at,
             "updated_at": entry.updated_at,
         }
+        project = None
+        if entry and getattr(entry, "rfq_id", None):
+            rfq = db.query(RFQ).filter(RFQ.id == entry.rfq_id).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -108,6 +140,8 @@ def advance_stage(
     if cached:
         return TrackingEntrySchema.model_validate(cached)
 
+    _require_rfq_project_access(db, rfq_id, user)
+
     try:
         entry = tracking_service.advance_stage(db, rfq_id, updated_by=user.email)
         if not entry:
@@ -128,6 +162,12 @@ def advance_stage(
             "created_at": entry.created_at,
             "updated_at": entry.updated_at,
         }
+        project = None
+        if entry and getattr(entry, "rfq_id", None):
+            rfq = db.query(RFQ).filter(RFQ.id == entry.rfq_id).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -151,7 +191,7 @@ def advance_stage(
 def create_purchase_order(
     rfq_id: str,
     body: PurchaseOrderCreateRequest,
-    user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -167,6 +207,8 @@ def create_purchase_order(
     )
     if cached:
         return cached
+
+    _require_rfq_project_access(db, rfq_id, user)
 
     try:
         po = tracking_service.create_purchase_order(
@@ -184,6 +226,8 @@ def create_purchase_order(
             metadata=body.metadata,
         )
         response = tracking_service._serialize_po(po)  # internal serialization used by context
+        project = db.query(Project).filter(Project.id == po.project_id).first() if po.project_id else None
+        response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -207,7 +251,7 @@ def create_purchase_order(
 def confirm_purchase_order(
     po_id: str,
     body: PurchaseOrderConfirmRequest,
-    user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -224,6 +268,15 @@ def confirm_purchase_order(
     if cached:
         return cached
 
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
+    if rfq and rfq.bom_id:
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if project and not can_access_project(user, project):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
     try:
         po = tracking_service.confirm_purchase_order(
             db=db,
@@ -233,6 +286,8 @@ def confirm_purchase_order(
             notes=body.notes,
         )
         response = tracking_service._serialize_po(po)
+        project = db.query(Project).filter(Project.id == po.project_id).first() if po.project_id else None
+        response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -256,7 +311,7 @@ def confirm_purchase_order(
 def create_shipment(
     po_id: str,
     body: ShipmentCreateRequest,
-    user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -272,6 +327,15 @@ def create_shipment(
     )
     if cached:
         return cached
+
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
+    if rfq and rfq.bom_id:
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if project and not can_access_project(user, project):
+            raise HTTPException(status_code=403, detail="Not authorized")
 
     try:
         shipment = tracking_service.create_shipment(
@@ -289,6 +353,15 @@ def create_shipment(
             metadata=body.metadata,
         )
         response = tracking_service._serialize_shipment(shipment)
+        project = None
+        if hasattr(response, "get") and response.get("project_id"):
+            project = db.query(Project).filter(Project.id == response["project_id"]).first()
+        elif hasattr(response, "get") and response.get("rfq_id"):
+            rfq = db.query(RFQ).filter(RFQ.id == response["rfq_id"]).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if hasattr(response, "__setitem__"):
+            response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -312,7 +385,7 @@ def create_shipment(
 def add_shipment_event(
     shipment_id: str,
     body: ShipmentEventCreateRequest,
-    user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -329,6 +402,18 @@ def add_shipment_event(
     if cached:
         return cached
 
+    shipment = db.query(Shipment).filter(Shipment.id == shipment_id).first()
+    if not shipment:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == shipment.purchase_order_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
+    if rfq and rfq.bom_id:
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if project and not can_access_project(user, project):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
     try:
         event = tracking_service.add_shipment_event(
             db=db,
@@ -342,6 +427,15 @@ def add_shipment_event(
             metadata=body.metadata,
         )
         response = tracking_service._serialize_shipment_event(event)
+        project = None
+        if hasattr(response, "get") and response.get("project_id"):
+            project = db.query(Project).filter(Project.id == response["project_id"]).first()
+        elif hasattr(response, "get") and response.get("rfq_id"):
+            rfq = db.query(RFQ).filter(RFQ.id == response["rfq_id"]).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if hasattr(response, "__setitem__"):
+            response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -365,7 +459,7 @@ def add_shipment_event(
 def add_carrier_milestone(
     shipment_id: str,
     body: CarrierMilestoneCreateRequest,
-    user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -382,6 +476,18 @@ def add_carrier_milestone(
     if cached:
         return cached
 
+    shipment = db.query(Shipment).filter(Shipment.id == shipment_id).first()
+    if not shipment:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == shipment.purchase_order_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
+    if rfq and rfq.bom_id:
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if project and not can_access_project(user, project):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
     try:
         milestone = tracking_service.add_carrier_milestone(
             db=db,
@@ -397,6 +503,15 @@ def add_carrier_milestone(
             metadata=body.metadata,
         )
         response = tracking_service._serialize_milestone(milestone)
+        project = None
+        if hasattr(response, "get") and response.get("project_id"):
+            project = db.query(Project).filter(Project.id == response["project_id"]).first()
+        elif hasattr(response, "get") and response.get("rfq_id"):
+            rfq = db.query(RFQ).filter(RFQ.id == response["rfq_id"]).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if hasattr(response, "__setitem__"):
+            response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -420,7 +535,7 @@ def add_carrier_milestone(
 def add_customs_event(
     shipment_id: str,
     body: CustomsEventCreateRequest,
-    user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -437,6 +552,18 @@ def add_customs_event(
     if cached:
         return cached
 
+    shipment = db.query(Shipment).filter(Shipment.id == shipment_id).first()
+    if not shipment:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == shipment.purchase_order_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
+    if rfq and rfq.bom_id:
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if project and not can_access_project(user, project):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
     try:
         customs = tracking_service.add_customs_event(
             db=db,
@@ -450,6 +577,15 @@ def add_customs_event(
             metadata=body.metadata,
         )
         response = tracking_service._serialize_customs(customs)
+        project = None
+        if hasattr(response, "get") and response.get("project_id"):
+            project = db.query(Project).filter(Project.id == response["project_id"]).first()
+        elif hasattr(response, "get") and response.get("rfq_id"):
+            rfq = db.query(RFQ).filter(RFQ.id == response["rfq_id"]).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if hasattr(response, "__setitem__"):
+            response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -473,7 +609,7 @@ def add_customs_event(
 def confirm_goods_receipt(
     po_id: str,
     body: GoodsReceiptCreateRequest,
-    user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -490,6 +626,15 @@ def confirm_goods_receipt(
     if cached:
         return cached
 
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
+    if rfq and rfq.bom_id:
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if project and not can_access_project(user, project):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
     try:
         receipt = tracking_service.confirm_goods_receipt(
             db=db,
@@ -503,6 +648,15 @@ def confirm_goods_receipt(
             metadata=body.metadata,
         )
         response = tracking_service._serialize_receipt(receipt)
+        project = None
+        if hasattr(response, "get") and response.get("project_id"):
+            project = db.query(Project).filter(Project.id == response["project_id"]).first()
+        elif hasattr(response, "get") and response.get("rfq_id"):
+            rfq = db.query(RFQ).filter(RFQ.id == response["rfq_id"]).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if hasattr(response, "__setitem__"):
+            response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -526,7 +680,7 @@ def confirm_goods_receipt(
 def create_invoice(
     po_id: str,
     body: InvoiceCreateRequest,
-    user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -542,6 +696,15 @@ def create_invoice(
     )
     if cached:
         return cached
+
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
+    if rfq and rfq.bom_id:
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if project and not can_access_project(user, project):
+            raise HTTPException(status_code=403, detail="Not authorized")
 
     try:
         invoice = tracking_service.create_invoice(
@@ -561,6 +724,15 @@ def create_invoice(
             metadata=body.metadata,
         )
         response = tracking_service._serialize_invoice(invoice)
+        project = None
+        if hasattr(response, "get") and response.get("project_id"):
+            project = db.query(Project).filter(Project.id == response["project_id"]).first()
+        elif hasattr(response, "get") and response.get("rfq_id"):
+            rfq = db.query(RFQ).filter(RFQ.id == response["rfq_id"]).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if hasattr(response, "__setitem__"):
+            response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response
@@ -584,7 +756,7 @@ def create_invoice(
 def update_payment_state(
     invoice_id: str,
     body: PaymentStateUpdateRequest,
-    user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -601,6 +773,18 @@ def update_payment_state(
     if cached:
         return cached
 
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == inv.purchase_order_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
+    if rfq and rfq.bom_id:
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if project and not can_access_project(user, project):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
     try:
         payment = tracking_service.update_payment_state(
             db=db,
@@ -613,6 +797,15 @@ def update_payment_state(
             metadata=body.metadata,
         )
         response = tracking_service._serialize_payment_state(payment)
+        project = None
+        if hasattr(response, "get") and response.get("project_id"):
+            project = db.query(Project).filter(Project.id == response["project_id"]).first()
+        elif hasattr(response, "get") and response.get("rfq_id"):
+            rfq = db.query(RFQ).filter(RFQ.id == response["rfq_id"]).first()
+            if rfq and rfq.bom_id:
+                project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
+        if hasattr(response, "__setitem__"):
+            response["access"] = build_project_access_context(user, project, db)
         complete_command(db, command, response)
         db.commit()
         return response

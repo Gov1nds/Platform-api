@@ -32,8 +32,10 @@ class ProjectSummary(BaseModel):
     analysis_status: Optional[str] = None
     report_visibility_level: Optional[str] = None
     unlock_status: Optional[str] = None
+    workspace_route: Optional[str] = None
     analysis_lifecycle: Optional[Dict[str, Any]] = None
     categories: Optional[Dict[str, Any]] = None
+    access: Optional[Dict[str, Any]] = None
 
 
 class ProjectDetail(BaseModel):
@@ -72,8 +74,10 @@ class ProjectDetail(BaseModel):
     analysis_status: Optional[str] = None
     report_visibility_level: Optional[str] = None
     unlock_status: Optional[str] = None
+    workspace_route: Optional[str] = None
     analysis_lifecycle: Optional[Dict[str, Any]] = None
     categories: Optional[Dict[str, Any]] = None
+    access: Optional[Dict[str, Any]] = None
     decision_summary: Optional[str] = None
     analyzer_report: Optional[Dict[str, Any]] = None
     strategy: Optional[Dict[str, Any]] = None

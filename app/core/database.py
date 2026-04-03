@@ -75,7 +75,7 @@ def check_db_connection():
         raise RuntimeError(f"Database connection failed: {e}")
 
 
-def init_db():
+def init_db(create_schemas: bool | None = None):
     """
     Import all models so SQLAlchemy registers them, then ensure schemas/tables exist.
     """
@@ -98,16 +98,19 @@ def init_db():
     import app.models.analytics
     import app.models.workflow_command
     import app.models.intake
+    import app.models.project_access
     
     if settings.is_postgres:
-        schemas = (
-            "auth", "bom", "projects", "pricing",
-            "sourcing", "ops", "geo", "catalog",
-            "collaboration", "analytics"
-        )
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            for schema in schemas:
-                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+        should_create_schemas = settings.ENABLE_RUNTIME_SCHEMA_BOOTSTRAP if create_schemas is None else create_schemas
+        if should_create_schemas:
+            schemas = (
+                "auth", "bom", "projects", "pricing",
+                "sourcing", "ops", "geo", "catalog",
+                "collaboration", "analytics"
+            )
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                for schema in schemas:
+                    conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
 
     allow_raw = os.getenv("ALLOW_CREATE_ALL")
     if allow_raw is None:

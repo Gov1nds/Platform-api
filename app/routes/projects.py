@@ -1,14 +1,14 @@
 """Project routes — control tower, lifecycle events, metrics, detail."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.report_snapshot import ReportSnapshot
 from app.models.strategy_run import StrategyRun
-from app.models.user import User
+from app.models.user import User, GuestSession
 from app.schemas.project import (
     ProjectDetail,
     ProjectEventSchema,
@@ -17,9 +17,20 @@ from app.schemas.project import (
     StatusUpdate,
 )
 from app.services import project_service
-from app.utils.dependencies import require_user
+from app.utils.dependencies import require_user, get_current_user, can_access_project, build_project_access_context
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+def _guest_session_matches_project(db: Session, project, session_token: Optional[str]) -> bool:
+    if not project or not session_token or not getattr(project, "guest_session_id", None):
+        return False
+    guest = (
+        db.query(GuestSession)
+        .filter(GuestSession.session_token == session_token)
+        .first()
+    )
+    return bool(guest and str(guest.id) == str(project.guest_session_id))
 
 
 @router.get("/metrics", response_model=ProjectMetrics)
@@ -34,15 +45,40 @@ def list_projects(user: User = Depends(require_user), db: Session = Depends(get_
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
-def get_project(project_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
+def get_project(
+    project_id: str,
+    session_token: Optional[str] = Query(None),
+    user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     project = project_service.get_project_by_id(db, project_id)
     if not project:
         project = project_service.get_project_by_bom_id(db, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if not project.user_id or project.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    return project_service.serialize_detail(project)
+
+    if user:
+        if not can_access_project(user, project):
+            raise HTTPException(status_code=403, detail="Not authorized")
+        payload = project_service.serialize_detail(project)
+        payload["access"] = build_project_access_context(user, project, db)
+        payload["access"]["session_token_match"] = bool(session_token and (payload.get("analysis_lifecycle") or {}).get("session_token") == session_token)
+        return payload
+
+    if _guest_session_matches_project(db, project, session_token):
+        payload = project_service.serialize_detail(project)
+        preview = project_service.build_guest_preview(
+            project,
+            session_token=session_token,
+            analysis_status=(project.project_metadata or {}).get("analysis_lifecycle", {}).get("analysis_status", "guest_preview"),
+            report_visibility_level=(project.project_metadata or {}).get("analysis_lifecycle", {}).get("report_visibility_level", "preview"),
+            unlock_status=(project.project_metadata or {}).get("analysis_lifecycle", {}).get("unlock_status", "locked"),
+        )
+        payload.update(preview)
+        payload["access"] = build_project_access_context(user, project, db)
+        return payload
+
+    raise HTTPException(status_code=401, detail="Authentication required")
 
 
 @router.patch("/{project_id}", response_model=ProjectDetail)
@@ -55,20 +91,29 @@ def update_project_status(project_id: str, status_update: StatusUpdate, user: Us
     if not project.user_id or project.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    try:
-        project = project_service.advance_project_stage(
-            db,
-            project,
-            status_update.status,
-            actor_user_id=user.id,
-            payload={"notes": status_update.notes, "source": "manual_update"},
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    old_status = project.workflow_stage or project.status
+    new_status = project_service.normalize_project_stage(status_update.status, old_status)
+    project.status = new_status
+    project.workflow_stage = new_status
+    project.project_metadata = project.project_metadata or {}
+    project.project_metadata["workflow_stage"] = new_status
+    project.project_metadata["next_action"] = project_service.project_stage_action(new_status)
+
+    project_service.record_project_event(
+        db,
+        project,
+        "manual_status_update",
+        old_status,
+        new_status,
+        {"notes": status_update.notes},
+        actor_user_id=user.id,
+    )
 
     db.commit()
     db.refresh(project)
-    return project_service.serialize_detail(project)
+    payload = project_service.serialize_detail(project)
+    payload["access"] = build_project_access_context(user, project, db)
+    return payload
 
 
 @router.get("/{project_id}/events", response_model=list[ProjectEventSchema])

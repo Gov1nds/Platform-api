@@ -1,7 +1,10 @@
 """User schemas."""
 
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, EmailStr, Field
 
 
 class UserRegister(BaseModel):
@@ -28,15 +31,22 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
+class GuestMergeResult(BaseModel):
+    session_token: Optional[str] = None
+    guest_session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    status: str = "noop"
+    merged_project_ids: List[str] = Field(default_factory=list)
+    merged_bom_ids: List[str] = Field(default_factory=list)
+    merged_analysis_ids: List[str] = Field(default_factory=list)
+    merged_rfq_ids: List[str] = Field(default_factory=list)
+    merged_drawing_ids: List[str] = Field(default_factory=list)
+    unlock_state: Optional[Dict[str, Any]] = None
+    merged_counts: Dict[str, int] = Field(default_factory=dict)
+    warnings: List[str] = Field(default_factory=list)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
-
-class TokenResponse(BaseModel):
-    access_token: str
-    user: UserResponse
-    merged_project_id: Optional[str] = None  # ADD THIS
-
-    class Config:
-        from_attributes = True

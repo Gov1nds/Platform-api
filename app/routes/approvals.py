@@ -12,7 +12,7 @@ from app.schemas.collaboration import (
 )
 from app.services import collaboration_service
 from app.services.workflow_service import begin_command, complete_command, fail_command
-from app.utils.dependencies import require_user, require_roles
+from app.utils.dependencies import require_user
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -49,7 +49,7 @@ def get_approval(
 @router.post("")
 def create_approval(
     body: ApprovalCreateRequest,
-    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -104,7 +104,7 @@ def create_approval(
 def approve(
     approval_id: str,
     body: ApprovalDecisionRequest,
-    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
@@ -155,7 +155,7 @@ def approve(
 def reject(
     approval_id: str,
     body: ApprovalDecisionRequest,
-    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):

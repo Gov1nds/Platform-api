@@ -29,6 +29,13 @@ class RFQQuoteRequest(BaseModel):
     total: Optional[float] = None
     quote_status: Optional[str] = "received"
     response_status: Optional[str] = "received"
+    quote_version: Optional[int] = 1
+    acceptance_status: Optional[str] = "pending"
+    incoterms: Optional[str] = None
+    tax_assumptions: Dict[str, Any] = Field(default_factory=dict)
+    duty_assumptions: Dict[str, Any] = Field(default_factory=dict)
+    tier_pricing_json: Dict[str, Any] = Field(default_factory=dict)
+    line_normalization_source: Optional[str] = None
     vendor_response_deadline: Optional[str] = None
     sent_at: Optional[str] = None
     received_at: Optional[str] = None
@@ -86,6 +93,7 @@ class RFQQuoteLineSchema(BaseModel):
     moq: Optional[float] = None
     risk_score: Optional[float] = None
     line_payload: Dict[str, Any] = Field(default_factory=dict)
+    normalization_source: Optional[str] = None
 
 
 class RFQQuoteHeaderSchema(BaseModel):
@@ -99,10 +107,17 @@ class RFQQuoteHeaderSchema(BaseModel):
     quote_status: str = "received"
     response_status: str = "received"
     quote_currency: str = "USD"
+    quote_version: int = 1
+    acceptance_status: str = "pending"
+    incoterms: Optional[str] = None
     subtotal: Optional[float] = None
     freight: Optional[float] = None
     taxes: Optional[float] = None
     total: Optional[float] = None
+    tax_assumptions: Dict[str, Any] = Field(default_factory=dict)
+    duty_assumptions: Dict[str, Any] = Field(default_factory=dict)
+    tier_pricing_json: Dict[str, Any] = Field(default_factory=dict)
+    line_normalization_source: Optional[str] = None
     vendor_response_deadline: Optional[str] = None
     sent_at: Optional[str] = None
     received_at: Optional[str] = None
