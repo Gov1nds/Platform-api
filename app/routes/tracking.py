@@ -1,6 +1,7 @@
 """Tracking routes — order center, fulfillment context, shipments, receipts, invoices, payments."""
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -20,6 +21,7 @@ from app.schemas.tracking import (
     PaymentStateUpdateRequest,
 )
 from app.services import tracking_service
+from app.services.workflow_service import begin_command, complete_command, fail_command
 import logging
 
 logger = logging.getLogger("routes.tracking")
@@ -37,49 +39,112 @@ def get_tracking(rfq_id: str, user: User = Depends(require_user), db: Session = 
 
 
 @router.post("/rfq/{rfq_id}/start", response_model=TrackingEntrySchema)
-def start_production(rfq_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    entry = tracking_service.create_tracking(db, rfq_id)
-    db.commit()
-    return {
-        "id": entry.id,
-        "rfq_id": entry.rfq_id,
-        "stage": entry.stage,
-        "execution_state": entry.execution_state,
-        "status_message": entry.status_message,
-        "progress_percent": entry.progress_percent,
-        "po_id": entry.po_id,
-        "shipment_id": entry.shipment_id,
-        "invoice_id": entry.invoice_id,
-        "delay_reason": entry.delay_reason,
-        "context_json": entry.context_json or {},
-        "updated_by": entry.updated_by,
-        "created_at": entry.created_at,
-        "updated_at": entry.updated_at,
-    }
+def start_production(
+    rfq_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.start",
+        idempotency_key=idempotency_key,
+        payload={"rfq_id": rfq_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/rfq/{rfq_id}/start",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return TrackingEntrySchema.model_validate(cached)
+
+    try:
+        entry = tracking_service.create_tracking(db, rfq_id)
+        response = {
+            "id": entry.id,
+            "rfq_id": entry.rfq_id,
+            "stage": entry.stage,
+            "execution_state": entry.execution_state,
+            "status_message": entry.status_message,
+            "progress_percent": entry.progress_percent,
+            "po_id": entry.po_id,
+            "shipment_id": entry.shipment_id,
+            "invoice_id": entry.invoice_id,
+            "delay_reason": entry.delay_reason,
+            "context_json": entry.context_json or {},
+            "updated_by": entry.updated_by,
+            "created_at": entry.created_at,
+            "updated_at": entry.updated_at,
+        }
+        complete_command(db, command, response)
+        db.commit()
+        return response
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/rfq/{rfq_id}/advance", response_model=TrackingEntrySchema)
-def advance_stage(rfq_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    entry = tracking_service.advance_stage(db, rfq_id, updated_by=user.email)
-    if not entry:
-        raise HTTPException(status_code=404, detail="Tracking not found")
-    db.commit()
-    return {
-        "id": entry.id,
-        "rfq_id": entry.rfq_id,
-        "stage": entry.stage,
-        "execution_state": entry.execution_state,
-        "status_message": entry.status_message,
-        "progress_percent": entry.progress_percent,
-        "po_id": entry.po_id,
-        "shipment_id": entry.shipment_id,
-        "invoice_id": entry.invoice_id,
-        "delay_reason": entry.delay_reason,
-        "context_json": entry.context_json or {},
-        "updated_by": entry.updated_by,
-        "created_at": entry.created_at,
-        "updated_at": entry.updated_at,
-    }
+def advance_stage(
+    rfq_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.advance",
+        idempotency_key=idempotency_key,
+        payload={"rfq_id": rfq_id, "user_id": user.id, "updated_by": user.email},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/rfq/{rfq_id}/advance",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return TrackingEntrySchema.model_validate(cached)
+
+    try:
+        entry = tracking_service.advance_stage(db, rfq_id, updated_by=user.email)
+        if not entry:
+            raise HTTPException(status_code=404, detail="Tracking not found")
+        response = {
+            "id": entry.id,
+            "rfq_id": entry.rfq_id,
+            "stage": entry.stage,
+            "execution_state": entry.execution_state,
+            "status_message": entry.status_message,
+            "progress_percent": entry.progress_percent,
+            "po_id": entry.po_id,
+            "shipment_id": entry.shipment_id,
+            "invoice_id": entry.invoice_id,
+            "delay_reason": entry.delay_reason,
+            "context_json": entry.context_json or {},
+            "updated_by": entry.updated_by,
+            "created_at": entry.created_at,
+            "updated_at": entry.updated_at,
+        }
+        complete_command(db, command, response)
+        db.commit()
+        return response
+    except HTTPException as e:
+        try:
+            fail_command(db, command, str(e.detail))
+        except Exception:
+            pass
+        db.rollback()
+        raise
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/rfq/{rfq_id}/purchase-order")
@@ -88,7 +153,21 @@ def create_purchase_order(
     body: PurchaseOrderCreateRequest,
     user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.po.create",
+        idempotency_key=idempotency_key,
+        payload={**body.model_dump(mode="json"), "rfq_id": rfq_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/rfq/{rfq_id}/purchase-order",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return cached
+
     try:
         po = tracking_service.create_purchase_order(
             db=db,
@@ -104,10 +183,24 @@ def create_purchase_order(
             notes=body.notes,
             metadata=body.metadata,
         )
+        response = tracking_service._serialize_po(po)  # internal serialization used by context
+        complete_command(db, command, response)
         db.commit()
-        return tracking_service._serialize_po(po)  # internal serialization used by context
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/purchase-orders/{po_id}/confirm")
@@ -116,7 +209,21 @@ def confirm_purchase_order(
     body: PurchaseOrderConfirmRequest,
     user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.po.confirm",
+        idempotency_key=idempotency_key,
+        payload={**body.model_dump(mode="json"), "po_id": po_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/purchase-orders/{po_id}/confirm",
+        user_id=user.id,
+        related_id=po_id,
+    )
+    if cached:
+        return cached
+
     try:
         po = tracking_service.confirm_purchase_order(
             db=db,
@@ -125,10 +232,24 @@ def confirm_purchase_order(
             vendor_confirmation_number=body.vendor_confirmation_number,
             notes=body.notes,
         )
+        response = tracking_service._serialize_po(po)
+        complete_command(db, command, response)
         db.commit()
-        return tracking_service._serialize_po(po)
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/purchase-orders/{po_id}/shipments")
@@ -137,7 +258,21 @@ def create_shipment(
     body: ShipmentCreateRequest,
     user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.shipment.create",
+        idempotency_key=idempotency_key,
+        payload={**body.model_dump(mode="json"), "po_id": po_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/purchase-orders/{po_id}/shipments",
+        user_id=user.id,
+        related_id=po_id,
+    )
+    if cached:
+        return cached
+
     try:
         shipment = tracking_service.create_shipment(
             db=db,
@@ -153,10 +288,24 @@ def create_shipment(
             delay_reason=body.delay_reason,
             metadata=body.metadata,
         )
+        response = tracking_service._serialize_shipment(shipment)
+        complete_command(db, command, response)
         db.commit()
-        return tracking_service._serialize_shipment(shipment)
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/shipments/{shipment_id}/events")
@@ -165,7 +314,21 @@ def add_shipment_event(
     body: ShipmentEventCreateRequest,
     user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.shipment.event",
+        idempotency_key=idempotency_key,
+        payload={**body.model_dump(mode="json"), "shipment_id": shipment_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/shipments/{shipment_id}/events",
+        user_id=user.id,
+        related_id=shipment_id,
+    )
+    if cached:
+        return cached
+
     try:
         event = tracking_service.add_shipment_event(
             db=db,
@@ -178,10 +341,24 @@ def add_shipment_event(
             occurred_at=body.occurred_at,
             metadata=body.metadata,
         )
+        response = tracking_service._serialize_shipment_event(event)
+        complete_command(db, command, response)
         db.commit()
-        return tracking_service._serialize_shipment_event(event)
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/shipments/{shipment_id}/milestones")
@@ -190,7 +367,21 @@ def add_carrier_milestone(
     body: CarrierMilestoneCreateRequest,
     user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.shipment.milestone",
+        idempotency_key=idempotency_key,
+        payload={**body.model_dump(mode="json"), "shipment_id": shipment_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/shipments/{shipment_id}/milestones",
+        user_id=user.id,
+        related_id=shipment_id,
+    )
+    if cached:
+        return cached
+
     try:
         milestone = tracking_service.add_carrier_milestone(
             db=db,
@@ -205,10 +396,24 @@ def add_carrier_milestone(
             actual_at=body.actual_at,
             metadata=body.metadata,
         )
+        response = tracking_service._serialize_milestone(milestone)
+        complete_command(db, command, response)
         db.commit()
-        return tracking_service._serialize_milestone(milestone)
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/shipments/{shipment_id}/customs")
@@ -217,7 +422,21 @@ def add_customs_event(
     body: CustomsEventCreateRequest,
     user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.shipment.customs",
+        idempotency_key=idempotency_key,
+        payload={**body.model_dump(mode="json"), "shipment_id": shipment_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/shipments/{shipment_id}/customs",
+        user_id=user.id,
+        related_id=shipment_id,
+    )
+    if cached:
+        return cached
+
     try:
         customs = tracking_service.add_customs_event(
             db=db,
@@ -230,10 +449,24 @@ def add_customs_event(
             released_at=body.released_at,
             metadata=body.metadata,
         )
+        response = tracking_service._serialize_customs(customs)
+        complete_command(db, command, response)
         db.commit()
-        return tracking_service._serialize_customs(customs)
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/purchase-orders/{po_id}/receipts")
@@ -242,7 +475,21 @@ def confirm_goods_receipt(
     body: GoodsReceiptCreateRequest,
     user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.receipt.confirm",
+        idempotency_key=idempotency_key,
+        payload={**body.model_dump(mode="json"), "po_id": po_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/purchase-orders/{po_id}/receipts",
+        user_id=user.id,
+        related_id=po_id,
+    )
+    if cached:
+        return cached
+
     try:
         receipt = tracking_service.confirm_goods_receipt(
             db=db,
@@ -255,10 +502,24 @@ def confirm_goods_receipt(
             notes=body.notes,
             metadata=body.metadata,
         )
+        response = tracking_service._serialize_receipt(receipt)
+        complete_command(db, command, response)
         db.commit()
-        return tracking_service._serialize_receipt(receipt)
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/purchase-orders/{po_id}/invoices")
@@ -267,7 +528,21 @@ def create_invoice(
     body: InvoiceCreateRequest,
     user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.invoice.create",
+        idempotency_key=idempotency_key,
+        payload={**body.model_dump(mode="json"), "po_id": po_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/purchase-orders/{po_id}/invoices",
+        user_id=user.id,
+        related_id=po_id,
+    )
+    if cached:
+        return cached
+
     try:
         invoice = tracking_service.create_invoice(
             db=db,
@@ -285,10 +560,24 @@ def create_invoice(
             matched_at=body.matched_at,
             metadata=body.metadata,
         )
+        response = tracking_service._serialize_invoice(invoice)
+        complete_command(db, command, response)
         db.commit()
-        return tracking_service._serialize_invoice(invoice)
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/invoices/{invoice_id}/payment")
@@ -297,7 +586,21 @@ def update_payment_state(
     body: PaymentStateUpdateRequest,
     user: User = Depends(require_roles("manager", "buyer", "sourcing", "admin")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="tracking.payment.update",
+        idempotency_key=idempotency_key,
+        payload={**body.model_dump(mode="json"), "invoice_id": invoice_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/invoices/{invoice_id}/payment",
+        user_id=user.id,
+        related_id=invoice_id,
+    )
+    if cached:
+        return cached
+
     try:
         payment = tracking_service.update_payment_state(
             db=db,
@@ -309,10 +612,24 @@ def update_payment_state(
             notes=body.notes,
             metadata=body.metadata,
         )
+        response = tracking_service._serialize_payment_state(payment)
+        complete_command(db, command, response)
         db.commit()
-        return tracking_service._serialize_payment_state(payment)
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/rfq/{rfq_id}/feedback")
@@ -321,7 +638,28 @@ def submit_feedback(
     body,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    payload = {
+        "actual_cost": body.actual_cost,
+        "actual_lead_time": body.actual_lead_time,
+        "feedback_notes": body.feedback_notes or "",
+        "user_id": user.id,
+    }
+
+    command, cached = begin_command(
+        db,
+        namespace="tracking.feedback.submit",
+        idempotency_key=idempotency_key,
+        payload={**payload, "rfq_id": rfq_id},
+        request_method="POST",
+        request_path=f"/api/v1/tracking/rfq/{rfq_id}/feedback",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return cached
+
     try:
         fb = tracking_service.submit_feedback(
             db,
@@ -331,11 +669,19 @@ def submit_feedback(
             feedback_notes=body.feedback_notes or "",
         )
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
-    db.commit()
-    return {
+
+    response = {
         "rfq_id": rfq_id,
         "cost_delta": fb.cost_delta,
         "lead_time_delta": fb.lead_time_delta,
         "status": "feedback_recorded",
     }
+    complete_command(db, command, response)
+    db.commit()
+    return response

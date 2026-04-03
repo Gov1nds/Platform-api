@@ -1,10 +1,12 @@
 """RFQ routes — normalized quote lifecycle, comparison and selection."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.models.user import User
 from app.models.rfq import RFQBatch
-from typing import Optional
 from app.schemas.rfq import (
     RFQCreateRequest,
     RFQResponse,
@@ -16,6 +18,7 @@ from app.schemas.rfq import (
 )
 from app.utils.dependencies import require_user
 from app.services import rfq_service, email_service
+from app.services.workflow_service import begin_command, complete_command, fail_command
 import logging
 
 logger = logging.getLogger("routes.rfq")
@@ -28,31 +31,60 @@ def create_rfq(
     body: RFQCreateRequest,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="rfq.create",
+        idempotency_key=idempotency_key,
+        payload=body.model_dump(mode="json"),
+        request_method="POST",
+        request_path="/api/v1/rfq/create",
+        user_id=user.id,
+        project_id=body.bom_id,
+        related_id=body.bom_id,
+    )
+    if cached:
+        return RFQResponse.model_validate(cached)
+
     try:
         rfq = rfq_service.create_rfq_from_analysis(db, body.bom_id, user.id, body.notes or "")
+        db.commit()
+
+        # Send email notification
+        try:
+            from app.models.rfq import RFQItem
+            custom_count = db.query(RFQItem).filter(RFQItem.rfq_batch_id == rfq.id).count()
+            project_name = "BOM Project"
+            project_id = rfq.project_id or body.bom_id
+            email_service.notify_rfq_submitted(
+                user_email=user.email,
+                user_name=user.full_name or "",
+                project_name=project_name,
+                project_id=str(project_id),
+                custom_parts_count=custom_count,
+            )
+        except Exception as e:
+            logger.warning(f"RFQ email notification failed: {e}")
+
+        response = _rfq_to_response(rfq, db)
+        complete_command(db, command, response.model_dump(mode="json"))
+        db.commit()
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
-
-    db.commit()
-
-    # Send email notification
-    try:
-        from app.models.rfq import RFQItem
-        custom_count = db.query(RFQItem).filter(RFQItem.rfq_batch_id == rfq.id).count()
-        project_name = "BOM Project"
-        project_id = rfq.project_id or body.bom_id
-        email_service.notify_rfq_submitted(
-            user_email=user.email,
-            user_name=user.full_name or "",
-            project_name=project_name,
-            project_id=str(project_id),
-            custom_parts_count=custom_count,
-        )
     except Exception as e:
-        logger.warning(f"RFQ email notification failed: {e}")
-
-    return _rfq_to_response(rfq, db)
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/{rfq_id}/send", response_model=RFQResponse)
@@ -61,7 +93,26 @@ def send_rfq(
     body: RFQSendRequest,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="rfq.send",
+        idempotency_key=idempotency_key,
+        payload={
+            "rfq_id": rfq_id,
+            "vendor_ids": body.vendor_ids,
+            "vendor_response_deadline_days": body.vendor_response_deadline_days,
+            "notes": body.notes,
+        },
+        request_method="POST",
+        request_path=f"/api/v1/rfq/{rfq_id}/send",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return RFQResponse.model_validate(cached)
+
     try:
         rfq = rfq_service.send_rfq(
             db,
@@ -70,10 +121,24 @@ def send_rfq(
             vendor_response_deadline_days=body.vendor_response_deadline_days,
             notes=body.notes,
         )
+        response = _rfq_to_response(rfq, db)
+        complete_command(db, command, response.model_dump(mode="json"))
         db.commit()
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
-    return _rfq_to_response(rfq, db)
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.get("/{rfq_id}", response_model=RFQResponse)
@@ -137,10 +202,40 @@ def add_quote(
     body: RFQQuoteRequest,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     rfq = rfq_service.get_rfq(db, rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
+
+    command, cached = begin_command(
+        db,
+        namespace="rfq.quote",
+        idempotency_key=idempotency_key,
+        payload={
+            "rfq_id": rfq_id,
+            "vendor_id": body.vendor_id,
+            "quote_number": body.quote_number,
+            "quote_status": body.quote_status,
+            "response_status": body.response_status,
+            "quote_currency": body.quote_currency,
+            "subtotal": body.subtotal,
+            "freight": body.freight,
+            "taxes": body.taxes,
+            "total": body.total,
+            "vendor_response_deadline": body.vendor_response_deadline,
+            "sent_at": body.sent_at,
+            "received_at": body.received_at,
+            "expires_at": body.expires_at,
+            "item_quotes": [item.model_dump(mode="json") for item in body.item_quotes],
+        },
+        request_method="POST",
+        request_path=f"/api/v1/rfq/{rfq_id}/quote",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return RFQResponse.model_validate(cached)
 
     quote_meta = {
         "quote_number": body.quote_number,
@@ -157,32 +252,50 @@ def add_quote(
         "expires_at": body.expires_at,
     }
 
-    rfq = rfq_service.add_quote_to_rfq(
-        db,
-        rfq_id,
-        item_quotes=[item.model_dump() for item in body.item_quotes],
-        vendor_id=body.vendor_id,
-        quote_meta=quote_meta,
-    )
-    db.commit()
-
-    # Notify user quote is ready
     try:
-        if rfq.requested_by_user_id:
-            owner = db.query(User).filter(User.id == rfq.requested_by_user_id).first()
-            if owner:
-                email_service.notify_quote_ready(
-                    user_email=owner.email,
-                    user_name=owner.full_name or "",
-                    project_name="BOM Project",
-                    project_id=str(rfq.project_id or rfq.bom_id),
-                    total_cost=rfq.total_final_cost,
-                    currency=rfq.target_currency or "USD",
-                )
-    except Exception as e:
-        logger.warning(f"Quote ready email failed: {e}")
+        rfq = rfq_service.add_quote_to_rfq(
+            db,
+            rfq_id,
+            item_quotes=[item.model_dump() for item in body.item_quotes],
+            vendor_id=body.vendor_id,
+            quote_meta=quote_meta,
+        )
+        db.commit()
 
-    return _rfq_to_response(rfq, db)
+        # Notify user quote is ready
+        try:
+            if rfq.requested_by_user_id:
+                owner = db.query(User).filter(User.id == rfq.requested_by_user_id).first()
+                if owner:
+                    email_service.notify_quote_ready(
+                        user_email=owner.email,
+                        user_name=owner.full_name or "",
+                        project_name="BOM Project",
+                        project_id=str(rfq.project_id or rfq.bom_id),
+                        total_cost=rfq.total_final_cost,
+                        currency=rfq.target_currency or "USD",
+                    )
+        except Exception as e:
+            logger.warning(f"Quote ready email failed: {e}")
+
+        response = _rfq_to_response(rfq, db)
+        complete_command(db, command, response.model_dump(mode="json"))
+        db.commit()
+        return response
+    except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/{rfq_id}/select", response_model=RFQResponse)
@@ -191,7 +304,26 @@ def select_vendor(
     body: RFQSelectRequest,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="rfq.select_vendor",
+        idempotency_key=idempotency_key,
+        payload={
+            "rfq_id": rfq_id,
+            "vendor_id": body.vendor_id,
+            "quote_id": body.quote_id,
+            "reason": body.reason,
+        },
+        request_method="POST",
+        request_path=f"/api/v1/rfq/{rfq_id}/select",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return RFQResponse.model_validate(cached)
+
     try:
         result = rfq_service.select_vendor_for_rfq(
             db,
@@ -200,10 +332,24 @@ def select_vendor(
             quote_id=body.quote_id,
             reason=body.reason,
         )
+        response = _rfq_to_response(result["rfq"], db)
+        complete_command(db, command, response.model_dump(mode="json"))
         db.commit()
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
-    return _rfq_to_response(result["rfq"], db)
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/{rfq_id}/reject-vendor", response_model=RFQResponse)
@@ -212,7 +358,26 @@ def reject_vendor(
     body: RFQRejectVendorRequest,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="rfq.reject_vendor",
+        idempotency_key=idempotency_key,
+        payload={
+            "rfq_id": rfq_id,
+            "vendor_id": body.vendor_id,
+            "quote_id": body.quote_id,
+            "reason": body.reason,
+        },
+        request_method="POST",
+        request_path=f"/api/v1/rfq/{rfq_id}/reject-vendor",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return RFQResponse.model_validate(cached)
+
     try:
         result = rfq_service.reject_vendor_for_rfq(
             db,
@@ -221,31 +386,115 @@ def reject_vendor(
             quote_id=body.quote_id,
             reason=body.reason,
         )
+        response = _rfq_to_response(result["rfq"], db)
+        complete_command(db, command, response.model_dump(mode="json"))
         db.commit()
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
-    return _rfq_to_response(result["rfq"], db)
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/{rfq_id}/approve", response_model=RFQResponse)
-def approve_rfq(rfq_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    rfq = rfq_service.get_rfq(db, rfq_id)
-    if not rfq:
-        raise HTTPException(status_code=404, detail="RFQ not found")
-    if rfq.status not in ("quoted", "draft", "sent", "partial"):
-        raise HTTPException(status_code=400, detail=f"Cannot approve RFQ in '{rfq.status}' status")
-    rfq = rfq_service.update_rfq_status(db, rfq_id, "approved")
-    db.commit()
-    return _rfq_to_response(rfq, db)
+def approve_rfq(
+    rfq_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    command, cached = begin_command(
+        db,
+        namespace="rfq.approve",
+        idempotency_key=idempotency_key,
+        payload={"rfq_id": rfq_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/rfq/{rfq_id}/approve",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return RFQResponse.model_validate(cached)
+
+    try:
+        rfq = rfq_service.get_rfq(db, rfq_id)
+        if not rfq:
+            raise HTTPException(status_code=404, detail="RFQ not found")
+        if rfq.status not in ("quoted", "draft", "sent", "partial"):
+            raise HTTPException(status_code=400, detail=f"Cannot approve RFQ in '{rfq.status}' status")
+        rfq = rfq_service.update_rfq_status(db, rfq_id, "approved")
+        response = _rfq_to_response(rfq, db)
+        complete_command(db, command, response.model_dump(mode="json"))
+        db.commit()
+        return response
+    except HTTPException as e:
+        try:
+            fail_command(db, command, str(e.detail))
+        except Exception:
+            pass
+        db.rollback()
+        raise
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.post("/{rfq_id}/reject", response_model=RFQResponse)
-def reject_rfq(rfq_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    rfq = rfq_service.update_rfq_status(db, rfq_id, "rejected")
-    if not rfq:
-        raise HTTPException(status_code=404, detail="RFQ not found")
-    db.commit()
-    return _rfq_to_response(rfq, db)
+def reject_rfq(
+    rfq_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    command, cached = begin_command(
+        db,
+        namespace="rfq.reject",
+        idempotency_key=idempotency_key,
+        payload={"rfq_id": rfq_id, "user_id": user.id},
+        request_method="POST",
+        request_path=f"/api/v1/rfq/{rfq_id}/reject",
+        user_id=user.id,
+        related_id=rfq_id,
+    )
+    if cached:
+        return RFQResponse.model_validate(cached)
+
+    try:
+        rfq = rfq_service.update_rfq_status(db, rfq_id, "rejected")
+        if not rfq:
+            raise HTTPException(status_code=404, detail="RFQ not found")
+        response = _rfq_to_response(rfq, db)
+        complete_command(db, command, response.model_dump(mode="json"))
+        db.commit()
+        return response
+    except HTTPException as e:
+        try:
+            fail_command(db, command, str(e.detail))
+        except Exception:
+            pass
+        db.rollback()
+        raise
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 def _rfq_to_response(

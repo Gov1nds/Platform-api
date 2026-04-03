@@ -1,8 +1,10 @@
-"""FastAPI dependencies — DB session, auth."""
+"""FastAPI dependencies — DB session, auth, and workflow access helpers."""
 from typing import Optional
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.user import User
@@ -29,19 +31,19 @@ def get_current_user(
 def require_user(
     user: Optional[User] = Depends(get_current_user),
 ) -> User:
-    """Requires authenticated user."""
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     return user
 
+
 def require_roles(*allowed_roles: str):
-    """Require authenticated user to have one of the listed roles."""
     allowed = {str(r).lower() for r in allowed_roles}
 
     def _dep(user: Optional[User] = Depends(get_current_user)) -> User:
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-        if allowed and str(user.role).lower() not in allowed and str(user.role).lower() != "admin":
+        role = str(getattr(user, "role", "")).lower()
+        if allowed and role not in allowed and role != "admin":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
         return user
 
@@ -49,4 +51,13 @@ def require_roles(*allowed_roles: str):
 
 
 def is_collaboration_role(user: User) -> bool:
-    return str(user.role).lower() in {"admin", "manager", "sourcing", "buyer"}
+    return str(getattr(user, "role", "")).lower() in {"admin", "manager", "sourcing", "buyer", "vendor"}
+
+
+def can_access_project(user: User, project) -> bool:
+    if not user or not project:
+        return False
+    role = str(getattr(user, "role", "")).lower()
+    if role == "admin":
+        return True
+    return bool(getattr(project, "user_id", None) and project.user_id == user.id)

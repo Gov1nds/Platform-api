@@ -1,7 +1,7 @@
 """Chat routes — project threads, messages, attachments, read receipts."""
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Header
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -15,6 +15,7 @@ from app.schemas.collaboration import (
     ChatThreadMessagesResponse,
 )
 from app.services import collaboration_service
+from app.services.workflow_service import begin_command, complete_command, fail_command
 from app.utils.dependencies import require_user, require_roles
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -37,9 +38,24 @@ def list_threads(
 @router.post("/threads", response_model=ChatThreadSchema, status_code=201)
 def create_thread(
     body: ChatThreadCreate,
-    user: User = Depends(require_user),
+    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing", "vendor")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="chat.thread.create",
+        idempotency_key=idempotency_key,
+        payload=body.model_dump(mode="json"),
+        request_method="POST",
+        request_path="/api/v1/chat/threads",
+        user_id=user.id,
+        project_id=body.project_id,
+        related_id=body.rfq_batch_id or body.vendor_id or body.project_id,
+    )
+    if cached:
+        return ChatThreadSchema.model_validate(cached)
+
     try:
         thread = collaboration_service.create_thread(
             db=db,
@@ -53,11 +69,31 @@ def create_thread(
             metadata=body.metadata,
         )
         db.commit()
-        return collaboration_service.serialize_thread(db, thread, user)
+        response = collaboration_service.serialize_thread(db, thread, user)
+        complete_command(db, command, response.model_dump(mode="json"))
+        db.commit()
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.get("/threads/{thread_id}/messages", response_model=ChatThreadMessagesResponse)
@@ -83,14 +119,37 @@ def post_message(
     reply_to_message_id: Optional[str] = Form(None),
     metadata_json: Optional[str] = Form(None),
     attachments: List[UploadFile] = File(default=[]),
-    user: User = Depends(require_user),
+    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing", "vendor")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     try:
         metadata = {}
         if metadata_json:
             import json
             metadata = json.loads(metadata_json)
+
+        command, cached = begin_command(
+            db,
+            namespace="chat.message.post",
+            idempotency_key=idempotency_key,
+            payload={
+                "thread_id": thread_id,
+                "body": body,
+                "message_type": message_type,
+                "is_internal_only": is_internal_only,
+                "reply_to_message_id": reply_to_message_id,
+                "metadata": metadata,
+                "attachments": [a.filename for a in attachments],
+                "user_id": user.id,
+            },
+            request_method="POST",
+            request_path="/api/v1/chat/messages",
+            user_id=user.id,
+            related_id=thread_id,
+        )
+        if cached:
+            return ChatMessageSchema.model_validate(cached)
 
         message = collaboration_service.post_message(
             db=db,
@@ -104,11 +163,31 @@ def post_message(
             files=attachments,
         )
         db.commit()
-        return collaboration_service.serialize_message(db, message)
+        response = collaboration_service.serialize_message(db, message)
+        complete_command(db, command, response.model_dump(mode="json"))
+        db.commit()
+        return response
     except ValueError as e:
+        try:
+            fail_command(db, command, str(e))  # type: ignore[name-defined]
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
+        try:
+            fail_command(db, command, str(e))  # type: ignore[name-defined]
+        except Exception:
+            pass
+        db.rollback()
         raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        try:
+            fail_command(db, command, str(e))  # type: ignore[name-defined]
+        except Exception:
+            pass
+        db.rollback()
+        raise
 
 
 @router.get("/attachments/{attachment_id}")

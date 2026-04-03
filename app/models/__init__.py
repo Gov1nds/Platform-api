@@ -44,10 +44,12 @@ from app.models.analytics import (
     DeliveryPerformanceRollup,
     ReportSchedule,
 )
+from app.models.workflow_command import WorkflowCommand
+from app.models.intake import IntakeSession, IntakeItem
+
 # Backward-compat aliases for removed/renamed items
 RFQ = RFQBatch
 Drawing = DrawingAsset
-
 
 class BOMStatus:
     """Backward-compat shim. The PostgreSQL schema uses plain text status values."""

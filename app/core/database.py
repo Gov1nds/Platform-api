@@ -1,7 +1,6 @@
 """
 Database engine, session factory, and Base — PostgreSQL on Railway.
 """
-
 import os
 import logging
 from sqlalchemy import create_engine, event, text
@@ -10,47 +9,30 @@ from app.core.config import settings
 
 logger = logging.getLogger("database")
 
-# -------------------------------------------------------------------
-# Engine Configuration
-# -------------------------------------------------------------------
-
 connect_args = {}
-
 if settings.is_sqlite:
     connect_args["check_same_thread"] = False
 
 engine = create_engine(
     settings.DATABASE_URL,
     connect_args=connect_args,
-
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
     pool_timeout=30,
     pool_recycle=1800,
-
     echo=False,
 )
-
-# -------------------------------------------------------------------
-# PostgreSQL Session Settings
-# -------------------------------------------------------------------
 
 if settings.is_postgres:
 
     @event.listens_for(engine, "connect")
     def set_postgres_session(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
-
         cursor.execute("SET statement_timeout TO 30000")
         cursor.execute("SET lock_timeout TO 10000")
         cursor.execute("SET idle_in_transaction_session_timeout TO 30000")
-
         cursor.close()
-
-# -------------------------------------------------------------------
-# SQLite Optimizations (dev only)
-# -------------------------------------------------------------------
 
 if settings.is_sqlite:
 
@@ -61,36 +43,29 @@ if settings.is_sqlite:
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-# -------------------------------------------------------------------
-# Session & Base
-# -------------------------------------------------------------------
-
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
-    bind=engine
+    bind=engine,
 )
 
 Base = declarative_base()
 
-# -------------------------------------------------------------------
-# Dependency (FastAPI)
-# -------------------------------------------------------------------
 
 def get_db():
+    """
+    FastAPI DB dependency.
+    No implicit commit here; routes own their transaction boundaries.
+    """
     db = SessionLocal()
     try:
         yield db
-        db.commit()
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
 
-# -------------------------------------------------------------------
-# Database Health Check
-# -------------------------------------------------------------------
 
 def check_db_connection():
     try:
@@ -99,16 +74,11 @@ def check_db_connection():
     except Exception as e:
         raise RuntimeError(f"Database connection failed: {e}")
 
-# -------------------------------------------------------------------
-# Initialize Database
-# -------------------------------------------------------------------
 
 def init_db():
     """
     Import all models so SQLAlchemy registers them, then ensure schemas/tables exist.
     """
-
-    # Import models (CRITICAL)
     import app.models.user
     import app.models.project
     import app.models.bom
@@ -126,33 +96,20 @@ def init_db():
     import app.models.vendor_match
     import app.models.collaboration
     import app.models.analytics
-
-    # -------------------------------------------------------------------
-    # PostgreSQL Schema Creation (ISOLATED — NO TRANSACTION)
-    # -------------------------------------------------------------------
+    import app.models.workflow_command
+    import app.models.intake
+    
     if settings.is_postgres:
-
         schemas = (
             "auth", "bom", "projects", "pricing",
             "sourcing", "ops", "geo", "catalog",
             "collaboration", "analytics"
         )
-
-        # 🔥 IMPORTANT: use AUTOCOMMIT to avoid transaction abort
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             for schema in schemas:
-                try:
-                    conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
-                except Exception as e:
-                    logger.error(f"Schema creation failed: {schema}: {e}")
-                    raise
-
-    # -------------------------------------------------------------------
-    # Table Creation Strategy
-    # -------------------------------------------------------------------
+                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
 
     allow_raw = os.getenv("ALLOW_CREATE_ALL")
-
     if allow_raw is None:
         allow_create = not settings.is_production
     else:

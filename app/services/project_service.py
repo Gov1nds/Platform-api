@@ -26,14 +26,22 @@ logger = logging.getLogger("project_service")
 
 STATUS_ORDER = {
     "uploaded": 0,
-    "analyzed": 1,
-    "quoting": 2,
-    "quoted": 3,
-    "approved": 4,
-    "in_production": 5,
-    "qc_inspection": 6,
-    "shipped": 7,
-    "completed": 8,
+    "guest_preview": 1,
+    "project_hydrated": 2,
+    "strategy": 3,
+    "vendor_match": 4,
+    "rfq_pending": 5,
+    "rfq_sent": 6,
+    "quote_compare": 7,
+    "negotiation": 8,
+    "vendor_selected": 9,
+    "po_issued": 10,
+    "in_production": 11,
+    "qc_inspection": 12,
+    "shipped": 13,
+    "delivered": 14,
+    "spend_recorded": 15,
+    "completed": 16,
 }
 
 from datetime import datetime

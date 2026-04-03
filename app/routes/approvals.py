@@ -1,7 +1,7 @@
 """Approval routes — request listing, approve, reject, and creation."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -11,7 +11,8 @@ from app.schemas.collaboration import (
     ApprovalDecisionRequest,
 )
 from app.services import collaboration_service
-from app.utils.dependencies import require_user
+from app.services.workflow_service import begin_command, complete_command, fail_command
+from app.utils.dependencies import require_user, require_roles
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -48,9 +49,24 @@ def get_approval(
 @router.post("")
 def create_approval(
     body: ApprovalCreateRequest,
-    user: User = Depends(require_user),
+    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="approval.create",
+        idempotency_key=idempotency_key,
+        payload=body.model_dump(mode="json"),
+        request_method="POST",
+        request_path="/api/v1/approvals",
+        user_id=user.id,
+        project_id=body.project_id,
+        related_id=body.thread_id or body.rfq_batch_id or body.vendor_id or body.project_id,
+    )
+    if cached:
+        return cached
+
     try:
         approval = collaboration_service.create_approval_request(
             db=db,
@@ -66,21 +82,49 @@ def create_approval(
             due_at=body.due_at,
             metadata=body.metadata,
         )
+        response = collaboration_service.serialize_approval(db, approval)
+        complete_command(db, command, response)
         db.commit()
-        return collaboration_service.serialize_approval(db, approval)
+        return response
     except ValueError as e:
+        fail_command(db, command, str(e))
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
+        fail_command(db, command, str(e))
+        db.rollback()
         raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        fail_command(db, command, str(e))
+        db.rollback()
+        raise
 
 
 @router.post("/{approval_id}/approve")
 def approve(
     approval_id: str,
     body: ApprovalDecisionRequest,
-    user: User = Depends(require_user),
+    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="approval.approve",
+        idempotency_key=idempotency_key,
+        payload={
+            "approval_id": approval_id,
+            "note": body.note,
+            "metadata": body.metadata,
+        },
+        request_method="POST",
+        request_path=f"/api/v1/approvals/{approval_id}/approve",
+        user_id=user.id,
+        related_id=approval_id,
+    )
+    if cached:
+        return cached
+
     try:
         approval = collaboration_service.approve_request(
             db=db,
@@ -89,21 +133,49 @@ def approve(
             note=body.note,
             metadata=body.metadata,
         )
+        response = collaboration_service.serialize_approval(db, approval)
+        complete_command(db, command, response)
         db.commit()
-        return collaboration_service.serialize_approval(db, approval)
+        return response
     except ValueError as e:
+        fail_command(db, command, str(e))
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
+        fail_command(db, command, str(e))
+        db.rollback()
         raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        fail_command(db, command, str(e))
+        db.rollback()
+        raise
 
 
 @router.post("/{approval_id}/reject")
 def reject(
     approval_id: str,
     body: ApprovalDecisionRequest,
-    user: User = Depends(require_user),
+    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
+    command, cached = begin_command(
+        db,
+        namespace="approval.reject",
+        idempotency_key=idempotency_key,
+        payload={
+            "approval_id": approval_id,
+            "note": body.note,
+            "metadata": body.metadata,
+        },
+        request_method="POST",
+        request_path=f"/api/v1/approvals/{approval_id}/reject",
+        user_id=user.id,
+        related_id=approval_id,
+    )
+    if cached:
+        return cached
+
     try:
         approval = collaboration_service.reject_request(
             db=db,
@@ -112,9 +184,19 @@ def reject(
             note=body.note,
             metadata=body.metadata,
         )
+        response = collaboration_service.serialize_approval(db, approval)
+        complete_command(db, command, response)
         db.commit()
-        return collaboration_service.serialize_approval(db, approval)
+        return response
     except ValueError as e:
+        fail_command(db, command, str(e))
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
+        fail_command(db, command, str(e))
+        db.rollback()
         raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        fail_command(db, command, str(e))
+        db.rollback()
+        raise

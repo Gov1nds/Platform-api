@@ -1,7 +1,7 @@
 """Vendor discovery routes."""
 from typing import Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -13,12 +13,18 @@ from app.schemas.vendor import (
     VendorFeedbackRequest,
 )
 from app.services import vendor_service
-from app.utils.dependencies import require_user
+from app.services.workflow_service import begin_command, complete_command, fail_command
+from app.utils.dependencies import require_user, require_roles
 
 router = APIRouter(prefix="/vendors", tags=["vendors"])
 
 
 def _project_accessible(project, user: User) -> bool:
+    if not project or not user:
+        return False
+    role = str(getattr(user, "role", "")).lower()
+    if role == "admin":
+        return True
     return bool(project and project.user_id and project.user_id == user.id)
 
 
@@ -32,7 +38,7 @@ def match_vendors(
     max_price: Optional[float] = Query(None),
     search: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=50),
-    user: User = Depends(require_user),
+    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
     db: Session = Depends(get_db),
 ):
     project = vendor_service._project_context(db, project_id)
@@ -77,6 +83,13 @@ def get_vendor_scorecard(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    if project_id:
+        project = vendor_service._project_context(db, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if not _project_accessible(project, user):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
     scorecard = vendor_service.build_vendor_scorecard(db, vendor_id, project_id=project_id)
     if not scorecard:
         raise HTTPException(status_code=404, detail="Vendor not found")
@@ -87,11 +100,40 @@ def get_vendor_scorecard(
 def submit_vendor_feedback(
     vendor_id: str,
     body: VendorFeedbackRequest,
-    user: User = Depends(require_user),
+    user: User = Depends(require_roles("admin", "manager", "buyer", "sourcing")),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     payload = body.model_dump(exclude_none=True)
-    result = vendor_service.record_vendor_feedback(db, vendor_id, payload, user_id=user.id)
-    if result.get("status") != "updated":
-        raise HTTPException(status_code=400, detail="Feedback could not be recorded")
-    return result
+    command, cached = begin_command(
+        db,
+        namespace="vendor.feedback",
+        idempotency_key=idempotency_key,
+        payload={
+            "vendor_id": vendor_id,
+            "payload": payload,
+            "user_id": user.id,
+        },
+        request_method="POST",
+        request_path=f"/api/v1/vendors/{vendor_id}/feedback",
+        user_id=user.id,
+        related_id=vendor_id,
+    )
+    if cached:
+        return cached
+
+    try:
+        result = vendor_service.record_vendor_feedback(db, vendor_id, payload, user_id=user.id)
+        if result.get("status") != "updated":
+            raise HTTPException(status_code=400, detail="Feedback could not be recorded")
+        complete_command(db, command, result)
+        db.commit()
+        return result
+    except HTTPException:
+        fail_command(db, command, "Feedback could not be recorded")
+        db.rollback()
+        raise
+    except Exception as exc:
+        fail_command(db, command, str(exc))
+        db.rollback()
+        raise
