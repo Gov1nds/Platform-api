@@ -173,6 +173,9 @@ def _project_lifecycle_state(project: Project) -> Dict[str, Any]:
         "workspace_route": getattr(project, "workspace_route", None) or lifecycle.get("workspace_route") or (f"/project/{project.id}" if getattr(project, "id", None) else None),
         "owner_user_id": str(project.user_id) if getattr(project, "user_id", None) else lifecycle.get("owner_user_id"),
         "guest_session_id": str(project.guest_session_id) if getattr(project, "guest_session_id", None) else lifecycle.get("guest_session_id"),
+        "current_rfq_id": str(getattr(project, "current_rfq_id", None)) if getattr(project, "current_rfq_id", None) else lifecycle.get("current_rfq_id"),
+        "current_rfq_batch_id": str(getattr(project, "current_rfq_batch_id", None)) if getattr(project, "current_rfq_batch_id", None) else lifecycle.get("current_rfq_batch_id"),
+        "current_vendor_id": str(getattr(project, "current_vendor_id", None)) if getattr(project, "current_vendor_id", None) else lifecycle.get("current_vendor_id"),
     }
 
 
@@ -243,11 +246,14 @@ def persist_analysis_lifecycle(
     project.project_metadata["report_visibility_level"] = report_visibility_level
     project.project_metadata["unlock_status"] = unlock_status
     project.project_metadata["workspace_route"] = lifecycle.get("workspace_route")
+    project.project_metadata["visibility_level"] = report_visibility_level
+    project.project_metadata["visibility"] = report_visibility_level
     project.analysis_status = analysis_status
     project.report_visibility_level = report_visibility_level
     project.unlock_status = unlock_status
     project.workspace_route = lifecycle.get("workspace_route")
     project.visibility = report_visibility_level
+    project.visibility_level = report_visibility_level
 
     bom.project_id = project.id
 
@@ -512,6 +518,8 @@ def update_project_status_from_rfq(db: Session, rfq: RFQ) -> Optional[Project]:
     old_status = project.workflow_stage or project.status
     project.rfq_status = rfq.status
     project.current_rfq_id = rfq.id
+    if getattr(rfq, "selected_vendor_id", None):
+        project.current_vendor_id = rfq.selected_vendor_id
 
     new_status = _project_status_from_rfq(rfq.status, project.workflow_stage or project.status)
     if new_status:
@@ -520,6 +528,11 @@ def update_project_status_from_rfq(db: Session, rfq: RFQ) -> Optional[Project]:
 
     project.project_metadata = copy.deepcopy(project.project_metadata or {})
     project.project_metadata["rfq_status"] = rfq.status
+    project.project_metadata["current_rfq_id"] = rfq.id
+    project.project_metadata["current_rfq_batch_id"] = rfq.id
+    if getattr(rfq, "selected_vendor_id", None):
+        project.project_metadata["current_vendor_id"] = rfq.selected_vendor_id
+        project.project_metadata["selected_vendor_id"] = rfq.selected_vendor_id
     project.project_metadata["workflow_stage"] = project.workflow_stage
     project.project_metadata["next_action"] = project_stage_action(project.workflow_stage)
 
@@ -584,8 +597,23 @@ def sync_project_completion(db: Session, rfq: RFQ) -> Optional[Project]:
     project.status = "completed"
     project.rfq_status = rfq.status
     project.visibility_level = "full"
+    project.visibility = "full"
+    project.report_visibility_level = "full"
+    project.unlock_status = "unlocked"
+    project.analysis_status = "authenticated_unlocked"
+    if getattr(rfq, "selected_vendor_id", None):
+        project.current_vendor_id = rfq.selected_vendor_id
+
     project.project_metadata = copy.deepcopy(project.project_metadata or {})
     project.project_metadata["workflow_stage"] = "completed"
+    project.project_metadata["visibility_level"] = "full"
+    project.project_metadata["visibility"] = "full"
+    project.project_metadata["report_visibility_level"] = "full"
+    project.project_metadata["unlock_status"] = "unlocked"
+    project.project_metadata["analysis_status"] = "authenticated_unlocked"
+    if getattr(rfq, "selected_vendor_id", None):
+        project.project_metadata["current_vendor_id"] = rfq.selected_vendor_id
+        project.project_metadata["selected_vendor_id"] = rfq.selected_vendor_id
     project.project_metadata["next_action"] = project_stage_action("completed")
 
     record_project_event(
@@ -658,7 +686,10 @@ def serialize_summary(project: Project) -> Dict[str, Any]:
         "currency": project.currency or "USD",
         "rfq_status": project.rfq_status or "none",
         "tracking_stage": project.tracking_stage or "init",
+        "current_rfq_id": project.current_rfq_id,
+        "current_rfq_batch_id": project.current_rfq_batch_id,
         "current_vendor_match_id": project.current_vendor_match_id,
+        "current_vendor_id": project.current_vendor_id,
         "current_quote_id": project.current_quote_id,
         "current_po_id": project.current_po_id,
         "current_shipment_id": project.current_shipment_id,
@@ -694,7 +725,9 @@ def serialize_detail(project: Project) -> Dict[str, Any]:
         "current_analysis_id": project.current_analysis_id,
         "current_strategy_run_id": project.current_strategy_run_id,
         "current_vendor_match_id": project.current_vendor_match_id,
+        "current_vendor_id": project.current_vendor_id,
         "current_rfq_id": project.current_rfq_id,
+        "current_rfq_batch_id": project.current_rfq_batch_id,
         "current_quote_id": project.current_quote_id,
         "current_po_id": project.current_po_id,
         "current_shipment_id": project.current_shipment_id,

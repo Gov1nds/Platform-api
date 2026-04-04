@@ -98,7 +98,6 @@ class RFQQuoteLineSchema(BaseModel):
     tier_price_json: Dict[str, Any] = Field(default_factory=dict)
     tax_duty_assumptions: Dict[str, Any] = Field(default_factory=dict)
     line_payload: Dict[str, Any] = Field(default_factory=dict)
-    normalization_source: Optional[str] = None
 
 
 class RFQQuoteHeaderSchema(BaseModel):
@@ -201,6 +200,7 @@ class RFQResponse(BaseModel):
     expires_at: Optional[str] = None
     quote_status: Optional[str] = None
     response_status: Optional[str] = None
+    selected_vendor_id: Optional[str] = None
     items: List[RFQItemSchema] = Field(default_factory=list)
     quotes: List[RFQQuoteHeaderSchema] = Field(default_factory=list)
     comparison: Optional[RFQComparisonViewSchema] = None

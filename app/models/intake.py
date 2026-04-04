@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Boolean,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
@@ -66,6 +67,11 @@ class IntakeSession(Base):
     delivery_location = Column(String(120), nullable=True)
     target_currency = Column(String(20), nullable=True)
     priority = Column(String(20), nullable=True, default="cost")
+    purchase_mode = Column(String(40), nullable=False, default="auto")
+    project_creation_mode = Column(String(40), nullable=False, default="auto")
+    item_count = Column(Integer, nullable=False, default=0)
+    recommended_flow = Column(String(40), nullable=False, default="project")
+    should_create_project = Column(Boolean, nullable=False, default=True)
 
     status = Column(String(40), nullable=False, default="received")
     parse_status = Column(String(40), nullable=False, default="pending")

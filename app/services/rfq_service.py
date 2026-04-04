@@ -21,6 +21,7 @@ from app.models.analysis import AnalysisResult
 from app.models.project import Project
 from app.models.vendor import Vendor
 from app.models.user import User
+from app.schemas import rfq
 
 logger = logging.getLogger("rfq_service")
 
@@ -763,14 +764,21 @@ def select_vendor_for_rfq(
         else:
             h.quote_status = h.quote_status or "received"
 
-    project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
+        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     if project:
         old_status = project.workflow_stage or project.status
         _ensure_project_fields(project, "vendor_selected", "Issue PO")
         project.rfq_status = "approved"
         project.current_rfq_id = rfq.id
+        project.current_rfq_batch_id = rfq.id
         project.current_quote_id = header.id
-        project.current_vendor_match_id = project.current_vendor_match_id or None
+        project.current_vendor_id = str(header.vendor_id)
+        project.project_metadata = copy.deepcopy(project.project_metadata or {})
+        project.project_metadata["current_rfq_id"] = rfq.id
+        project.project_metadata["current_rfq_batch_id"] = rfq.id
+        project.project_metadata["current_quote_id"] = header.id
+        project.project_metadata["current_vendor_id"] = str(header.vendor_id)
+        project.project_metadata["selected_vendor_id"] = str(header.vendor_id)
         _emit_project_event_safe(
             db,
             project,
@@ -866,6 +874,7 @@ def build_rfq_response(db: Session, rfq: RFQBatch, comparison_filters: Optional[
         "expires_at": rfq.expires_at,
         "quote_status": rfq.quote_status,
         "response_status": rfq.response_status,
+        "selected_vendor_id": rfq.selected_vendor_id,
         "items": [
             {
                 "id": i.id,

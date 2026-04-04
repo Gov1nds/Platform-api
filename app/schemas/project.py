@@ -18,13 +18,16 @@ class ProjectSummary(BaseModel):
     created_at: Optional[datetime] = None
     cost: Optional[float] = None
     savings_percent: Optional[float] = None
-    lead_time: Optional[float] = None
+    lead_time: Optional[Any] = None
     file_name: Optional[str] = None
     recommended_location: Optional[str] = None
     currency: Optional[str] = "USD"
     rfq_status: Optional[str] = "none"
     tracking_stage: Optional[str] = "init"
+    current_rfq_id: Optional[str] = None
+    current_rfq_batch_id: Optional[str] = None
     current_vendor_match_id: Optional[str] = None
+    current_vendor_id: Optional[str] = None
     current_quote_id: Optional[str] = None
     current_po_id: Optional[str] = None
     current_shipment_id: Optional[str] = None
@@ -33,6 +36,12 @@ class ProjectSummary(BaseModel):
     report_visibility_level: Optional[str] = None
     unlock_status: Optional[str] = None
     workspace_route: Optional[str] = None
+    next_action: Optional[str] = None
+    spend_summary: Optional[Dict[str, Any]] = None
+    analytics_snapshot: Optional[Dict[str, Any]] = None
+    savings_realized: Optional[Any] = None
+    vendor_on_time_rate: Optional[Any] = None
+    quote_to_order_conversion: Optional[Any] = None
     analysis_lifecycle: Optional[Dict[str, Any]] = None
     categories: Optional[Dict[str, Any]] = None
     access: Optional[Dict[str, Any]] = None
@@ -57,14 +66,26 @@ class ProjectDetail(BaseModel):
     cost_range_low: Optional[float] = None
     cost_range_high: Optional[float] = None
     savings_percent: Optional[float] = None
-    lead_time: Optional[float] = None
+    lead_time: Optional[Any] = None
     currency: Optional[str] = "USD"
     rfq_status: Optional[str] = "none"
     tracking_stage: Optional[str] = "init"
+    is_preview: Optional[bool] = None
+    guest_bom_id: Optional[str] = None
+    session_token: Optional[str] = None
+    visible_parts: Optional[List[Dict[str, Any]]] = None
+    locked_parts_count: Optional[int] = None
+    basic_processes: Optional[Any] = None
+    cost_range: Optional[Any] = None
+    total_cost: Optional[Any] = None
+    risk_level: Optional[str] = None
+    unlock_message: Optional[str] = None
     current_analysis_id: Optional[str] = None
     current_strategy_run_id: Optional[str] = None
     current_vendor_match_id: Optional[str] = None
+    current_vendor_id: Optional[str] = None
     current_rfq_id: Optional[str] = None
+    current_rfq_batch_id: Optional[str] = None
     current_quote_id: Optional[str] = None
     current_po_id: Optional[str] = None
     current_shipment_id: Optional[str] = None
@@ -75,6 +96,12 @@ class ProjectDetail(BaseModel):
     report_visibility_level: Optional[str] = None
     unlock_status: Optional[str] = None
     workspace_route: Optional[str] = None
+    next_action: Optional[str] = None
+    spend_summary: Optional[Dict[str, Any]] = None
+    analytics_snapshot: Optional[Dict[str, Any]] = None
+    savings_realized: Optional[Any] = None
+    vendor_on_time_rate: Optional[Any] = None
+    quote_to_order_conversion: Optional[Any] = None
     analysis_lifecycle: Optional[Dict[str, Any]] = None
     categories: Optional[Dict[str, Any]] = None
     access: Optional[Dict[str, Any]] = None
@@ -83,7 +110,6 @@ class ProjectDetail(BaseModel):
     strategy: Optional[Dict[str, Any]] = None
     procurement_plan: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
-
 
 class ProjectActionItem(BaseModel):
     project_id: str

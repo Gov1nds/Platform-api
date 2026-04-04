@@ -58,11 +58,13 @@ def get_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     if user:
-        if not can_access_project(user, project):
+        if not can_access_project(user, project, db):
             raise HTTPException(status_code=403, detail="Not authorized")
         payload = project_service.serialize_detail(project)
         payload["access"] = build_project_access_context(user, project, db)
-        payload["access"]["session_token_match"] = bool(session_token and (payload.get("analysis_lifecycle") or {}).get("session_token") == session_token)
+        payload["access"]["session_token_match"] = bool(
+            session_token and (payload.get("analysis_lifecycle") or {}).get("session_token") == session_token
+        )
         return payload
 
     if _guest_session_matches_project(db, project, session_token):
@@ -127,7 +129,7 @@ def list_project_events(
         project = project_service.get_project_by_bom_id(db, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if not project.user_id or project.user_id != user.id:
+    if not can_access_project(user, project, db):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     events = project_service.list_project_events(db, project.id, limit=200)
@@ -156,7 +158,7 @@ def _resolve_project_authed(project_id: str, user: User, db: Session):
         project = project_service.get_project_by_bom_id(db, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if not project.user_id or project.user_id != user.id:
+    if not can_access_project(user, project, db):
         raise HTTPException(status_code=403, detail="Not authorized")
     return project
 

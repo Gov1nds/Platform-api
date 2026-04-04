@@ -5,6 +5,7 @@ PostgreSQL on Railway edition.
 Run: uvicorn app.main:app --reload
 """
 import logging
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -28,7 +29,19 @@ app = FastAPI(
     version=settings.VERSION,
     description="Manufacturing Intelligence Platform — BOM Analysis, Procurement Strategy, RFQ Execution",
 )
+
+app.state.runtime_checks = {
+    "database": "unknown",
+    "storage": "unknown",
+    "analyzer_required": False,
+    "analyzer": "unknown",
+    "analyzer_detail": {},
+    "runtime_bootstrap_ran": False,
+    "runtime_bootstrap_error": None,
+}
+
 app.include_router(intake.router, prefix=settings.API_PREFIX)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -43,14 +56,37 @@ app.add_middleware(
 )
 
 
-def _validate_runtime_dependencies():
-    check_db_connection()
-    validate_storage_configuration(strict=False)
+def _validate_runtime_dependencies() -> dict:
+    runtime_checks = {
+        "database": "unknown",
+        "storage": "unknown",
+        "analyzer_required": bool(settings.is_production or settings.ANALYZER_READINESS_REQUIRED),
+        "analyzer": "not_required",
+        "analyzer_detail": {},
+        "runtime_bootstrap_ran": False,
+        "runtime_bootstrap_error": None,
+    }
 
-    if settings.is_production or settings.ANALYZER_READINESS_REQUIRED:
-        analyzer_status = analyzer_service.health_check_sync()
-        if analyzer_status.get("status") != "ok":
-            raise RuntimeError(f"Analyzer service is unreachable: {analyzer_status.get('error', analyzer_status)}")
+    check_db_connection()
+    runtime_checks["database"] = "ok"
+
+    validate_storage_configuration(strict=False)
+    runtime_checks["storage"] = "ok"
+
+    if runtime_checks["analyzer_required"]:
+        try:
+            analyzer_status = analyzer_service.health_check_sync()
+        except Exception as exc:
+            analyzer_status = {"status": "error", "error": str(exc)}
+
+        runtime_checks["analyzer_detail"] = analyzer_status
+        runtime_checks["analyzer"] = analyzer_status.get("status", "error")
+
+        if runtime_checks["analyzer"] != "ok":
+            logger.warning("Analyzer service is degraded at startup: %s", analyzer_status)
+
+    app.state.runtime_checks = runtime_checks
+    return runtime_checks
 
 
 def _run_runtime_bootstrap():
@@ -156,7 +192,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 def startup():
     logger.info("Initializing database models...")
     init_db(bootstrap=False)
-    _validate_runtime_dependencies()
+
+    runtime_checks = _validate_runtime_dependencies()
+    try:
+        _run_runtime_bootstrap()
+        runtime_checks["runtime_bootstrap_ran"] = True
+    except Exception as exc:
+        runtime_checks["runtime_bootstrap_ran"] = False
+        runtime_checks["runtime_bootstrap_error"] = str(exc)
+        logger.exception("Runtime bootstrap failed")
+
+    app.state.runtime_checks = runtime_checks
     logger.info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
 
 
@@ -189,4 +235,16 @@ def root():
 
 @app.get("/health", tags=["System"])
 def health():
-    return {"status": "ok"}
+    checks = getattr(app.state, "runtime_checks", {}) or {}
+    database_ok = checks.get("database") == "ok"
+    storage_ok = checks.get("storage") == "ok"
+    analyzer_state = checks.get("analyzer", "unknown")
+
+    if not (database_ok and storage_ok):
+        overall = "unhealthy"
+    elif analyzer_state in {"ok", "not_required"}:
+        overall = "ok"
+    else:
+        overall = "degraded"
+
+    return {"status": overall, "checks": checks}

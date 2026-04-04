@@ -488,14 +488,24 @@ def _update_project_from_fulfillment(db: Session, rfq: RFQ, state: str, pointer_
     project.status = state
     project.rfq_status = rfq.status if rfq else getattr(project, "rfq_status", "none")
     project.tracking_stage = pointer_payload.get("tracking_stage", getattr(project, "tracking_stage", "init"))
+    project.current_rfq_id = rfq.id if rfq else getattr(project, "current_rfq_id", None)
     project.current_po_id = pointer_payload.get("po_id", getattr(project, "current_po_id", None))
     project.current_shipment_id = pointer_payload.get("shipment_id", getattr(project, "current_shipment_id", None))
     project.current_invoice_id = pointer_payload.get("invoice_id", getattr(project, "current_invoice_id", None))
+
+    vendor_id = pointer_payload.get("vendor_id")
+    if vendor_id:
+        project.current_vendor_id = vendor_id
+
     project.project_metadata = project.project_metadata or {}
     project.project_metadata["workflow_stage"] = state
     project.project_metadata["next_action"] = _next_action_for_state(state)
     project.project_metadata["fulfillment_state"] = state
     project.project_metadata["fulfillment_pointer"] = pointer_payload
+    project.project_metadata["current_rfq_id"] = rfq.id if rfq else project.project_metadata.get("current_rfq_id")
+    if vendor_id:
+        project.project_metadata["current_vendor_id"] = vendor_id
+        project.project_metadata["selected_vendor_id"] = vendor_id
     _record_event_safe(
         db,
         project,
@@ -800,11 +810,11 @@ def create_purchase_order(
             db,
             rfq,
             FulfillmentState.po_issued.value,
-            {"po_id": po.id, "tracking_stage": TrackingStage.T0.value},
+            {"po_id": po.id, "tracking_stage": TrackingStage.T0.value, "vendor_id": vendor_id},
             actor=user.id if user else None,
         )
         project.current_po_id = po.id
-        project.current_vendor_match_id = project.current_vendor_match_id or None
+        project.current_vendor_id = vendor_id
 
     db.flush()
     db.refresh(po)

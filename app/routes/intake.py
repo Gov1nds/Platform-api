@@ -81,6 +81,8 @@ async def parse_intake(
     voice_transcript: str = Form(None),
     source_channel: str = Form("web"),
     metadata_json: str = Form("{}"),
+    purchase_mode: str = Form("auto"),
+    project_creation_mode: str = Form("auto"),
     source_file: Optional[UploadFile] = File(None),
     audio_file: Optional[UploadFile] = File(None),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
@@ -217,6 +219,8 @@ async def submit_intake(
     source_channel: str = Form("web"),
     async_finalize: bool = Form(True),
     metadata_json: str = Form("{}"),
+    purchase_mode: str = Form("auto"),
+    project_creation_mode: str = Form("auto"),
     source_file: Optional[UploadFile] = File(None),
     audio_file: Optional[UploadFile] = File(None),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
@@ -255,6 +259,8 @@ async def submit_intake(
             source_channel=source_channel,
             metadata=metadata,
             async_finalize=async_finalize,
+            purchase_mode=purchase_mode,
+            project_creation_mode=project_creation_mode,
         )
 
         result = intake_service.finalize_intake_submission(
@@ -315,3 +321,50 @@ def _to_item_schema(item):
         "confidence": item.confidence,
         "warnings": item.warnings or [],
     }
+
+@router.post("/sessions/{session_id}/materialize", response_model=IntakeSubmitResponse)
+async def materialize_intake_session(
+    session_id: str,
+    session_token: str = Form(None),
+    user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = intake_service.materialize_intake_session(
+            db=db,
+            session_id=session_id,
+            user=user,
+            session_token=session_token,
+        )
+        db.commit()
+
+        session = result["session"]
+        return IntakeSubmitResponse(
+            intake_session=_to_session_schema(session),
+            bom_id=result["bom_id"],
+            project_id=result["project_id"],
+            analysis_id=result["analysis_id"],
+            workspace_route=result["workspace_route"],
+            analysis_status=result["analysis_status"],
+            report_visibility_level=result["report_visibility_level"],
+            unlock_status=result["unlock_status"],
+            normalized_items=[_to_item_schema(i) for i in session.items],
+            analysis_lifecycle=result["analysis_lifecycle"],
+            preview=result["preview"],
+            strategy=result["strategy"],
+            procurement_plan=result["procurement_plan"],
+            parsed_summary=result["parsed_summary"],
+            warnings=result["warnings"],
+            suggestions=result["suggestions"],
+            purchase_mode=result.get("purchase_mode", "guided_project"),
+            item_count=result.get("item_count", len(session.items)),
+            recommended_flow=result.get("recommended_flow", "guided_project"),
+            should_create_project=result.get("should_create_project", True),
+            quick_actions=result.get("quick_actions", []),
+        )
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

@@ -17,6 +17,10 @@ class IntakeInputType(str, Enum):
     free_text = "free_text"
     file = "file"
 
+class ProcurementMode(str, Enum):
+    auto = "auto"
+    quick_catalog = "quick_catalog"
+    guided_project = "guided_project"
 
 class IntakeIntent(str, Enum):
     auto = "auto"
@@ -35,6 +39,7 @@ class IntakeStatus(str, Enum):
     normalized = "normalized"
     analyzed = "analyzed"
     project_created = "project_created"
+    catalog_ready = "catalog_ready"
     completed = "completed"
     failed = "failed"
 
@@ -123,6 +128,8 @@ class IntakeParseRequest(BaseModel):
     voice_transcript: Optional[str] = None
     source_channel: str = "web"
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    purchase_mode: ProcurementMode = ProcurementMode.auto
+    project_creation_mode: ProcurementMode = ProcurementMode.auto
 
 
 class IntakeSubmitRequest(IntakeParseRequest):
@@ -149,6 +156,11 @@ class IntakeParseResponse(BaseModel):
     confidence_score: float = 0.0
     warnings: List[str] = Field(default_factory=list)
     suggestions: List[str] = Field(default_factory=list)
+    purchase_mode: str = "auto"
+    item_count: int = 0
+    recommended_flow: str = "project"
+    should_create_project: bool = True
+    quick_actions: List[str] = Field(default_factory=list)
 
 
 class IntakeSubmitResponse(BaseModel):
@@ -170,7 +182,11 @@ class IntakeSubmitResponse(BaseModel):
     parsed_summary: Dict[str, Any] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)
     suggestions: List[str] = Field(default_factory=list)
-
+    purchase_mode: str = "auto"
+    item_count: int = 0
+    recommended_flow: str = "project"
+    should_create_project: bool = True
+    quick_actions: List[str] = Field(default_factory=list)
 
 class IntakeSessionListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

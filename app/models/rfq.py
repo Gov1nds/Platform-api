@@ -2,6 +2,7 @@
 import enum
 import uuid
 from datetime import datetime
+
 from sqlalchemy import Column, Text, DateTime, ForeignKey, Numeric, Boolean, String, Integer, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -158,7 +159,9 @@ class RFQBatch(Base):
 
     # Normalized quote lifecycle tables
     quote_headers = relationship("RFQQuoteHeader", back_populates="rfq", cascade="all, delete-orphan")
+    quote_lines = relationship("RFQQuoteLine", back_populates="rfq", cascade="all, delete-orphan")
     comparison_views = relationship("RFQComparisonView", back_populates="rfq", cascade="all, delete-orphan")
+    fulfillment_events = relationship("FulfillmentEvent", back_populates="rfq", cascade="all, delete-orphan")
 
     drawings = relationship(
         "DrawingAsset",
@@ -388,14 +391,13 @@ class RFQQuoteLine(Base):
     normalization_source = Column(Text, nullable=True)
     tier_price_json = Column(JSONB, nullable=False, default=dict)
     tax_duty_assumptions = Column(JSONB, nullable=False, default=dict)
-
     line_payload = Column(JSONB, nullable=False, default=dict)
-    normalization_source = Column(Text, nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     header = relationship("RFQQuoteHeader", back_populates="lines")
-    rfq = relationship("RFQBatch", back_populates="fulfillment_events")
+    rfq = relationship("RFQBatch", back_populates="quote_lines")
     item = relationship("RFQItem")
 
 

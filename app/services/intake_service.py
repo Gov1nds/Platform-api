@@ -151,6 +151,107 @@ QUANTITY_PATTERNS = [
     r"\b(\d+(?:\.\d+)?)\s*[xX]\s*(?!\s*\d)",
 ]
 
+PROJECT_TRIGGER_CATEGORIES = {
+    "custom_mechanical",
+    "machined",
+    "sheet_metal",
+    "electronics",
+}
+
+QUICK_CATALOG_MAX_ITEMS = 2
+
+
+def _infer_purchase_mode(
+    *,
+    input_type: str,
+    intent: str,
+    parsed_items: List[Dict[str, Any]],
+    requested_mode: Optional[str] = None,
+) -> str:
+    mode = _safe_lower(requested_mode)
+    if mode in {"quick_catalog", "guided_project"}:
+        return mode
+
+    if input_type == "bom":
+        return "guided_project"
+
+    if intent in {"rfq", "compare"}:
+        return "guided_project"
+
+    if len(parsed_items) > QUICK_CATALOG_MAX_ITEMS:
+        return "guided_project"
+
+    for item in parsed_items:
+        category = _safe_lower(item.get("category"))
+        specs = item.get("specs") or {}
+        if category in PROJECT_TRIGGER_CATEGORIES:
+            return "guided_project"
+        if specs.get("drawing_required") or specs.get("rfq_required"):
+            return "guided_project"
+
+    return "quick_catalog"
+
+
+def _build_quick_catalog_result(
+    *,
+    db: Session,
+    session: IntakeSession,
+    parsed_items: List[Dict[str, Any]],
+    summary: Dict[str, Any],
+    delivery_location: str,
+    target_currency: str,
+    priority: str,
+) -> Dict[str, Any]:
+    _, strategy, procurement = _build_strategy_and_procurement(
+        db=db,
+        parsed_items=parsed_items,
+        delivery_location=delivery_location,
+        target_currency=target_currency,
+        priority=priority,
+        input_context={"external_pricing": {}},
+    )
+
+    quick_actions = [
+        "Compare suppliers",
+        "Check price and lead time",
+        "Create project later if RFQ or tracking is needed",
+    ]
+
+    preview = {
+        "is_preview": True,
+        "recommended_flow": "quick_catalog",
+        "purchase_mode": "quick_catalog",
+        "should_create_project": False,
+        "item_count": len(parsed_items),
+        "workspace_route": None,
+        "summary": summary,
+        "normalized_items": parsed_items,
+        "quick_actions": quick_actions,
+        "next_step": "Stay in quick procurement or materialize into a project later.",
+    }
+
+    return {
+        "bom_id": None,
+        "project_id": None,
+        "analysis_id": None,
+        "workspace_route": None,
+        "analysis_status": "catalog_ready",
+        "report_visibility_level": "preview",
+        "unlock_status": "locked",
+        "analysis_lifecycle": {
+            "recommended_flow": "quick_catalog",
+            "purchase_mode": "quick_catalog",
+            "should_create_project": False,
+            "item_count": len(parsed_items),
+            "workspace_route": None,
+            "session_token": session.session_token or "",
+        },
+        "preview": preview,
+        "strategy": strategy,
+        "procurement_plan": procurement,
+        "quick_actions": quick_actions,
+    }
+
 SOURCING_FALLBACKS = {
     "buyer_action": "Add quantity, material grade, or drawing for stronger matching.",
     "supplier_action": "Use vendor discovery to rank suppliers by capability and lead time.",
@@ -720,6 +821,11 @@ def serialize_session(session: IntakeSession) -> Dict[str, Any]:
         "bom_id": session.bom_id,
         "analysis_id": session.analysis_id,
         "project_id": session.project_id,
+        "purchase_mode": session.purchase_mode,
+        "project_creation_mode": session.project_creation_mode,
+        "item_count": session.item_count,
+        "recommended_flow": session.recommended_flow,
+        "should_create_project": session.should_create_project,
         "items": [_serialize_item(item) for item in session.items],
         "created_at": session.created_at.isoformat() if session.created_at else None,
         "updated_at": session.updated_at.isoformat() if session.updated_at else None,
@@ -822,6 +928,37 @@ def parse_intake_payload(
         }
     )
 
+    purchase_mode = _infer_purchase_mode(
+        input_type=input_type,
+        intent=intent,
+        parsed_items=parsed_items,
+        requested_mode=getattr(payload, "purchase_mode", None),
+    )
+
+    item_count = len(parsed_items)
+    should_create_project = purchase_mode == "guided_project"
+
+    summary["item_count"] = item_count
+    summary["purchase_mode"] = purchase_mode
+    summary["recommended_flow"] = purchase_mode
+    summary["should_create_project"] = should_create_project
+
+
+    purchase_mode = _infer_purchase_mode(
+    input_type=input_type,
+    intent=intent,
+    parsed_items=parsed_items,
+    requested_mode=getattr(payload, "purchase_mode", None),
+    )
+
+    item_count = len(parsed_items)
+    should_create_project = purchase_mode == "guided_project"
+
+    summary["item_count"] = item_count
+    summary["purchase_mode"] = purchase_mode
+    summary["recommended_flow"] = purchase_mode
+    summary["should_create_project"] = should_create_project
+
     session = _resolve_session_identity(
         db=db,
         namespace="intake.parse",
@@ -848,7 +985,11 @@ def parse_intake_payload(
         audio_file_size=audio_file_size,
         audio_file_path=audio_file_path,
     )
-
+    session.purchase_mode = purchase_mode
+    session.project_creation_mode = getattr(payload, "project_creation_mode", purchase_mode)
+    session.item_count = item_count
+    session.recommended_flow = purchase_mode
+    session.should_create_project = should_create_project
     session.input_type = input_type
     session.intent = intent
     session.raw_input_text = raw_text
@@ -863,6 +1004,10 @@ def parse_intake_payload(
     session.parsed_payload = {
         "input_type": input_type,
         "intent": intent,
+        "purchase_mode": purchase_mode,
+        "item_count": item_count,
+        "recommended_flow": purchase_mode,
+        "should_create_project": should_create_project,
         "parsed_items": parsed_items,
         "parsed_summary": summary,
     }
@@ -964,8 +1109,14 @@ def _build_preview_payload(
         unlock_status="locked",
     )
     preview["workspace_route"] = workspace_route
+    preview.update({
+        "purchase_mode": getattr(session, "purchase_mode", "auto"),
+        "project_creation_mode": getattr(session, "project_creation_mode", "auto"),
+        "item_count": getattr(session, "item_count", 0),
+        "recommended_flow": getattr(session, "recommended_flow", "guest_preview"),
+        "should_create_project": getattr(session, "should_create_project", False),
+    })
     return preview
-
 
 def _build_strategy_and_procurement(
     *,
@@ -1261,6 +1412,11 @@ def create_or_update_intake(
         "file_bytes": file_bytes,
         "file_name": file_name,
         "file_type": file_type,
+        "purchase_mode": session.purchase_mode,
+        "project_creation_mode": session.project_creation_mode,
+        "item_count": session.item_count,
+        "recommended_flow": session.recommended_flow,
+        "should_create_project": session.should_create_project,
     }
 
 
@@ -1301,6 +1457,71 @@ def finalize_intake_submission(
     if not session.session_token:
         session.session_token = payload.session_token or uuid.uuid4().hex
         db.flush()
+
+    purchase_mode = _infer_purchase_mode(
+        input_type=parsed["input_type"],
+        intent=parsed["intent"],
+        parsed_items=parsed["parsed_items"],
+        requested_mode=getattr(payload, "purchase_mode", None),
+    )
+
+    session.purchase_mode = purchase_mode
+    session.project_creation_mode = getattr(payload, "project_creation_mode", purchase_mode)
+    session.item_count = len(parsed["parsed_items"])
+    session.recommended_flow = purchase_mode
+    session.should_create_project = purchase_mode == "guided_project"
+
+    if purchase_mode == "quick_catalog":
+        quick = _build_quick_catalog_result(
+            db=db,
+            session=session,
+            parsed_items=parsed["parsed_items"],
+            summary=parsed["summary"],
+            delivery_location=payload.delivery_location,
+            target_currency=payload.target_currency,
+            priority=payload.priority,
+        )
+
+        session.status = "completed"
+        session.parse_status = "normalized"
+        session.analysis_status = "catalog_ready"
+        session.workflow_status = "catalog_ready"
+        session.analysis_payload = {
+            "recommended_flow": "quick_catalog",
+            "purchase_mode": "quick_catalog",
+            "item_count": session.item_count,
+            "quick_actions": quick["quick_actions"],
+            "strategy": quick["strategy"],
+            "procurement_plan": quick["procurement_plan"],
+        }
+        session.preview_payload = quick["preview"]
+        db.flush()
+
+        return {
+            "session": session,
+            "bom_id": quick["bom_id"],
+            "project_id": quick["project_id"],
+            "analysis_id": quick["analysis_id"],
+            "workspace_route": quick["workspace_route"],
+            "analysis_status": quick["analysis_status"],
+            "report_visibility_level": quick["report_visibility_level"],
+            "unlock_status": quick["unlock_status"],
+            "normalized_items": parsed["parsed_items"],
+            "analysis_lifecycle": quick["analysis_lifecycle"],
+            "preview": quick["preview"],
+            "strategy": quick["strategy"],
+            "procurement_plan": quick["procurement_plan"],
+            "parsed_summary": parsed["summary"],
+            "warnings": session.warnings or [],
+            "suggestions": session.suggestions or [],
+            "purchase_mode": purchase_mode,
+            "project_creation_mode": session.project_creation_mode,
+            "item_count": session.item_count,
+            "recommended_flow": purchase_mode,
+            "should_create_project": False,
+            "quick_actions": quick["quick_actions"],
+        }
+
 
     analysis_payload = _run_analysis_pipeline(
         db=db,
@@ -1347,8 +1568,93 @@ def finalize_intake_submission(
         "parsed_summary": parsed["summary"],
         "warnings": session.warnings or [],
         "suggestions": session.suggestions or [],
+        "purchase_mode": purchase_mode,
+        "project_creation_mode": session.project_creation_mode,
+        "item_count": session.item_count,
+        "recommended_flow": purchase_mode,
+        "should_create_project": session.should_create_project,
+        "quick_actions": [],
     }
 
+
+
+def materialize_intake_session(
+    *,
+    db: Session,
+    session_id: str,
+    user: Optional[User] = None,
+    session_token: Optional[str] = None,
+) -> Dict[str, Any]:
+    session = get_session(db, session_id)
+    if not session:
+        raise ValueError("Intake session not found")
+
+    if session.project_id or session.bom_id or session.analysis_id:
+        raise ValueError("Intake session already materialized")
+
+    if user:
+        if session.user_id and session.user_id != user.id and str(getattr(user, "role", "")).lower() != "admin":
+            raise ValueError("Not authorized")
+        if not session.user_id:
+            session.user_id = user.id
+    elif session.session_token and session_token and session.session_token != session_token:
+        raise ValueError("Not authorized")
+
+    parsed_items = list(session.parsed_payload.get("parsed_items", []) or [])
+    summary = dict(session.parsed_payload.get("parsed_summary", {}) or {})
+    _infer_purchase_mode(
+        input_type=session.input_type,
+        intent=session.intent,
+        parsed_items=parsed_items,
+        requested_mode=session.purchase_mode,
+    )
+
+    session.purchase_mode = "guided_project"
+    session.project_creation_mode = "guided_project"
+    session.item_count = len(parsed_items)
+    session.recommended_flow = "guided_project"
+    session.should_create_project = True
+
+    analysis_payload = _run_analysis_pipeline(
+        db=db,
+        session=session,
+        parsed_items=parsed_items,
+        combined_text=session.normalized_text or session.raw_input_text or "",
+        summary=summary,
+        delivery_location=session.delivery_location or "India",
+        target_currency=session.target_currency or "USD",
+        priority=session.priority or "cost",
+        file_bytes=None,
+        file_name=None,
+        file_type=None,
+    )
+
+    db.flush()
+
+    return {
+        "session": session,
+        "bom_id": analysis_payload["bom"].id,
+        "project_id": analysis_payload["project"].id,
+        "analysis_id": analysis_payload["analysis"].id,
+        "workspace_route": f"/project/{analysis_payload['project'].id}",
+        "analysis_status": analysis_payload["lifecycle"].get("analysis_status", "analyzed"),
+        "report_visibility_level": analysis_payload["lifecycle"].get("report_visibility_level", "preview"),
+        "unlock_status": analysis_payload["lifecycle"].get("unlock_status", "locked"),
+        "normalized_items": parsed_items,
+        "analysis_lifecycle": analysis_payload["lifecycle"],
+        "preview": analysis_payload["preview"],
+        "strategy": analysis_payload["strategy"],
+        "procurement_plan": analysis_payload["procurement"],
+        "parsed_summary": summary,
+        "warnings": session.warnings or [],
+        "suggestions": session.suggestions or [],
+        "purchase_mode": "guided_project",
+        "project_creation_mode": "guided_project",
+        "item_count": len(parsed_items),
+        "recommended_flow": "guided_project",
+        "should_create_project": True,
+        "quick_actions": [],
+    }
 
 def list_sessions(
     db: Session,

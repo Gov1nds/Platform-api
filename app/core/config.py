@@ -71,13 +71,6 @@ class Settings:
         "true" if ENVIRONMENT == "production" else "false",
     )
 
-    # Missing real-world integrations / storage / observability
-    OBJECT_STORAGE_PROVIDER: str = os.getenv("OBJECT_STORAGE_PROVIDER", os.getenv("DRAWING_STORAGE_PROVIDER", "local"))
-    OBJECT_STORAGE_BUCKET: str = os.getenv("OBJECT_STORAGE_BUCKET", os.getenv("DRAWING_S3_BUCKET", ""))
-    OBJECT_STORAGE_REGION: str = os.getenv("OBJECT_STORAGE_REGION", os.getenv("AWS_REGION", "us-east-1"))
-    OBJECT_STORAGE_PREFIX: str = os.getenv("OBJECT_STORAGE_PREFIX", "documents/")
-    OBJECT_STORAGE_PUBLIC_BASE_URL: str = os.getenv("OBJECT_STORAGE_PUBLIC_BASE_URL", "")
-
     INTEGRATION_WEBHOOK_SECRET: str = os.getenv("INTEGRATION_WEBHOOK_SECRET", "")
     VENDOR_WEBHOOK_SECRET: str = os.getenv("VENDOR_WEBHOOK_SECRET", INTEGRATION_WEBHOOK_SECRET)
     CARRIER_WEBHOOK_SECRET: str = os.getenv("CARRIER_WEBHOOK_SECRET", INTEGRATION_WEBHOOK_SECRET)

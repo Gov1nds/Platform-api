@@ -1,4 +1,5 @@
 """Project model — canonical operational record for a BOM journey."""
+from curses import meta
 import enum
 import uuid
 from datetime import datetime
@@ -133,6 +134,43 @@ class Project(Base):
     user = relationship("User", back_populates="projects")
     participants = relationship("ProjectParticipant", back_populates="project", cascade="all, delete-orphan")
     events = relationship("ProjectEvent", back_populates="project", cascade="all, delete-orphan")
+    fulfillment_events = relationship("FulfillmentEvent", back_populates="project", cascade="all, delete-orphan")
+
+    def _metadata_dict(self) -> dict:
+     meta = self.project_metadata or {}
+     return meta if isinstance(meta, dict) else {}
+
+    @property
+    def current_rfq_batch_id(self):
+        return self.current_rfq_id
+
+    @current_rfq_batch_id.setter
+    def current_rfq_batch_id(self, value):
+        self.current_rfq_id = value
+
+    @property
+    def current_vendor_id(self):
+        meta = self._metadata_dict()
+        return (
+            meta.get("current_vendor_id")
+            or meta.get("selected_vendor_id")
+            or (str(self.current_vendor_match_id) if self.current_vendor_match_id else None)
+        )
+
+    @current_vendor_id.setter
+    def current_vendor_id(self, value):
+        if not self.project_metadata:
+            self.project_metadata = {}
+        self.project_metadata["current_vendor_id"] = value
+        self.project_metadata["selected_vendor_id"] = value
+
+    @property
+    def selected_vendor_id(self):
+        return self.current_vendor_id
+
+    @selected_vendor_id.setter
+    def selected_vendor_id(self, value):
+        self.current_vendor_id = value
 
 
 class ProjectEvent(Base):
