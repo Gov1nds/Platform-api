@@ -105,8 +105,14 @@ class PurchaseOrder(Base):
     project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=False)
     rfq_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_batches.id", ondelete="CASCADE"), nullable=False)
     vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="SET NULL"), nullable=True)
+    vendor_contact_id = Column(UUID(as_uuid=False), ForeignKey("integrations.vendor_contacts.id", ondelete="SET NULL"), nullable=True)
+    source_quote_header_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_quote_headers.id", ondelete="SET NULL"), nullable=True)
 
     po_number = Column(Text, nullable=False, unique=True)
+    incoterms = Column(Text, nullable=True)
+    freight_terms = Column(Text, nullable=True)
+    payment_terms = Column(Text, nullable=True)
+    purchase_terms_json = Column(JSONB, nullable=False, default=dict)
     status = Column(Text, nullable=False, default=FulfillmentState.po_issued.value)
     vendor_confirmation_status = Column(Text, nullable=False, default="pending")
     vendor_confirmation_number = Column(Text, nullable=True)
@@ -152,6 +158,9 @@ class Shipment(Base):
     carrier_name = Column(Text, nullable=True)
     carrier_code = Column(Text, nullable=True)
     tracking_number = Column(Text, nullable=True)
+    tracking_number_source = Column(Text, nullable=True)
+    tracking_reference = Column(Text, nullable=True)
+    tracking_payload_json = Column(JSONB, nullable=False, default=dict)
     status = Column(Text, nullable=False, default=FulfillmentState.shipped.value)
 
     shipped_at = Column(DateTime(timezone=True), nullable=True)
@@ -260,6 +269,11 @@ class GoodsReceipt(Base):
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
     confirmed_by_user_id = Column(UUID(as_uuid=False), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
     notes = Column(Text, nullable=True)
+    reconciliation_status = Column(Text, nullable=False, default="unreconciled")
+    matched_invoice_id = Column(UUID(as_uuid=False), ForeignKey("ops.invoices.id", ondelete="SET NULL"), nullable=True)
+    reconciled_at = Column(DateTime(timezone=True), nullable=True)
+    reconciliation_notes = Column(Text, nullable=True)
+    variance_amount = Column(Numeric(18, 6), nullable=True)
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
@@ -267,6 +281,7 @@ class GoodsReceipt(Base):
 
     purchase_order = relationship("PurchaseOrder", back_populates="goods_receipts")
     shipment = relationship("Shipment", back_populates="receipts")
+    invoice = relationship("Invoice")
 
 
 class Invoice(Base):
@@ -291,6 +306,8 @@ class Invoice(Base):
     taxes = Column(Numeric(18, 6), nullable=True)
     total_amount = Column(Numeric(18, 6), nullable=True)
     matched_at = Column(DateTime(timezone=True), nullable=True)
+    payment_provider = Column(Text, nullable=True)
+    payment_provider_reference = Column(Text, nullable=True)
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)

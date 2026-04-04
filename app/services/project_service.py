@@ -20,6 +20,7 @@ from app.models.rfq import RFQBatch as RFQ, RFQStatus
 from app.models.tracking import ProductionTracking, TrackingStage
 from app.models.report_snapshot import ReportSnapshot
 from app.models.strategy_run import StrategyRun
+from app.models.project_access import ProjectParticipant, ProjectParticipantStatus
 
 logger = logging.getLogger("project_service")
 
@@ -412,7 +413,7 @@ def upsert_project_from_analysis(
         "currency": strategy.get("currency") or procurement.get("currency") or "USD",
         "workflow_stage": project.workflow_stage,
         "visibility_level": project.visibility_level,
-        "workspace_route": project.workspace_route or lifecycle.get("workspace_route"),
+        "workspace_route": project.workspace_route or (f"/project/{project.id}" if project.id else None),
         "next_action": project_stage_action(project.workflow_stage),
         "strategy_contract_version": strategy.get("strategy_contract_version", "2.0"),
         "strategy_explanation": strategy.get("strategy_explanation", {}),
@@ -601,12 +602,40 @@ def sync_project_completion(db: Session, rfq: RFQ) -> Optional[Project]:
 
 
 def list_projects_for_user(db: Session, user_id: str) -> List[Project]:
-    return (
+    # Owner projects
+    owned = (
         db.query(Project)
         .filter(Project.user_id == user_id)
-        .order_by(Project.created_at.desc())
         .all()
     )
+    owned_ids = {str(p.id) for p in owned}
+
+    # Projects where user is an active participant (collaborator, approver, etc.)
+    participant_project_ids = (
+        db.query(ProjectParticipant.project_id)
+        .filter(
+            ProjectParticipant.user_id == user_id,
+            ProjectParticipant.status.in_([
+                ProjectParticipantStatus.active.value,
+                ProjectParticipantStatus.invited.value,
+                ProjectParticipantStatus.pending.value,
+            ]),
+        )
+        .all()
+    )
+    extra_ids = [str(pid) for (pid,) in participant_project_ids if str(pid) not in owned_ids]
+
+    if extra_ids:
+        shared = (
+            db.query(Project)
+            .filter(Project.id.in_(extra_ids))
+            .all()
+        )
+        owned.extend(shared)
+
+    # Sort combined list by created_at descending
+    owned.sort(key=lambda p: p.created_at or datetime.min, reverse=True)
+    return owned
 
 
 def serialize_summary(project: Project) -> Dict[str, Any]:

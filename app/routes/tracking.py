@@ -216,13 +216,19 @@ def create_purchase_order(
             rfq_id=rfq_id,
             user=user,
             vendor_id=body.vendor_id,
+            vendor_contact_id=body.vendor_contact_id,
+            source_quote_header_id=body.source_quote_header_id,
             po_number=body.po_number,
             currency=body.currency,
+            incoterms=body.incoterms,
+            freight_terms=body.freight_terms,
+            payment_terms=body.payment_terms,
             subtotal=body.subtotal,
             freight=body.freight,
             taxes=body.taxes,
             total_amount=body.total_amount,
             notes=body.notes,
+            purchase_terms_json=body.purchase_terms_json,
             metadata=body.metadata,
         )
         response = tracking_service._serialize_po(po)  # internal serialization used by context
@@ -345,6 +351,8 @@ def create_shipment(
             carrier_name=body.carrier_name,
             carrier_code=body.carrier_code,
             tracking_number=body.tracking_number,
+            tracking_number_source=body.tracking_number_source,
+            tracking_reference=body.tracking_reference,
             status=body.status,
             eta=body.eta,
             origin=body.origin,
@@ -721,6 +729,8 @@ def create_invoice(
             taxes=body.taxes,
             total_amount=body.total_amount,
             matched_at=body.matched_at,
+            payment_provider=body.payment_provider,
+            payment_provider_reference=body.payment_provider_reference,
             metadata=body.metadata,
         )
         response = tracking_service._serialize_invoice(invoice)

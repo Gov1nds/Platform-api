@@ -1,0 +1,332 @@
+"""
+Migration 011: missing integrations, lineage, and operational data objects.
+
+Run:
+  python migrations/m011_missing_integrations.py
+"""
+from __future__ import annotations
+
+import os
+import sys
+from sqlalchemy import text
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.core.database import engine
+
+
+DDL = [
+    'CREATE EXTENSION IF NOT EXISTS pgcrypto',
+    'CREATE SCHEMA IF NOT EXISTS "integrations"',
+    # BOM lineage columns
+    '''ALTER TABLE bom.boms
+        ADD COLUMN IF NOT EXISTS parent_bom_id uuid REFERENCES bom.boms(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS revision_no integer NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS revision_label text,
+        ADD COLUMN IF NOT EXISTS revision_state text NOT NULL DEFAULT 'current',
+        ADD COLUMN IF NOT EXISTS revision_notes text,
+        ADD COLUMN IF NOT EXISTS source_drawing_asset_id uuid,
+        ADD COLUMN IF NOT EXISTS source_document_asset_id uuid''',
+    # RFQ quote headers / lines
+    '''ALTER TABLE sourcing.rfq_quotes
+        ADD COLUMN IF NOT EXISTS incoterms text,
+        ADD COLUMN IF NOT EXISTS freight_terms text,
+        ADD COLUMN IF NOT EXISTS quote_version integer NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS acceptance_status text NOT NULL DEFAULT 'pending',
+        ADD COLUMN IF NOT EXISTS accepted_at timestamptz,
+        ADD COLUMN IF NOT EXISTS line_normalization_source text,
+        ADD COLUMN IF NOT EXISTS tax_duty_assumptions jsonb NOT NULL DEFAULT '{}'::jsonb''',
+    '''ALTER TABLE sourcing.rfq_quote_headers
+        ADD COLUMN IF NOT EXISTS incoterms text,
+        ADD COLUMN IF NOT EXISTS freight_terms text,
+        ADD COLUMN IF NOT EXISTS quote_version integer NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS acceptance_status text NOT NULL DEFAULT 'pending',
+        ADD COLUMN IF NOT EXISTS accepted_at timestamptz,
+        ADD COLUMN IF NOT EXISTS line_normalization_source text,
+        ADD COLUMN IF NOT EXISTS tax_duty_assumptions jsonb NOT NULL DEFAULT '{}'::jsonb''',
+    '''ALTER TABLE sourcing.rfq_quote_lines
+        ADD COLUMN IF NOT EXISTS line_currency varchar(3) NOT NULL DEFAULT 'USD',
+        ADD COLUMN IF NOT EXISTS quote_version integer NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS normalization_source text,
+        ADD COLUMN IF NOT EXISTS tier_price_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+        ADD COLUMN IF NOT EXISTS tax_duty_assumptions jsonb NOT NULL DEFAULT '{}'::jsonb''',
+    # Fulfillment lineage columns
+    '''ALTER TABLE ops.purchase_orders
+        ADD COLUMN IF NOT EXISTS vendor_contact_id uuid REFERENCES integrations.vendor_contacts(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS source_quote_header_id uuid REFERENCES sourcing.rfq_quote_headers(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS incoterms text,
+        ADD COLUMN IF NOT EXISTS freight_terms text,
+        ADD COLUMN IF NOT EXISTS payment_terms text,
+        ADD COLUMN IF NOT EXISTS purchase_terms_json jsonb NOT NULL DEFAULT '{}'::jsonb''',
+    '''ALTER TABLE ops.shipments
+        ADD COLUMN IF NOT EXISTS tracking_number_source text,
+        ADD COLUMN IF NOT EXISTS tracking_reference text,
+        ADD COLUMN IF NOT EXISTS tracking_payload_json jsonb NOT NULL DEFAULT '{}'::jsonb''',
+    '''ALTER TABLE ops.goods_receipts
+        ADD COLUMN IF NOT EXISTS reconciliation_status text NOT NULL DEFAULT 'unreconciled',
+        ADD COLUMN IF NOT EXISTS matched_invoice_id uuid REFERENCES ops.invoices(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS reconciled_at timestamptz,
+        ADD COLUMN IF NOT EXISTS reconciliation_notes text,
+        ADD COLUMN IF NOT EXISTS variance_amount numeric(18,6)''',
+    '''ALTER TABLE ops.invoices
+        ADD COLUMN IF NOT EXISTS payment_provider text,
+        ADD COLUMN IF NOT EXISTS payment_provider_reference text''',
+    # Integration tables
+    '''CREATE TABLE IF NOT EXISTS integrations.vendor_contacts (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        vendor_id uuid NOT NULL REFERENCES pricing.vendors(id) ON DELETE CASCADE,
+        full_name text NOT NULL,
+        job_title text,
+        email text,
+        phone text,
+        department text,
+        channels_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+        is_primary boolean NOT NULL DEFAULT false,
+        is_active boolean NOT NULL DEFAULT true,
+        notes text,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_vendor_contacts_vendor ON integrations.vendor_contacts (vendor_id)',
+    'CREATE INDEX IF NOT EXISTS ix_vendor_contacts_email ON integrations.vendor_contacts (email)',
+    '''CREATE TABLE IF NOT EXISTS integrations.vendor_operational_profiles (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        vendor_id uuid NOT NULL UNIQUE REFERENCES pricing.vendors(id) ON DELETE CASCADE,
+        default_currency text NOT NULL DEFAULT 'USD',
+        default_incoterms text,
+        freight_terms text,
+        payment_terms text,
+        default_quote_valid_days integer,
+        sample_orders_supported boolean NOT NULL DEFAULT false,
+        quality_rating numeric(6,3),
+        logistics_capability numeric(6,3),
+        capacity_notes text,
+        default_region text,
+        regions_served jsonb NOT NULL DEFAULT '[]'::jsonb,
+        moq_by_process jsonb NOT NULL DEFAULT '{}'::jsonb,
+        moq_by_part jsonb NOT NULL DEFAULT '{}'::jsonb,
+        lead_time_by_process jsonb NOT NULL DEFAULT '{}'::jsonb,
+        quote_validity_policy jsonb NOT NULL DEFAULT '{}'::jsonb,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_vendor_operational_profiles_region ON integrations.vendor_operational_profiles (default_region)',
+    '''CREATE TABLE IF NOT EXISTS integrations.vendor_compliance_refreshes (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        vendor_id uuid NOT NULL REFERENCES pricing.vendors(id) ON DELETE CASCADE,
+        certification_name text NOT NULL,
+        certification_id text,
+        issued_by text,
+        issued_at timestamptz,
+        expires_at timestamptz,
+        status text NOT NULL DEFAULT 'active',
+        source_url text,
+        source_snapshot_id uuid,
+        payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+        observed_at timestamptz NOT NULL DEFAULT now(),
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_vendor_compliance_refresh_vendor ON integrations.vendor_compliance_refreshes (vendor_id)',
+    'CREATE INDEX IF NOT EXISTS ix_vendor_compliance_refresh_status ON integrations.vendor_compliance_refreshes (status)',
+    '''CREATE TABLE IF NOT EXISTS integrations.external_feed_snapshots (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        feed_type text NOT NULL,
+        source_name text NOT NULL,
+        vendor_id uuid REFERENCES pricing.vendors(id) ON DELETE SET NULL,
+        external_id text,
+        external_part_number text,
+        canonical_part_key text,
+        part_name text,
+        description text,
+        source_currency text NOT NULL DEFAULT 'USD',
+        unit_price numeric(18,6),
+        moq numeric(18,6),
+        lead_time_days numeric(12,2),
+        incoterms text,
+        freight_terms text,
+        tax_region text,
+        duty_region text,
+        quote_valid_until timestamptz,
+        availability_status text,
+        compliance_status text,
+        region text,
+        country text,
+        source_url text,
+        source_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+        normalized_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+        observed_at timestamptz NOT NULL DEFAULT now(),
+        expires_at timestamptz,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_external_feed_snapshots_vendor ON integrations.external_feed_snapshots (vendor_id)',
+    'CREATE INDEX IF NOT EXISTS ix_external_feed_snapshots_feed_type ON integrations.external_feed_snapshots (feed_type)',
+    '''CREATE TABLE IF NOT EXISTS integrations.document_assets (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        source_type text NOT NULL,
+        source_id text NOT NULL,
+        project_id uuid REFERENCES projects.projects(id) ON DELETE SET NULL,
+        bom_id uuid REFERENCES bom.boms(id) ON DELETE SET NULL,
+        rfq_batch_id uuid REFERENCES sourcing.rfq_batches(id) ON DELETE SET NULL,
+        vendor_id uuid REFERENCES pricing.vendors(id) ON DELETE SET NULL,
+        purchase_order_id uuid REFERENCES ops.purchase_orders(id) ON DELETE SET NULL,
+        shipment_id uuid REFERENCES ops.shipments(id) ON DELETE SET NULL,
+        invoice_id uuid REFERENCES ops.invoices(id) ON DELETE SET NULL,
+        storage_provider text NOT NULL DEFAULT 'local',
+        storage_key text NOT NULL,
+        public_url text,
+        file_name text NOT NULL,
+        mime_type text,
+        file_size_bytes integer,
+        sha256 text,
+        version_no integer NOT NULL DEFAULT 1,
+        revision_label text,
+        is_current boolean NOT NULL DEFAULT true,
+        asset_status text NOT NULL DEFAULT 'stored',
+        asset_kind text NOT NULL DEFAULT 'generic',
+        uploaded_by_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_document_assets_source ON integrations.document_assets (source_type, source_id)',
+    'CREATE INDEX IF NOT EXISTS ix_document_assets_project ON integrations.document_assets (project_id)',
+    'CREATE INDEX IF NOT EXISTS ix_document_assets_bom ON integrations.document_assets (bom_id)',
+    'CREATE INDEX IF NOT EXISTS ix_document_assets_rfq ON integrations.document_assets (rfq_batch_id)',
+    'CREATE INDEX IF NOT EXISTS ix_document_assets_vendor ON integrations.document_assets (vendor_id)',
+    '''CREATE TABLE IF NOT EXISTS integrations.bom_revision_links (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        parent_bom_id uuid NOT NULL REFERENCES bom.boms(id) ON DELETE CASCADE,
+        child_bom_id uuid NOT NULL REFERENCES bom.boms(id) ON DELETE CASCADE,
+        source_drawing_asset_id uuid REFERENCES integrations.document_assets(id) ON DELETE SET NULL,
+        source_document_asset_id uuid REFERENCES integrations.document_assets(id) ON DELETE SET NULL,
+        revision_no integer NOT NULL DEFAULT 1,
+        revision_label text,
+        change_summary text,
+        approval_status text NOT NULL DEFAULT 'pending',
+        approved_by_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+        approved_at timestamptz,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_bom_revision_links_parent ON integrations.bom_revision_links (parent_bom_id)',
+    'CREATE INDEX IF NOT EXISTS ix_bom_revision_links_child ON integrations.bom_revision_links (child_bom_id)',
+    '''CREATE TABLE IF NOT EXISTS integrations.alternate_part_approvals (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        bom_id uuid NOT NULL REFERENCES bom.boms(id) ON DELETE CASCADE,
+        bom_part_id uuid NOT NULL REFERENCES bom.bom_parts(id) ON DELETE CASCADE,
+        alternate_part_key text,
+        alternate_mpn text,
+        alternate_manufacturer text,
+        approval_status text NOT NULL DEFAULT 'pending',
+        approval_reason text,
+        approved_by_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+        approved_at timestamptz,
+        effective_at timestamptz,
+        expires_at timestamptz,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_alternate_part_approvals_bom_part ON integrations.alternate_part_approvals (bom_part_id)',
+    'CREATE INDEX IF NOT EXISTS ix_alternate_part_approvals_status ON integrations.alternate_part_approvals (approval_status)',
+    '''CREATE TABLE IF NOT EXISTS integrations.tracking_number_history (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        shipment_id uuid NOT NULL REFERENCES ops.shipments(id) ON DELETE CASCADE,
+        purchase_order_id uuid REFERENCES ops.purchase_orders(id) ON DELETE SET NULL,
+        carrier_name text,
+        carrier_code text,
+        tracking_number text NOT NULL,
+        tracking_number_source text,
+        status text NOT NULL DEFAULT 'active',
+        effective_from timestamptz NOT NULL DEFAULT now(),
+        effective_to timestamptz,
+        payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_tracking_number_history_shipment ON integrations.tracking_number_history (shipment_id)',
+    'CREATE INDEX IF NOT EXISTS ix_tracking_number_history_number ON integrations.tracking_number_history (tracking_number)',
+    '''CREATE TABLE IF NOT EXISTS integrations.goods_receipt_reconciliations (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        purchase_order_id uuid NOT NULL REFERENCES ops.purchase_orders(id) ON DELETE CASCADE,
+        shipment_id uuid REFERENCES ops.shipments(id) ON DELETE SET NULL,
+        goods_receipt_id uuid NOT NULL REFERENCES ops.goods_receipts(id) ON DELETE CASCADE,
+        invoice_id uuid REFERENCES ops.invoices(id) ON DELETE SET NULL,
+        reconciliation_status text NOT NULL DEFAULT 'pending',
+        matched_quantity numeric(18,6),
+        matched_amount numeric(18,6),
+        variance_amount numeric(18,6),
+        matched_at timestamptz,
+        resolved_by_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+        notes text,
+        payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_goods_receipt_recon_po ON integrations.goods_receipt_reconciliations (purchase_order_id)',
+    'CREATE INDEX IF NOT EXISTS ix_goods_receipt_recon_receipt ON integrations.goods_receipt_reconciliations (goods_receipt_id)',
+    '''CREATE TABLE IF NOT EXISTS integrations.email_ingest_messages (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        message_id text NOT NULL,
+        thread_token text,
+        from_email text,
+        to_email text,
+        subject text,
+        body_text text,
+        raw_headers_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+        attachment_count integer NOT NULL DEFAULT 0,
+        parsed_status text NOT NULL DEFAULT 'received',
+        parse_summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+        rfq_batch_id uuid REFERENCES sourcing.rfq_batches(id) ON DELETE SET NULL,
+        project_id uuid REFERENCES projects.projects(id) ON DELETE SET NULL,
+        vendor_id uuid REFERENCES pricing.vendors(id) ON DELETE SET NULL,
+        payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+        received_at timestamptz NOT NULL DEFAULT now(),
+        processed_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_email_ingest_messages_message_id ON integrations.email_ingest_messages (message_id)',
+    'CREATE INDEX IF NOT EXISTS ix_email_ingest_messages_rfq ON integrations.email_ingest_messages (rfq_batch_id)',
+    'CREATE INDEX IF NOT EXISTS ix_email_ingest_messages_project ON integrations.email_ingest_messages (project_id)',
+    '''CREATE TABLE IF NOT EXISTS integrations.integration_events (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        event_type text NOT NULL,
+        source_system text NOT NULL,
+        target_system text,
+        status text NOT NULL DEFAULT 'received',
+        severity text NOT NULL DEFAULT 'info',
+        correlation_id text,
+        external_reference text,
+        request_method text,
+        request_path text,
+        payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+        error_text text,
+        occurred_at timestamptz NOT NULL DEFAULT now(),
+        resolved_at timestamptz,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )''',
+    'CREATE INDEX IF NOT EXISTS ix_integration_events_event_type ON integrations.integration_events (event_type)',
+    'CREATE INDEX IF NOT EXISTS ix_integration_events_source ON integrations.integration_events (source_system)',
+    'CREATE INDEX IF NOT EXISTS ix_integration_events_status ON integrations.integration_events (status)',
+]
+
+
+def run():
+    with engine.begin() as conn:
+        for stmt in DDL:
+            conn.execute(text(stmt))
+
+    print("Migration 011 complete.")
+
+
+if __name__ == "__main__":
+    run()

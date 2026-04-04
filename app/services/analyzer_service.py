@@ -112,67 +112,6 @@ async def call_analyzer(
     return _normalize_response(result)
 
 
-def call_analyzer_sync(
-    file_bytes: bytes,
-    filename: str,
-    user_location: str = "",
-    target_currency: str = "USD",
-) -> Dict[str, Any]:
-    """
-    Synchronous convenience wrapper used by the intake pipeline.
-    Keeps the actual HTTP contract identical to call_analyzer().
-    """
-
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(
-            call_analyzer(
-                file_bytes=file_bytes,
-                filename=filename,
-                user_location=user_location,
-                target_currency=target_currency,
-            )
-        )
-
-    if loop.is_running():
-        # Avoid nested loop failures in worker contexts.
-        import threading
-
-        result: Dict[str, Any] = {}
-        error: list[BaseException] = []
-
-        def _runner():
-            try:
-                result["value"] = asyncio.run(
-                    call_analyzer(
-                        file_bytes=file_bytes,
-                        filename=filename,
-                        user_location=user_location,
-                        target_currency=target_currency,
-                    )
-                )
-            except BaseException as exc:  # pragma: no cover - defensive
-                error.append(exc)
-
-        thread = threading.Thread(target=_runner, daemon=True)
-        thread.start()
-        thread.join()
-        if error:
-            raise error[0]
-        return result["value"]
-
-    return loop.run_until_complete(
-        call_analyzer(
-            file_bytes=file_bytes,
-            filename=filename,
-            user_location=user_location,
-            target_currency=target_currency,
-        )
-    )
-
-
-
 
 
 def call_analyzer_sync(
@@ -316,6 +255,16 @@ async def health_check() -> Dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{ENGINE_URL}/health")
+            return {"status": "ok", "analyzer": r.json()}
+    except Exception as e:
+        return {"status": "degraded", "error": str(e)}
+
+
+def health_check_sync() -> Dict[str, Any]:
+    """Synchronous health check for startup validation."""
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            r = client.get(f"{ENGINE_URL}/health")
             return {"status": "ok", "analyzer": r.json()}
     except Exception as e:
         return {"status": "degraded", "error": str(e)}

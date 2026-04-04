@@ -5,7 +5,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
@@ -45,6 +45,9 @@ class ProjectParticipant(Base):
         Index("ix_project_participants_type", "participant_type"),
         Index("ix_project_participants_status", "status"),
         Index("ix_project_participants_approval", "approval_request_id"),
+        UniqueConstraint("project_id", "user_id", name="uq_project_participant_user"),
+        UniqueConstraint("project_id", "vendor_id", name="uq_project_participant_vendor"),
+        UniqueConstraint("project_id", "invited_email", name="uq_project_participant_email"),
         {"schema": "projects"},
     )
 

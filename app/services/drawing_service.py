@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.models.drawing import DrawingAsset
 from app.models.rfq import RFQBatch
 from app.core.config import settings
+from app.services.integration_service import register_document_asset
 
 logger = logging.getLogger("drawing_service")
 
@@ -37,7 +38,7 @@ MIME_MAP = {
     "iges": "model/iges", "igs": "model/iges",
 }
 
-STORAGE_PROVIDER = os.getenv("DRAWING_STORAGE_PROVIDER", "local")
+STORAGE_PROVIDER = os.getenv("DRAWING_STORAGE_PROVIDER", settings.OBJECT_STORAGE_PROVIDER if settings.is_production else "local")
 S3_BUCKET = os.getenv("DRAWING_S3_BUCKET", "")
 S3_REGION = os.getenv("AWS_REGION", "us-east-1")
 S3_PREFIX = os.getenv("DRAWING_S3_PREFIX", "drawings/")
@@ -158,10 +159,14 @@ def save_drawing(db, rfq_id, user_id, file_bytes, original_filename,
             storage_path = _save_to_s3(file_bytes, s3_key)
             provider = "s3"
         except Exception as e:
+            if settings.is_production:
+                raise
             logger.warning(f"S3 save failed ({e}), falling back to local")
             storage_path = _save_to_local(file_bytes, rfq_id, safe_name)
             provider = "local"
     else:
+        if settings.is_production:
+            raise RuntimeError("Production requires DRAWING_STORAGE_PROVIDER=s3 and DRAWING_S3_BUCKET configured.")
         storage_path = _save_to_local(file_bytes, rfq_id, safe_name)
         provider = "local"
 
@@ -184,6 +189,27 @@ def save_drawing(db, rfq_id, user_id, file_bytes, original_filename,
     db.add(drawing)
     db.flush()
     db.refresh(drawing)
+    try:
+        register_document_asset(
+            db,
+            source_type="drawing",
+            source_id=str(drawing.id),
+            storage_provider=provider,
+            storage_key=storage_path,
+            file_name=original_filename[:500],
+            mime_type=mime,
+            file_size_bytes=len(file_bytes),
+            sha256=file_hash,
+            project_id=str(drawing.project_id) if drawing.project_id else None,
+            bom_id=str(drawing.bom_id) if drawing.bom_id else None,
+            rfq_batch_id=str(drawing.rfq_batch_id) if drawing.rfq_batch_id else None,
+            uploaded_by_user_id=str(user_id) if user_id else None,
+            asset_kind="drawing",
+            public_url=storage_path if provider == "local" else f"s3://{S3_BUCKET}/{storage_path}",
+            metadata={"part_name": part_name, "part_notes": part_notes, "is_primary": False},
+        )
+    except Exception as exc:
+        logger.warning(f"Document asset registration failed: {exc}")
     return drawing
 
 

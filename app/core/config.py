@@ -53,6 +53,39 @@ class Settings:
     )
     INTERNAL_API_KEY: str = os.getenv("INTERNAL_API_KEY", "")
 
+    OBJECT_STORAGE_PROVIDER: str = os.getenv(
+        "OBJECT_STORAGE_PROVIDER",
+        os.getenv("DRAWING_STORAGE_PROVIDER", "s3" if ENVIRONMENT == "production" else "local"),
+    ).strip().lower()
+    OBJECT_STORAGE_BUCKET: str = os.getenv("OBJECT_STORAGE_BUCKET", os.getenv("DRAWING_S3_BUCKET", ""))
+    OBJECT_STORAGE_REGION: str = os.getenv("OBJECT_STORAGE_REGION", os.getenv("AWS_REGION", "us-east-1"))
+    OBJECT_STORAGE_PREFIX: str = os.getenv("OBJECT_STORAGE_PREFIX", "documents/")
+    OBJECT_STORAGE_PUBLIC_BASE_URL: str = os.getenv("OBJECT_STORAGE_PUBLIC_BASE_URL", "")
+
+    REQUIRE_OBJECT_STORAGE_IN_PRODUCTION: bool = _env_bool(
+        "REQUIRE_OBJECT_STORAGE_IN_PRODUCTION",
+        "true" if ENVIRONMENT == "production" else "false",
+    )
+    ANALYZER_READINESS_REQUIRED: bool = _env_bool(
+        "ANALYZER_READINESS_REQUIRED",
+        "true" if ENVIRONMENT == "production" else "false",
+    )
+
+    # Missing real-world integrations / storage / observability
+    OBJECT_STORAGE_PROVIDER: str = os.getenv("OBJECT_STORAGE_PROVIDER", os.getenv("DRAWING_STORAGE_PROVIDER", "local"))
+    OBJECT_STORAGE_BUCKET: str = os.getenv("OBJECT_STORAGE_BUCKET", os.getenv("DRAWING_S3_BUCKET", ""))
+    OBJECT_STORAGE_REGION: str = os.getenv("OBJECT_STORAGE_REGION", os.getenv("AWS_REGION", "us-east-1"))
+    OBJECT_STORAGE_PREFIX: str = os.getenv("OBJECT_STORAGE_PREFIX", "documents/")
+    OBJECT_STORAGE_PUBLIC_BASE_URL: str = os.getenv("OBJECT_STORAGE_PUBLIC_BASE_URL", "")
+
+    INTEGRATION_WEBHOOK_SECRET: str = os.getenv("INTEGRATION_WEBHOOK_SECRET", "")
+    VENDOR_WEBHOOK_SECRET: str = os.getenv("VENDOR_WEBHOOK_SECRET", INTEGRATION_WEBHOOK_SECRET)
+    CARRIER_WEBHOOK_SECRET: str = os.getenv("CARRIER_WEBHOOK_SECRET", INTEGRATION_WEBHOOK_SECRET)
+    ERP_SYNC_SECRET: str = os.getenv("ERP_SYNC_SECRET", INTEGRATION_WEBHOOK_SECRET)
+    EMAIL_INGEST_SECRET: str = os.getenv("EMAIL_INGEST_SECRET", INTEGRATION_WEBHOOK_SECRET)
+
+    ENABLE_INTEGRATION_OBSERVABILITY: bool = _env_bool("ENABLE_INTEGRATION_OBSERVABILITY", "true")
+
     ENABLE_RUNTIME_BOOTSTRAP: bool = _env_bool(
         "ENABLE_RUNTIME_BOOTSTRAP",
         "true" if ENVIRONMENT != "production" else "false",

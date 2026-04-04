@@ -8,3 +8,4 @@ from . import projects
 from . import drawings
 from . import review
 from . import vendors
+from . import integrations

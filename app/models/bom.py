@@ -13,6 +13,7 @@ class BOM(Base):
         Index("ix_boms_user_id", "uploaded_by_user_id"),
         Index("ix_boms_guest_session", "guest_session_id"),
         Index("ix_boms_project_id", "project_id"),
+        Index("ix_boms_parent_bom", "parent_bom_id"),
         Index("ix_boms_analysis_status", "analysis_status"),
         Index("ix_boms_visibility_level", "report_visibility_level"),
         Index("ix_boms_checksum", "source_checksum"),
@@ -23,6 +24,13 @@ class BOM(Base):
     uploaded_by_user_id = Column(UUID(as_uuid=False), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
     guest_session_id = Column(UUID(as_uuid=False), ForeignKey("auth.guest_sessions.id", ondelete="SET NULL"), nullable=True)
     project_id = Column(UUID(as_uuid=False), nullable=True)  # FK added by ALTER in bootstrap
+    parent_bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="SET NULL"), nullable=True)
+    revision_no = Column(Integer, nullable=False, default=1)
+    revision_label = Column(Text, nullable=True)
+    revision_state = Column(Text, nullable=False, default="current")
+    revision_notes = Column(Text, nullable=True)
+    source_drawing_asset_id = Column(UUID(as_uuid=False), nullable=True)
+    source_document_asset_id = Column(UUID(as_uuid=False), nullable=True)
     source_file_name = Column(Text, nullable=False, default="upload.csv")
     source_file_type = Column(Text, nullable=False, default="csv")
     source_checksum = Column(Text, nullable=True)

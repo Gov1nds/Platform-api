@@ -75,9 +75,12 @@ def check_db_connection():
         raise RuntimeError(f"Database connection failed: {e}")
 
 
-def init_db(create_schemas: bool | None = None):
+def init_db(bootstrap: bool = False):
     """
-    Import all models so SQLAlchemy registers them, then ensure schemas/tables exist.
+    Import all models so SQLAlchemy registers them.
+
+    If bootstrap=False, no schema mutation is performed. This keeps Railway
+    startup deterministic and pushes migrations into explicit release jobs.
     """
     import app.models.user
     import app.models.project
@@ -99,24 +102,30 @@ def init_db(create_schemas: bool | None = None):
     import app.models.workflow_command
     import app.models.intake
     import app.models.project_access
+    import app.models.integration_assets
     
     if settings.is_postgres:
-        should_create_schemas = settings.ENABLE_RUNTIME_SCHEMA_BOOTSTRAP if create_schemas is None else create_schemas
+        should_create_schemas = bootstrap
         if should_create_schemas:
             schemas = (
                 "auth", "bom", "projects", "pricing",
                 "sourcing", "ops", "geo", "catalog",
-                "collaboration", "analytics"
+                "collaboration", "analytics", "integrations"
             )
             with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
                 for schema in schemas:
                     conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
 
-    allow_raw = os.getenv("ALLOW_CREATE_ALL")
-    if allow_raw is None:
-        allow_create = not settings.is_production
+    # Schema mutation via create_all is NEVER allowed in production.
+    # In non-production, it defaults to True unless explicitly disabled.
+    if settings.is_production:
+        allow_create = False
     else:
-        allow_create = allow_raw.lower() in ("true", "1", "yes")
+        allow_raw = os.getenv("ALLOW_CREATE_ALL")
+        if allow_raw is None:
+            allow_create = True
+        else:
+            allow_create = allow_raw.lower() in ("true", "1", "yes")
 
     if allow_create:
         Base.metadata.create_all(bind=engine)

@@ -1,4 +1,6 @@
 """Analysis routes — updated for bom.analysis_results."""
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -7,7 +9,7 @@ from app.models.analysis import AnalysisResult
 from app.models.user import User, GuestSession
 from app.schemas.analysis import AnalysisResponse
 from app.services import project_service
-from app.utils.dependencies import require_user, can_access_project
+from app.utils.dependencies import get_current_user, can_access_project
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -23,20 +25,24 @@ def _guest_session_matches(session_token: str | None, guest_session_id: str | No
 def get_analysis(
     analysis_id: str,
     session_token: str | None = Query(None),
-    user: User = Depends(require_user),
+    user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     analysis = db.query(AnalysisResult).filter(AnalysisResult.id == analysis_id).first()
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    if analysis.user_id and str(analysis.user_id) == str(user.id):
+    # Authenticated owner check
+    if user and analysis.user_id and str(analysis.user_id) == str(user.id):
         return analysis
 
-    project = project_service.get_project_by_bom_id(db, analysis.bom_id)
-    if project and can_access_project(user, project):
-        return analysis
+    # Project-level access check (authenticated users)
+    if user:
+        project = project_service.get_project_by_bom_id(db, analysis.bom_id)
+        if project and can_access_project(user, project):
+            return analysis
 
+    # Guest session token check (works without authentication)
     if _guest_session_matches(session_token, analysis.guest_session_id, db):
         return analysis
 
@@ -47,20 +53,24 @@ def get_analysis(
 def get_analysis_by_bom(
     bom_id: str,
     session_token: str | None = Query(None),
-    user: User = Depends(require_user),
+    user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     analysis = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom_id).first()
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found for this BOM")
 
-    if analysis.user_id and str(analysis.user_id) == str(user.id):
+    # Authenticated owner check
+    if user and analysis.user_id and str(analysis.user_id) == str(user.id):
         return analysis
 
-    project = project_service.get_project_by_bom_id(db, bom_id)
-    if project and can_access_project(user, project):
-        return analysis
+    # Project-level access check (authenticated users)
+    if user:
+        project = project_service.get_project_by_bom_id(db, bom_id)
+        if project and can_access_project(user, project):
+            return analysis
 
+    # Guest session token check (works without authentication)
     if _guest_session_matches(session_token, analysis.guest_session_id, db):
         return analysis
 

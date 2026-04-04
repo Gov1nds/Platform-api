@@ -40,6 +40,7 @@ from app.services import (
 )
 from app.services.strategy_service import build_strategy_output
 from app.services.procurement_planner import generate_procurement_plan
+from app.services.storage_service import save_bytes
 
 logger = logging.getLogger("intake_service")
 
@@ -725,21 +726,26 @@ def serialize_session(session: IntakeSession) -> Dict[str, Any]:
     }
 
 
-def _save_upload_file(upload, subdir: str = "intake") -> Tuple[Optional[str], Optional[int], Optional[str], Optional[str]]:
+def _save_upload_file(
+    upload,
+    subdir: str = "intake",
+    file_bytes: Optional[bytes] = None,
+) -> Tuple[Optional[str], Optional[int], Optional[str], Optional[str]]:
     if not upload:
         return None, None, None, None
 
     filename = upload.filename or f"{uuid.uuid4().hex}.bin"
     safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", filename)
-    target_dir = Path(settings.UPLOAD_DIR) / subdir
-    target_dir.mkdir(parents=True, exist_ok=True)
-    path = target_dir / f"{uuid.uuid4().hex}_{safe_name}"
+    contents = file_bytes if file_bytes is not None else upload.file.read()
+    stored = save_bytes(
+        contents or b"",
+        safe_name,
+        scope=subdir,
+        content_type=upload.content_type,
+        prefix="uploads/",
+    )
 
-    contents = upload.file.read()
-    with open(path, "wb") as f:
-        f.write(contents)
-
-    return str(path), len(contents), filename, upload.content_type
+    return stored.storage_key, len(contents or b""), filename, upload.content_type
 
 
 def parse_intake_payload(

@@ -47,6 +47,19 @@ from app.models.analytics import (
 from app.models.workflow_command import WorkflowCommand
 from app.models.intake import IntakeSession, IntakeItem
 from app.models.project_access import ProjectParticipant, ProjectParticipantType, ProjectParticipantStatus, ProjectParticipantAccessLevel
+from app.models.integration_assets import (
+    VendorContact,
+    VendorOperationalProfile,
+    VendorComplianceRefresh,
+    ExternalFeedSnapshot,
+    DocumentAsset,
+    BOMRevisionLink,
+    AlternatePartApproval,
+    TrackingNumberHistory,
+    GoodsReceiptReconciliation,
+    EmailIngestMessage,
+    IntegrationEvent,
+)
 
 # Backward-compat aliases for removed/renamed items
 RFQ = RFQBatch

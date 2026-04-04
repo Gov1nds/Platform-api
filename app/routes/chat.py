@@ -2,6 +2,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Header
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -17,6 +18,7 @@ from app.schemas.collaboration import (
 )
 from app.services import collaboration_service
 from app.services.workflow_service import begin_command, complete_command, fail_command
+from app.services.storage_service import load_bytes
 from app.utils.dependencies import require_user, build_project_access_context, can_access_project
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -227,10 +229,13 @@ def download_attachment(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-    # File serving is intentionally lightweight here. Replace with object storage in production.
-    from fastapi.responses import FileResponse
-    return FileResponse(
-        attachment.file_path,
+    storage_provider = (attachment.metadata_ or {}).get("storage_provider", "local")
+    file_bytes = load_bytes(storage_provider, attachment.file_path)
+    if file_bytes is None:
+        raise HTTPException(status_code=404, detail="Attachment file not available")
+
+    return Response(
+        content=file_bytes,
         media_type=attachment.mime_type or "application/octet-stream",
-        filename=attachment.file_name,
+        headers={"Content-Disposition": f'attachment; filename="{attachment.file_name}"'},
     )

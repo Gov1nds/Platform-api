@@ -31,7 +31,13 @@ class PurchaseOrderSchema(BaseModel):
     project_id: str
     rfq_id: str
     vendor_id: Optional[str] = None
+    vendor_contact_id: Optional[str] = None
+    source_quote_header_id: Optional[str] = None
     po_number: str
+    incoterms: Optional[str] = None
+    freight_terms: Optional[str] = None
+    payment_terms: Optional[str] = None
+    purchase_terms_json: Dict[str, Any] = Field(default_factory=dict)
     status: str
     vendor_confirmation_status: str = "pending"
     vendor_confirmation_number: Optional[str] = None
@@ -44,6 +50,11 @@ class PurchaseOrderSchema(BaseModel):
     taxes: Optional[float] = None
     total_amount: Optional[float] = None
     notes: Optional[str] = None
+    reconciliation_status: str = "unreconciled"
+    matched_invoice_id: Optional[str] = None
+    reconciled_at: Optional[datetime] = None
+    reconciliation_notes: Optional[str] = None
+    variance_amount: Optional[float] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     shipments: List[Dict[str, Any]] = Field(default_factory=list)
     goods_receipts: List[Dict[str, Any]] = Field(default_factory=list)
@@ -104,6 +115,11 @@ class GoodsReceiptSchema(BaseModel):
     confirmed_at: Optional[datetime] = None
     confirmed_by_user_id: Optional[str] = None
     notes: Optional[str] = None
+    reconciliation_status: str = "unreconciled"
+    matched_invoice_id: Optional[str] = None
+    reconciled_at: Optional[datetime] = None
+    reconciliation_notes: Optional[str] = None
+    variance_amount: Optional[float] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -122,6 +138,8 @@ class InvoiceSchema(BaseModel):
     taxes: Optional[float] = None
     total_amount: Optional[float] = None
     matched_at: Optional[datetime] = None
+    payment_provider: Optional[str] = None
+    payment_provider_reference: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     payment_state: Optional[Dict[str, Any]] = None
 
@@ -136,6 +154,11 @@ class PaymentStateSchema(BaseModel):
     paid_at: Optional[datetime] = None
     payment_reference: Optional[str] = None
     notes: Optional[str] = None
+    reconciliation_status: str = "unreconciled"
+    matched_invoice_id: Optional[str] = None
+    reconciled_at: Optional[datetime] = None
+    reconciliation_notes: Optional[str] = None
+    variance_amount: Optional[float] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -215,6 +238,11 @@ class PurchaseOrderCreateRequest(BaseModel):
     taxes: Optional[float] = None
     total_amount: Optional[float] = None
     notes: Optional[str] = None
+    reconciliation_status: str = "unreconciled"
+    matched_invoice_id: Optional[str] = None
+    reconciled_at: Optional[datetime] = None
+    reconciliation_notes: Optional[str] = None
+    variance_amount: Optional[float] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -227,6 +255,8 @@ class ShipmentCreateRequest(BaseModel):
     carrier_name: Optional[str] = None
     carrier_code: Optional[str] = None
     tracking_number: Optional[str] = None
+    tracking_number_source: Optional[str] = None
+    tracking_reference: Optional[str] = None
     status: Optional[str] = "shipped"
     eta: Optional[datetime] = None
     origin: Optional[str] = None
@@ -270,6 +300,11 @@ class GoodsReceiptCreateRequest(BaseModel):
     received_quantity: Optional[float] = None
     confirmed_at: Optional[datetime] = None
     notes: Optional[str] = None
+    reconciliation_status: str = "unreconciled"
+    matched_invoice_id: Optional[str] = None
+    reconciled_at: Optional[datetime] = None
+    reconciliation_notes: Optional[str] = None
+    variance_amount: Optional[float] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

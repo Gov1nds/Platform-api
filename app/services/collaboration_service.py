@@ -25,6 +25,8 @@ from app.models.rfq import RFQBatch
 from app.models.vendor import Vendor
 from app.models.user import User
 from app.services import project_service
+from app.services.storage_service import save_bytes, load_bytes
+from app.services.integration_service import register_document_asset
 from app.utils.dependencies import is_collaboration_role
 
 logger = logging.getLogger("collaboration_service")
@@ -380,30 +382,54 @@ def _store_attachments(
     if not files:
         return created
 
-    message_dir = ATTACHMENT_DIR / str(message.thread_id) / str(message.id)
-    message_dir.mkdir(parents=True, exist_ok=True)
-
     for file in files:
         if not file:
             continue
-        safe_name = f"{uuid.uuid4().hex}_{file.filename}"
-        target_path = message_dir / safe_name
-        with target_path.open("wb") as f:
-            shutil.copyfileobj(file.file, f)
+        safe_name = file.filename or f"{uuid.uuid4().hex}.bin"
+        contents = file.file.read()
+        stored = save_bytes(
+            contents or b"",
+            safe_name,
+            scope=f"chat/{message.thread_id}/{message.id}",
+            content_type=file.content_type,
+            prefix="chat/",
+        )
 
-        size = target_path.stat().st_size if target_path.exists() else None
         attachment = MessageAttachment(
             message_id=message.id,
             uploaded_by_user_id=user.id,
             file_name=file.filename or safe_name,
-            file_path=str(target_path),
+            file_path=stored.storage_key,
             mime_type=file.content_type,
-            file_size=size,
-            file_url=f"/api/v1/chat/attachments/{uuid.uuid4().hex}",  # placeholder; download route resolves by id
-            metadata_={"saved_locally": True},
+            file_size=stored.file_size_bytes,
+            file_url=f"/api/v1/chat/attachments/{uuid.uuid4().hex}",
+            metadata_={
+                "storage_provider": stored.provider,
+                "storage_key": stored.storage_key,
+                "sha256": stored.sha256,
+                "saved_locally": stored.provider == "local",
+            },
         )
         db.add(attachment)
         db.flush()
+        register_document_asset(
+            db,
+            source_type="attachment",
+            source_id=str(attachment.id),
+            storage_provider=stored.provider,
+            storage_key=stored.storage_key,
+            file_name=attachment.file_name,
+            mime_type=file.content_type,
+            file_size_bytes=stored.file_size_bytes,
+            sha256=stored.sha256,
+            project_id=str(message.thread.project_id),
+            rfq_batch_id=str(message.thread.rfq_batch_id) if message.thread.rfq_batch_id else None,
+            vendor_id=str(message.thread.vendor_id) if message.thread.vendor_id else None,
+            uploaded_by_user_id=str(user.id),
+            asset_kind="attachment",
+            public_url=stored.public_url,
+            metadata={"thread_id": str(message.thread_id), "message_id": str(message.id)},
+        )
         attachment.file_url = f"/api/v1/chat/attachments/{attachment.id}"
         created.append(attachment)
     return created

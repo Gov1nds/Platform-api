@@ -5,13 +5,17 @@ PostgreSQL on Railway edition.
 Run: uvicorn app.main:app --reload
 """
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.core.database import init_db, SessionLocal
-from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings, review, chat, approvals, vendors, analytics, reports
+from app.core.database import init_db, SessionLocal, check_db_connection
+from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings, review, chat, approvals, vendors, analytics, reports, integrations
 from app.routes import intake
+from app.services import analyzer_service
+from app.services.storage_service import validate_storage_configuration
+from app.services.integration_service import maybe_record_api_error
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +41,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _validate_runtime_dependencies():
+    check_db_connection()
+    validate_storage_configuration(strict=False)
+
+    if settings.is_production or settings.ANALYZER_READINESS_REQUIRED:
+        analyzer_status = analyzer_service.health_check_sync()
+        if analyzer_status.get("status") != "ok":
+            raise RuntimeError(f"Analyzer service is unreachable: {analyzer_status.get('error', analyzer_status)}")
 
 
 def _run_runtime_bootstrap():
@@ -118,11 +132,31 @@ def _run_runtime_bootstrap():
         db.close()
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    try:
+        db = SessionLocal()
+        try:
+            maybe_record_api_error(
+                db,
+                request_method=request.method,
+                request_path=str(request.url.path),
+                error_text=str(exc),
+                payload_json={"query_params": dict(request.query_params)},
+            )
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
 @app.on_event("startup")
 def startup():
-    logger.info("Initializing database...")
-    init_db(create_schemas=settings.ENABLE_RUNTIME_SCHEMA_BOOTSTRAP)
-    _run_runtime_bootstrap()
+    logger.info("Initializing database models...")
+    init_db(bootstrap=False)
+    _validate_runtime_dependencies()
     logger.info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
 
 
@@ -139,6 +173,7 @@ app.include_router(chat.router, prefix=settings.API_PREFIX)
 app.include_router(approvals.router, prefix=settings.API_PREFIX)
 app.include_router(analytics.router, prefix=settings.API_PREFIX)
 app.include_router(reports.router, prefix=settings.API_PREFIX)
+app.include_router(integrations.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/", tags=["System"])

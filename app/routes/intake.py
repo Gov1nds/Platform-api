@@ -97,7 +97,7 @@ async def parse_intake(
         source_bytes = None
         if source_file:
             source_bytes = await source_file.read()
-            source_file_path, source_file_size, source_file_name, source_file_type = intake_service._save_upload_file(source_file, "intake")
+            source_file_path, source_file_size, source_file_name, source_file_type = intake_service._save_upload_file(source_file, "intake", source_bytes)
             # We already consumed the UploadFile stream; keep the captured bytes.
             source_bytes = source_bytes or b""
 
@@ -105,7 +105,7 @@ async def parse_intake(
         audio_bytes = None
         if audio_file:
             audio_bytes = await audio_file.read()
-            audio_file_path, audio_file_size, audio_file_name, audio_file_type = intake_service._save_upload_file(audio_file, "intake_audio")
+            audio_file_path, audio_file_size, audio_file_name, audio_file_type = intake_service._save_upload_file(audio_file, "intake_audio", audio_bytes)
             audio_bytes = audio_bytes or b""
 
         payload = IntakeParseRequest(
@@ -233,14 +233,14 @@ async def submit_intake(
         source_bytes = None
         if source_file:
             source_bytes = await source_file.read()
-            source_file_path, source_file_size, source_file_name, source_file_type = intake_service._save_upload_file(source_file, "intake")
+            source_file_path, source_file_size, source_file_name, source_file_type = intake_service._save_upload_file(source_file, "intake", source_bytes)
             source_bytes = source_bytes or b""
 
         audio_file_path = audio_file_size = audio_file_name = audio_file_type = None
         audio_bytes = None
         if audio_file:
             audio_bytes = await audio_file.read()
-            audio_file_path, audio_file_size, audio_file_name, audio_file_type = intake_service._save_upload_file(audio_file, "intake_audio")
+            audio_file_path, audio_file_size, audio_file_name, audio_file_type = intake_service._save_upload_file(audio_file, "intake_audio", audio_bytes)
             audio_bytes = audio_bytes or b""
 
         payload = IntakeSubmitRequest(
