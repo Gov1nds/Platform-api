@@ -103,6 +103,7 @@ def init_db(bootstrap: bool = False):
     import app.models.intake
     import app.models.project_access
     import app.models.integration_assets
+    import app.models.organization
     
     if settings.is_postgres:
         should_create_schemas = bootstrap
@@ -110,7 +111,7 @@ def init_db(bootstrap: bool = False):
             schemas = (
                 "auth", "bom", "projects", "pricing",
                 "sourcing", "ops", "geo", "catalog",
-                "collaboration", "analytics", "integrations"
+                "collaboration", "analytics", "integrations", "orgs"
             )
             with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
                 for schema in schemas:

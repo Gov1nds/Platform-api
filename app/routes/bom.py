@@ -333,14 +333,14 @@ def bom_unlock(
         if gs:
             authorized = True
 
-            # Opportunistically claim the BOM for a newly-logged-in user
+            # P-6: Opportunistically claim ownership — flush only, commit at end
             if user and not bom.uploaded_by_user_id:
                 bom.uploaded_by_user_id = user.id
                 if project:
                     project.user_id = user.id
                 if analysis:
                     analysis.user_id = user.id
-                db.commit()
+                db.flush()
 
     if not authorized:
         raise HTTPException(status_code=403, detail="Not authorized")
@@ -361,6 +361,9 @@ def bom_unlock(
 
     full_report = project.analyzer_report or {}
     workspace_route = lifecycle.get("workspace_route") or f"/project/{project.id}"
+
+    # P-6: Single commit after all ownership + lifecycle changes complete
+    db.commit()
 
     return BOMUnlockResponse(
         bom_id=bom.id,

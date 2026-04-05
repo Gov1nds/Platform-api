@@ -49,9 +49,19 @@ class Settings:
 
     BOM_ANALYZER_URL: str = os.getenv(
         "BOM_ANALYZER_URL",
-        "http://bom-intelligence-engine.railway.internal:8000",
+        # D-2: default port 8001 matches BOM engine Procfile
+        "http://bom-intelligence-engine.railway.internal:8001",
     )
     INTERNAL_API_KEY: str = os.getenv("INTERNAL_API_KEY", "")
+
+    # D-2: fail fast if analyzer URL is unset in production
+    if ENVIRONMENT == "production" and not os.getenv("BOM_ANALYZER_URL"):
+        import warnings
+        warnings.warn(
+            "BOM_ANALYZER_URL not set in production — using default. "
+            "Set BOM_ANALYZER_URL explicitly for reliable deployments.",
+            stacklevel=2,
+        )
 
     OBJECT_STORAGE_PROVIDER: str = os.getenv(
         "OBJECT_STORAGE_PROVIDER",

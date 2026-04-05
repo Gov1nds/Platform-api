@@ -90,13 +90,15 @@ def update_project_status(project_id: str, status_update: StatusUpdate, user: Us
         project = project_service.get_project_by_bom_id(db, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if not project.user_id or project.user_id != user.id:
+
+    # H-3: Use collaborator-aware access instead of owner-only
+    access = build_project_access_context(user, project, db)
+    if not access.get("can_edit"):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     old_status = project.workflow_stage or project.status
     new_status = project_service.normalize_project_stage(status_update.status, old_status)
-    project.status = new_status
-    project.workflow_stage = new_status
+    project.set_workflow_status(new_status)  # H-5: writes both status + workflow_stage
     project.project_metadata = project.project_metadata or {}
     project.project_metadata["workflow_stage"] = new_status
     project.project_metadata["next_action"] = project_service.project_stage_action(new_status)

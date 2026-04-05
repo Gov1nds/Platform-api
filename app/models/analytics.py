@@ -183,6 +183,7 @@ class ReportSchedule(Base):
     __table_args__ = (
         Index("ix_report_schedules_active", "is_active"),
         Index("ix_report_schedules_type", "report_type"),
+        Index("ix_report_schedules_next_run", "next_run_at"),
         {"schema": "analytics"},
     )
 
@@ -195,6 +196,12 @@ class ReportSchedule(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     next_run_at = Column(DateTime(timezone=True), nullable=True)
     last_run_at = Column(DateTime(timezone=True), nullable=True)
+    # DB-4: Execution tracking fields for durable scheduling
+    last_run_status = Column(Text, nullable=True)              # success | error | skipped
+    last_run_error = Column(Text, nullable=True)               # error message if failed
+    job_correlation_id = Column(Text, nullable=True)            # links to background job
+    total_runs = Column(Integer, nullable=False, default=0)
+    consecutive_failures = Column(Integer, nullable=False, default=0)
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

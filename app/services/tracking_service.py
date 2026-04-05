@@ -24,6 +24,7 @@ from app.models.rfq import RFQBatch as RFQ, RFQStatus
 from app.models.analysis import AnalysisResult
 from app.models.memory import SupplierMemory
 from app.models.user import User
+from app.models.project import Project
 from app.services import project_service
 from app.services import analytics_service, memory_service
 
@@ -476,8 +477,8 @@ def _build_timeline(db: Session, rfq_id: str) -> List[Dict[str, Any]]:
 def _update_project_from_fulfillment(db: Session, rfq: RFQ, state: str, pointer_payload: Dict[str, Any], actor: Optional[str] = None):
     project = None
     if rfq and rfq.bom_id:
-        project = db.query(__import__("app.models.project", fromlist=["Project"]).Project).filter(
-            __import__("app.models.project", fromlist=["Project"]).Project.bom_id == rfq.bom_id
+        project = db.query(Project).filter(
+            Project.bom_id == rfq.bom_id
         ).first()
 
     if not project:
@@ -621,8 +622,8 @@ def get_fulfillment_context(db: Session, rfq_id: str) -> Dict[str, Any]:
 
     project = None
     if rfq.bom_id:
-        project = db.query(__import__("app.models.project", fromlist=["Project"]).Project).filter(
-            __import__("app.models.project", fromlist=["Project"]).Project.bom_id == rfq.bom_id
+        project = db.query(Project).filter(
+            Project.bom_id == rfq.bom_id
         ).first()
 
     po = (
@@ -750,8 +751,8 @@ def create_purchase_order(
 
     project = None
     if rfq.bom_id:
-        project = db.query(__import__("app.models.project", fromlist=["Project"]).Project).filter(
-            __import__("app.models.project", fromlist=["Project"]).Project.bom_id == rfq.bom_id
+        project = db.query(Project).filter(
+            Project.bom_id == rfq.bom_id
         ).first()
 
     vendor_id = vendor_id or rfq.selected_vendor_id
@@ -930,7 +931,7 @@ def create_shipment(
     rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
     project = None
     if rfq and rfq.bom_id:
-        Project = __import__("app.models.project", fromlist=["Project"]).Project
+        Project = Project
         project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
 
     analytics_service.record_delivery_performance(
@@ -1112,7 +1113,7 @@ def confirm_goods_receipt(
         if shipment:
             project = None
             if rfq and rfq.bom_id:
-                Project = __import__("app.models.project", fromlist=["Project"]).Project
+                Project = Project
                 project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
             analytics_service.record_delivery_performance(
                 db,
@@ -1160,7 +1161,7 @@ def create_invoice(
     rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
     project = None
     if rfq and rfq.bom_id:
-        Project = __import__("app.models.project", fromlist=["Project"]).Project
+        Project = Project
         project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
 
     inv = Invoice(
@@ -1250,7 +1251,7 @@ def update_payment_state(
             rfq = db.query(RFQ).filter(RFQ.id == po.rfq_id).first()
             project = None
             if rfq and rfq.bom_id:
-                Project = __import__("app.models.project", fromlist=["Project"]).Project
+                Project = Project
                 project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first()
             analytics_service.record_payment_spend(
                 db,

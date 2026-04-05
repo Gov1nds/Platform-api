@@ -43,6 +43,9 @@ class BOM(Base):
     target_currency = Column(String(3), nullable=False, default="USD")
     priority = Column(Text, nullable=False, default="balanced")
     status = Column(Text, nullable=False, default="uploaded")
+    # H-4 DEPRECATED: These lifecycle columns are kept for backward compat.
+    # Canonical source of truth is the Project model.
+    # New code should read/write lifecycle state on Project, not BOM.
     analysis_status = Column(Text, nullable=False, default="guest_preview")
     report_visibility_level = Column(Text, nullable=False, default="preview")
     unlock_status = Column(Text, nullable=False, default="locked")

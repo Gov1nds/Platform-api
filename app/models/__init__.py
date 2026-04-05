@@ -60,6 +60,7 @@ from app.models.integration_assets import (
     EmailIngestMessage,
     IntegrationEvent,
 )
+from app.models.organization import Organization, Workspace, WorkspaceMembership
 
 # Backward-compat aliases for removed/renamed items
 RFQ = RFQBatch

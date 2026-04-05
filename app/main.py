@@ -5,6 +5,7 @@ PostgreSQL on Railway edition.
 Run: uvicorn app.main:app --reload
 """
 import logging
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ from app.core.config import settings
 from app.core.database import init_db, SessionLocal, check_db_connection
 from app.routes import auth, bom, analysis, rfq, tracking, projects, drawings, review, chat, approvals, vendors, analytics, reports, integrations
 from app.routes import intake
+from app.routes import organizations
 from app.services import analyzer_service
 from app.services.storage_service import validate_storage_configuration
 from app.services.integration_service import maybe_record_api_error
@@ -42,14 +44,23 @@ app.state.runtime_checks = {
 
 app.include_router(intake.router, prefix=settings.API_PREFIX)
 
+# M-3: CORS origins from env + defaults
+_default_origins = [
+    "https://www.pgihub.com",
+    "https://pgihub.com",
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+_env_origins = [
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+]
+_all_origins = list(dict.fromkeys(_default_origins + _env_origins))  # dedupe, preserve order
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://www.pgihub.com",
-        "https://pgihub.com",
-        "http://localhost:5173",
-        "http://localhost:3000",
-    ],
+    allow_origins=_all_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -220,6 +231,7 @@ app.include_router(approvals.router, prefix=settings.API_PREFIX)
 app.include_router(analytics.router, prefix=settings.API_PREFIX)
 app.include_router(reports.router, prefix=settings.API_PREFIX)
 app.include_router(integrations.router, prefix=settings.API_PREFIX)
+app.include_router(organizations.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/", tags=["System"])

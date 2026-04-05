@@ -1,5 +1,4 @@
 """Project model — canonical operational record for a BOM journey."""
-from curses import meta
 import enum
 import uuid
 from datetime import datetime
@@ -60,10 +59,25 @@ class Project(Base):
     file_name = Column(Text, nullable=True)
 
     # Unified project state
+    # H-5: `status` is the canonical workflow state column.
+    #       `workflow_stage` is kept in sync by callers and serialize functions.
+    #       Both columns exist in DB for backward compat — always write both.
     status = Column(Text, nullable=False, default=ProjectWorkflowStage.draft.value)
     workflow_stage = Column(Text, nullable=False, default=ProjectWorkflowStage.draft.value)
+    # H-5: `visibility_level` is the canonical visibility column.
+    #       `visibility` is kept in sync — always write both.
     visibility = Column(Text, nullable=False, default=ProjectVisibilityLevel.private.value)
     visibility_level = Column(Text, nullable=False, default=ProjectVisibilityLevel.private.value)
+
+    def set_workflow_status(self, value):
+        """H-5: Helper to write both status and workflow_stage atomically."""
+        self.status = value
+        self.workflow_stage = value
+
+    def set_visibility(self, value):
+        """H-5: Helper to write both visibility and visibility_level atomically."""
+        self.visibility = value
+        self.visibility_level = value
 
     analysis_status = Column(Text, nullable=False, default="guest_preview")
     report_visibility_level = Column(Text, nullable=False, default="preview")

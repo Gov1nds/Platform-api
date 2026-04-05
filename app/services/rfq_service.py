@@ -754,6 +754,8 @@ def select_vendor_for_rfq(
 
     # mark selected quote and reject others
     headers = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.rfq_batch_id == rfq.id).all()
+    # M-8: Query project once, not inside the loop
+    project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     for h in headers:
         if h.id == header.id:
             h.quote_status = "selected"
@@ -764,7 +766,6 @@ def select_vendor_for_rfq(
         else:
             h.quote_status = h.quote_status or "received"
 
-        project = db.query(Project).filter(Project.bom_id == rfq.bom_id).first() if rfq.bom_id else None
     if project:
         old_status = project.workflow_stage or project.status
         _ensure_project_fields(project, "vendor_selected", "Issue PO")

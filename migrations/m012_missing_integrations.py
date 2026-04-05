@@ -1,4 +1,3 @@
-# DEPRECATED: Renamed to m012_missing_integrations.py — this file is kept for backward compat only
 """
 Migration 011: missing integrations, lineage, and operational data objects.
 

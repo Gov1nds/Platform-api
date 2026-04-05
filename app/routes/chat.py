@@ -220,8 +220,8 @@ def download_attachment(
 
     try:
         collaboration_service._require_project_access(
-            db.query(__import__("app.models.project", fromlist=["Project"]).Project).filter(
-                __import__("app.models.project", fromlist=["Project"]).Project.id == thread.project_id
+            db.query(Project).filter(
+                Project.id == thread.project_id
             ).first(),
             user,
             thread,

@@ -65,7 +65,8 @@ def attach_guest_boms(db: Session, user_id: str, session_token: str):
     }
 
     try:
-        db.rollback()
+        # Transaction is managed by the calling endpoint (register/login).
+        # No defensive rollback here — it would discard uncommitted caller work.
 
         merge_summary["boms"] = _update_if_exists(
             db,
@@ -211,11 +212,20 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
         full_name=body.full_name,
     )
 
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    try:
+        db.add(user)
+        # P-3: flush (not commit) so user.id is available for merge,
+        # but the row is not yet visible to other transactions.
+        db.flush()
+        db.refresh(user)
 
-    merge_result = attach_guest_boms(db, user.id, body.session_token)
+        merge_result = attach_guest_boms(db, user.id, body.session_token)
+
+        # P-3: single commit for both user creation and guest merge
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Registration failed: {exc}")
 
     token = create_access_token({"sub": user.id, "email": user.email})
 
@@ -239,7 +249,13 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    merge_result = attach_guest_boms(db, user.id, body.session_token)
+    try:
+        merge_result = attach_guest_boms(db, user.id, body.session_token)
+        # P-3: commit merge in same transaction as login validation
+        db.commit()
+    except Exception:
+        db.rollback()
+        merge_result = {"status": "skipped", "reason": "merge_failed", "merged": False}
 
     token = create_access_token({"sub": user.id, "email": user.email})
 

@@ -30,6 +30,9 @@ class AnalysisResult(Base):
     cost_range_high = Column(Numeric(18, 6), nullable=True)
     savings_percent = Column(Numeric(12, 6), nullable=True)
     lead_time_days = Column(Numeric(12, 2), nullable=True)
+    # H-4 DEPRECATED: These lifecycle columns are kept for backward compat.
+    # Canonical source of truth is the Project model.
+    # New code should read/write lifecycle state on Project, not AnalysisResult.
     analysis_status = Column(Text, nullable=False, default="guest_preview")
     report_visibility_level = Column(Text, nullable=False, default="preview")
     unlock_status = Column(Text, nullable=False, default="locked")

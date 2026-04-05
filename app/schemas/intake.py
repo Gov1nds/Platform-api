@@ -193,3 +193,33 @@ class IntakeSessionListResponse(BaseModel):
 
     items: List[IntakeSessionSchema] = Field(default_factory=list)
     total: int = 0
+
+
+class WorkflowEnvelope(BaseModel):
+    """API-1: Shared response envelope for normalized guest analysis responses.
+
+    Both /bom/upload and /intake/submit use this shape so the frontend
+    can handle continuation, preview, and project promotion uniformly.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    # Identity
+    session_token: Optional[str] = None
+    bom_id: Optional[str] = None
+    project_id: Optional[str] = None
+
+    # Lifecycle state (canonical — from Project)
+    analysis_status: str = "guest_preview"
+    report_visibility_level: str = "preview"
+    unlock_status: str = "locked"
+    workspace_route: Optional[str] = None
+
+    # Analysis lifecycle blob for frontend state reconstruction
+    analysis_lifecycle: Dict[str, Any] = Field(default_factory=dict)
+
+    # Intake routing
+    recommended_flow: str = "project"            # project | quick_catalog | rfq_only
+    should_create_project: bool = True
+    purchase_mode: str = "auto"                  # auto | bom_project | quick_catalog
+    item_count: int = 0
+    quick_actions: List[str] = Field(default_factory=list)

@@ -71,7 +71,8 @@ def create_rfq(
         request_method="POST",
         request_path="/api/v1/rfq/create",
         user_id=user.id,
-        project_id=body.bom_id,
+        # P-5/API-4: use actual project_id, fall back to bom_id for tracing
+        project_id=project.id if project else None,
         related_id=body.bom_id,
     )
     if cached:
