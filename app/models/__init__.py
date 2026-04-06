@@ -1,91 +1,11 @@
-"""Models package — re-exports for convenience.
-
-Updated for PostgreSQL schema. Provides backward-compatible aliases
-so any code doing `from app.models import BOMStatus` still works.
-"""
-from app.models.user import User, GuestSession
-from app.models.project import Project, ProjectEvent
-from app.models.bom import BOM, BOMPart
-from app.models.analysis import AnalysisResult
-from app.models.vendor import Vendor, VendorCapability
-from app.models.vendor_match import VendorMatch, VendorMatchRun
-from app.models.pricing import PricingQuote, PricingHistory  # PricingHistory = PricingQuote alias
-from app.models.rfq import RFQBatch, RFQItem, RFQQuote, RFQStatus
-from app.models.tracking import ProductionTracking, ExecutionFeedback, TrackingStage, FulfillmentEvent
-from app.models.memory import SupplierMemory, SupplierMemoryHistory
-from app.models.drawing import DrawingAsset
-from app.models.catalog import PartMaster, PartAlias, PartAttribute, PartObservation, ReviewQueueItem
-from app.models.geo import Country, RegionProfile, ExchangeRate, TariffRule
-from app.models.report_snapshot import ReportSnapshot
-from app.models.strategy_run import StrategyRun
-from app.models.rfq import (
-    RFQBatch,
-    RFQItem,
-    RFQQuote,
-    RFQQuoteHeader,
-    RFQQuoteLine,
-    RFQComparisonView,
-    RFQStatus,
-)
-from app.models.collaboration import (
-    ChatThread,
-    ChatMessage,
-    MessageAttachment,
-    ChatReadReceipt,
-    ApprovalRequest,
-    ApprovalAction,
-)
-from app.models.analytics import (
-    SpendLedger,
-    CategorySpendRollup,
-    VendorSpendRollup,
-    MonthlySpendSnapshot,
-    SavingsRealized,
-    DeliveryPerformanceRollup,
-    ReportSchedule,
-)
-from app.models.workflow_command import WorkflowCommand
-from app.models.intake import IntakeSession, IntakeItem
-from app.models.project_access import ProjectParticipant, ProjectParticipantType, ProjectParticipantStatus, ProjectParticipantAccessLevel
-from app.models.integration_assets import (
-    VendorContact,
-    VendorOperationalProfile,
-    VendorComplianceRefresh,
-    ExternalFeedSnapshot,
-    DocumentAsset,
-    BOMRevisionLink,
-    AlternatePartApproval,
-    TrackingNumberHistory,
-    GoodsReceiptReconciliation,
-    EmailIngestMessage,
-    IntegrationEvent,
-)
-from app.models.organization import Organization, Workspace, WorkspaceMembership
-
-# Backward-compat aliases for removed/renamed items
-RFQ = RFQBatch
-Drawing = DrawingAsset
-
-class BOMStatus:
-    """Backward-compat shim. The PostgreSQL schema uses plain text status values."""
-    uploaded = "uploaded"
-    analyzed = "analyzed"
-    completed = "completed"
-    parsed = "parsed"
-    analyzing = "analyzing"
-    enriched = "enriched"
-    quoted = "quoted"
-    archived = "archived"
-    error = "error"
-
-
-class CostSavings:
-    """Backward-compat shim. Cost savings data is now stored in
-    AnalysisResult.structured_output JSONB, not a separate table.
-    """
-    def __init__(self, **kwargs):
-        self.analysis_id = kwargs.get("analysis_id")
-        self.recommended_cost = kwargs.get("recommended_cost", 0)
-        self.alternative_cost = kwargs.get("alternative_cost", 0)
-        self.savings_percent = kwargs.get("savings_percent", 0)
-        self.savings_value = kwargs.get("savings_value", 0)
+from app.models.user import User, GuestSession, VendorUser
+from app.models.bom import BOM, BOMPart, AnalysisResult
+from app.models.project import (Project, ProjectACL, ProjectEvent, SearchSession,
+    SourcingCase)
+from app.models.vendor import Vendor, VendorCapability, VendorMatchRun, VendorMatch
+from app.models.rfq import (RFQBatch, RFQItem, RFQVendorInvitation, InvitationStatusEvent,
+    RFQQuoteHeader, RFQQuoteLine, PurchaseOrder, POLineItem, Invoice, Payment)
+from app.models.logistics import Shipment, ShipmentMilestone
+from app.models.chat import ChatThread, ChatMessage
+from app.models.market import FXRate, FreightRate, TariffSchedule, CommodityIndex
+from app.models.events import PlatformEvent, ReportSnapshot

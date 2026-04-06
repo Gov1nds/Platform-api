@@ -1,60 +1,63 @@
-"""User model — maps to auth.users in PostgreSQL."""
 import uuid
-from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Text
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Text, Boolean, DateTime, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = {"schema": "auth"}
+    __table_args__ = (Index("ix_users_email", "email", unique=True), {"schema": "auth"})
 
-    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
-    email = Column(Text, nullable=False, unique=True)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    email = Column(String(320), nullable=False, unique=True)
     password_hash = Column(Text, nullable=False)
-    full_name = Column(Text, nullable=True)
-    role = Column(Text, nullable=False, default="user")
-    status = Column(Text, nullable=False, default="active")
-    email_verified_at = Column(DateTime(timezone=True), nullable=True)
-    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    full_name = Column(Text, nullable=False, default="")
+    role = Column(String(40), nullable=False, default="buyer")
+    is_active = Column(Boolean, nullable=False, default=True)
+    is_verified = Column(Boolean, nullable=False, default=False)
+    permissions = Column(JSONB, nullable=False, default=list)
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    chat_threads = relationship("ChatThread", back_populates="created_by")
-    chat_messages = relationship("ChatMessage", back_populates="sender")
-    read_receipts = relationship("ChatReadReceipt", back_populates="user")
-    approval_requests_requested = relationship("ApprovalRequest", foreign_keys="ApprovalRequest.requested_by_user_id")
-    approval_requests_assigned = relationship("ApprovalRequest", foreign_keys="ApprovalRequest.assigned_to_user_id")
-    approval_actions = relationship("ApprovalAction", back_populates="acted_by")
-    
-    # Convenience properties for backward compat
-    @property
-    def is_active(self):
-        return self.status == "active"
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
-    @property
-    def is_verified(self):
-        return self.email_verified_at is not None
-
-    boms = relationship("BOM", back_populates="user", foreign_keys="BOM.uploaded_by_user_id")
     projects = relationship("Project", back_populates="user")
+    boms = relationship("BOM", back_populates="user")
     rfqs = relationship("RFQBatch", back_populates="user")
 
 
 class GuestSession(Base):
-    """Maps to auth.guest_sessions."""
     __tablename__ = "guest_sessions"
-    __table_args__ = {"schema": "auth"}
+    __table_args__ = (Index("ix_guest_sessions_token", "session_token", unique=True), {"schema": "auth"})
 
-    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
-    session_token = Column(Text, nullable=False, unique=True)
-    first_seen_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    last_seen_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    expires_at = Column(DateTime(timezone=True), nullable=True)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    session_token = Column(String(120), nullable=False, unique=True)
     merged_user_id = Column(UUID(as_uuid=False), nullable=True)
     merged_at = Column(DateTime(timezone=True), nullable=True)
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class VendorUser(Base):
+    __tablename__ = "vendor_users"
+    __table_args__ = (Index("ix_vendor_users_email", "email", unique=True), {"schema": "auth"})
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    vendor_id = Column(UUID(as_uuid=False), nullable=False, index=True)
+    email = Column(String(320), nullable=False, unique=True)
+    password_hash = Column(Text, nullable=False)
+    full_name = Column(Text, nullable=False, default="")
+    role = Column(String(40), nullable=False, default="vendor_user")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)

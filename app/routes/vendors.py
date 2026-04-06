@@ -1,149 +1,60 @@
-"""Vendor discovery routes."""
-from typing import Optional, Dict, Any
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-
 from app.core.database import get_db
 from app.models.user import User
-from app.schemas.vendor import (
-    VendorProfileSchema,
-    VendorMatchRunSchema,
-    VendorScorecardSchema,
-    VendorFeedbackRequest,
-)
-from app.services import vendor_service
-from app.services.workflow_service import begin_command, complete_command, fail_command
-from app.services import project_service
-from app.utils.dependencies import require_user, can_access_project, build_project_access_context
+from app.models.vendor import Vendor, VendorCapability, VendorMatchRun, VendorMatch
+from app.models.project import Project
+from app.models.bom import BOMPart
+from app.schemas import VendorResponse, VendorMatchListResponse, VendorMatchResponse
+from app.utils.dependencies import require_user, require_project_owner
+from app.services.scoring.vendor_scorer import rank_vendors, load_market_context
 
-router = APIRouter(prefix="/vendors", tags=["vendors"])
+router = APIRouter(prefix="/vendors", tags=["Vendors"])
 
+@router.get("")
+def list_vendors(search:str=Query(""), limit:int=Query(50,ge=1,le=200), db:Session=Depends(get_db)):
+    q = db.query(Vendor).filter(Vendor.is_active==True)
+    if search: q = q.filter(Vendor.name.ilike(f"%{search}%"))
+    return [VendorResponse.model_validate(v) for v in q.limit(limit).all()]
 
-def _project_accessible(project, user: User, db: Session = None) -> bool:
-    if not project or not user:
-        return False
-    return can_access_project(user, project, db)
+@router.get("/{vendor_id}", response_model=VendorResponse)
+def get_vendor(vendor_id:str, db:Session=Depends(get_db)):
+    v = db.query(Vendor).filter(Vendor.id==vendor_id).first()
+    if not v: raise HTTPException(404,"Vendor not found")
+    return VendorResponse.model_validate(v)
 
+@router.get("/match/run", response_model=VendorMatchListResponse)
+def match_vendors(project_id:str=Query(...), user:User=Depends(require_user), db:Session=Depends(get_db)):
+    project = require_project_owner(project_id, db, user)
+    parts = db.query(BOMPart).filter(BOMPart.bom_id==project.bom_id).all()
+    processes = set(); materials = set(); total_qty = 0
+    for p in parts:
+        if p.procurement_class and p.procurement_class != "unknown": processes.add(p.procurement_class)
+        if p.material: materials.add(p.material)
+        total_qty += float(p.quantity or 0)
+    delivery_region = (project.project_metadata or {}).get("delivery_region","")
+    requirements = {"processes":list(processes),"materials":list(materials),"total_quantity":total_qty,
+        "delivery_region":delivery_region,"required_certifications":[],"target_lead_time_days":30}
+    market_ctx = load_market_context(db, delivery_region, "USD")
+    market_ctx["market_median_price"] = None
 
-@router.get("/match", response_model=VendorMatchRunSchema)
-def match_vendors(
-    project_id: str = Query(...),
-    regions: Optional[str] = Query(None),
-    certifications: Optional[str] = Query(None),
-    max_moq: Optional[float] = Query(None),
-    max_lead_time: Optional[float] = Query(None),
-    max_price: Optional[float] = Query(None),
-    search: Optional[str] = Query(None),
-    limit: int = Query(20, ge=1, le=50),
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    project = vendor_service._project_context(db, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if not _project_accessible(project, user, db):
-        raise HTTPException(status_code=403, detail="Not authorized")
+    vendors = db.query(Vendor).filter(Vendor.is_active==True).all()
+    vdicts = []
+    for v in vendors:
+        caps = db.query(VendorCapability).filter(VendorCapability.vendor_id==v.id,VendorCapability.is_active==True).all()
+        vdicts.append({"id":v.id,"name":v.name,"reliability_score":float(v.reliability_score) if v.reliability_score else 0.5,
+            "avg_lead_time_days":float(v.avg_lead_time_days) if v.avg_lead_time_days else None,
+            "regions_served":v.regions_served or[],"certifications":v.certifications or[],
+            "capacity_profile":v.capacity_profile or{},"capabilities":[{"process":c.process,"material_family":c.material_family} for c in caps]})
 
-    filters: Dict[str, Any] = {
-        "regions": regions,
-        "certifications": certifications,
-        "max_moq": max_moq,
-        "max_lead_time": max_lead_time,
-        "max_price": max_price,
-        "search": search,
-        "delivery_region": project.recommended_location or "",
-        "currency": (project.project_metadata or {}).get("currency", "USD"),
-    }
-
-    result = vendor_service.match_vendors_for_project(
-        db=db,
-        project_id=project_id,
-        user_id=user.id,
-        filters=filters,
-        limit=limit,
-    )
-    result["access"] = build_project_access_context(user, project, db)
-    return result
-
-
-@router.get("/{vendor_id}", response_model=VendorProfileSchema)
-def get_vendor(vendor_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    vendor = vendor_service.get_vendor_profile(db, vendor_id)
-    if not vendor:
-        raise HTTPException(status_code=404, detail="Vendor not found")
-    return vendor
-
-
-@router.get("/{vendor_id}/scorecard", response_model=VendorScorecardSchema)
-def get_vendor_scorecard(
-    vendor_id: str,
-    project_id: Optional[str] = Query(None),
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    if project_id:
-        project = vendor_service._project_context(db, project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        if not _project_accessible(project, user, db):
-            raise HTTPException(status_code=403, detail="Not authorized")
-
-    scorecard = vendor_service.build_vendor_scorecard(db, vendor_id, project_id=project_id)
-    if not scorecard:
-        raise HTTPException(status_code=404, detail="Vendor not found")
-    if project_id:
-        scorecard["access"] = build_project_access_context(user, project, db)
-    return scorecard
-
-
-@router.post("/{vendor_id}/feedback")
-def submit_vendor_feedback(
-    vendor_id: str,
-    body: VendorFeedbackRequest,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
-):
-    payload = body.model_dump(exclude_none=True)
-    if body.project_id:
-        project = vendor_service._project_context(db, body.project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        if not _project_accessible(project, user, db):
-            raise HTTPException(status_code=403, detail="Not authorized")
-
-    command, cached = begin_command(
-        db,
-        namespace="vendor.feedback",
-        idempotency_key=idempotency_key,
-        payload={
-            "vendor_id": vendor_id,
-            "payload": payload,
-            "user_id": user.id,
-        },
-        request_method="POST",
-        request_path=f"/api/v1/vendors/{vendor_id}/feedback",
-        user_id=user.id,
-        related_id=vendor_id,
-    )
-    if cached:
-        return cached
-
-    try:
-        result = vendor_service.record_vendor_feedback(db, vendor_id, payload, user_id=user.id)
-        if result.get("status") != "updated":
-            raise HTTPException(status_code=400, detail="Feedback could not be recorded")
-        if body.project_id:
-            result["access"] = build_project_access_context(user, project, db)
-        complete_command(db, command, result)
-        db.commit()
-        return result
-    except HTTPException:
-        fail_command(db, command, "Feedback could not be recorded")
-        db.rollback()
-        raise
-    except Exception as exc:
-        fail_command(db, command, str(exc))
-        db.rollback()
-        raise
+    scored = rank_vendors(vdicts, requirements, market_ctx)
+    run = VendorMatchRun(project_id=project.id, user_id=user.id, filters_json=requirements,
+        weights_json={}, total_vendors_considered=len(vdicts), total_matches=len(scored))
+    db.add(run); db.flush()
+    for s in scored:
+        db.add(VendorMatch(match_run_id=run.id, project_id=project.id, vendor_id=s["vendor_id"],
+            rank=s["rank"], score=s["total_score"], score_breakdown=s["breakdown"],
+            explanation=s["explanation"], explanation_json=s["explanation_json"]))
+    db.commit()
+    return VendorMatchListResponse(run_id=run.id, project_id=project.id,
+        matches=[VendorMatchResponse(**s) for s in scored], total_considered=len(vdicts))

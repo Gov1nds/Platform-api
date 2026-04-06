@@ -1,10 +1,17 @@
-"""BOM and BOMPart models — maps to bom.boms and bom.bom_parts in PostgreSQL."""
 import uuid
-from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean, Numeric, BigInteger, Index
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Numeric, Boolean, BigInteger, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
 
 
 class BOM(Base):
@@ -13,94 +20,27 @@ class BOM(Base):
         Index("ix_boms_user_id", "uploaded_by_user_id"),
         Index("ix_boms_guest_session", "guest_session_id"),
         Index("ix_boms_project_id", "project_id"),
-        Index("ix_boms_parent_bom", "parent_bom_id"),
-        Index("ix_boms_analysis_status", "analysis_status"),
-        Index("ix_boms_visibility_level", "report_visibility_level"),
-        Index("ix_boms_checksum", "source_checksum"),
         {"schema": "bom"},
     )
 
-    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     uploaded_by_user_id = Column(UUID(as_uuid=False), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
     guest_session_id = Column(UUID(as_uuid=False), ForeignKey("auth.guest_sessions.id", ondelete="SET NULL"), nullable=True)
-    project_id = Column(UUID(as_uuid=False), nullable=True)  # FK added by ALTER in bootstrap
-    parent_bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="SET NULL"), nullable=True)
-    revision_no = Column(Integer, nullable=False, default=1)
-    revision_label = Column(Text, nullable=True)
-    revision_state = Column(Text, nullable=False, default="current")
-    revision_notes = Column(Text, nullable=True)
-    source_drawing_asset_id = Column(UUID(as_uuid=False), nullable=True)
-    source_document_asset_id = Column(UUID(as_uuid=False), nullable=True)
+    project_id = Column(UUID(as_uuid=False), nullable=True)
     source_file_name = Column(Text, nullable=False, default="upload.csv")
     source_file_type = Column(Text, nullable=False, default="csv")
     source_checksum = Column(Text, nullable=True)
-    source_uri = Column(Text, nullable=True)
     original_filename = Column(Text, nullable=True)
     file_size_bytes = Column(BigInteger, nullable=True)
-    name = Column(Text, nullable=True)
-    description = Column(Text, nullable=True)
-    delivery_country_id = Column(UUID(as_uuid=False), nullable=True)
     target_currency = Column(String(3), nullable=False, default="USD")
+    delivery_location = Column(Text, nullable=True)
     priority = Column(Text, nullable=False, default="balanced")
     status = Column(Text, nullable=False, default="uploaded")
-    # H-4 DEPRECATED: These lifecycle columns are kept for backward compat.
-    # Canonical source of truth is the Project model.
-    # New code should read/write lifecycle state on Project, not BOM.
-    analysis_status = Column(Text, nullable=False, default="guest_preview")
-    report_visibility_level = Column(Text, nullable=False, default="preview")
-    unlock_status = Column(Text, nullable=False, default="locked")
-    workspace_route = Column(Text, nullable=True)
+    total_parts = Column(Integer, nullable=False, default=0)
     raw_payload = Column(JSONB, nullable=False, default=dict)
     parse_summary = Column(JSONB, nullable=False, default=dict)
-    total_parts = Column(Integer, nullable=False, default=0)
-    total_custom_parts = Column(Integer, nullable=False, default=0)
-    total_standard_parts = Column(Integer, nullable=False, default=0)
-    total_raw_parts = Column(Integer, nullable=False, default=0)
-    model_metadata = Column(JSONB, nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Backward-compat aliases
-    @property
-    def user_id(self):
-        return self.uploaded_by_user_id
-
-    @user_id.setter
-    def user_id(self, value):
-        self.uploaded_by_user_id = value
-
-    @property
-    def file_name(self):
-        return self.source_file_name
-
-    @file_name.setter
-    def file_name(self, value):
-        self.source_file_name = value or "upload.csv"
-
-    @property
-    def file_type(self):
-        return self.source_file_type
-
-    @file_type.setter
-    def file_type(self, value):
-        self.source_file_type = value or "csv"
-
-    @property
-    def raw_data(self):
-        return self.raw_payload
-
-    @raw_data.setter
-    def raw_data(self, value):
-        self.raw_payload = value or {}
-
-    @property
-    def session_token(self):
-        """Retrieve token from guest session if linked."""
-        return getattr(self, "_session_token_cache", None)
-
-    @session_token.setter
-    def session_token(self, value):
-        self._session_token_cache = value
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     user = relationship("User", back_populates="boms", foreign_keys=[uploaded_by_user_id])
     parts = relationship("BOMPart", back_populates="bom", cascade="all, delete-orphan")
@@ -113,19 +53,14 @@ class BOMPart(Base):
     __table_args__ = (
         Index("ix_bom_parts_bom_id", "bom_id"),
         Index("ix_bom_parts_canonical_key", "canonical_part_key"),
-        Index("ix_bom_parts_category", "category_code"),
-        Index("ix_bom_parts_procurement", "procurement_class"),
-        Index("ix_bom_parts_mpn", "mpn"),
-        Index("ix_bom_parts_manufacturer", "manufacturer"),
         {"schema": "bom"},
     )
 
-    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False)
     item_id = Column(Text, nullable=False, default="")
     raw_text = Column(Text, nullable=True)
     normalized_text = Column(Text, nullable=True)
-    canonical_name = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
     quantity = Column(Numeric(18, 6), nullable=False, default=1)
     unit = Column(Text, nullable=True)
@@ -133,75 +68,48 @@ class BOMPart(Base):
     mpn = Column(Text, nullable=True)
     manufacturer = Column(Text, nullable=True)
     supplier_name = Column(Text, nullable=True)
-    category_id = Column(UUID(as_uuid=False), nullable=True)
     category_code = Column(Text, nullable=True)
     procurement_class = Column(Text, nullable=False, default="unknown")
     material = Column(Text, nullable=True)
-    material_family = Column(Text, nullable=True)
-    material_grade = Column(Text, nullable=True)
     material_form = Column(Text, nullable=True)
     geometry = Column(Text, nullable=True)
     tolerance = Column(Text, nullable=True)
-    finish = Column(Text, nullable=True)
-    operation_type = Column(Text, nullable=True)
-    process_hint = Column(Text, nullable=True)
     secondary_ops = Column(JSONB, nullable=False, default=list)
     specs = Column(JSONB, nullable=False, default=dict)
     classification_confidence = Column(Numeric(12, 6), nullable=False, default=0)
     classification_reason = Column(Text, nullable=True)
-    classification_path = Column(JSONB, nullable=False, default=list)
     has_mpn = Column(Boolean, nullable=False, default=False)
-    has_brand = Column(Boolean, nullable=False, default=False)
-    is_generic = Column(Boolean, nullable=False, default=False)
-    is_raw = Column(Boolean, nullable=False, default=False)
     is_custom = Column(Boolean, nullable=False, default=False)
+    is_raw = Column(Boolean, nullable=False, default=False)
     rfq_required = Column(Boolean, nullable=False, default=False)
     drawing_required = Column(Boolean, nullable=False, default=False)
-    risk_level = Column(Text, nullable=False, default="medium")
-    source_row = Column(Integer, nullable=True)
-    source_row_hash = Column(Text, nullable=True)
     canonical_part_key = Column(Text, nullable=True)
-    part_master_id = Column(UUID(as_uuid=False), nullable=True)
     review_status = Column(Text, nullable=True, default="auto")
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Backward-compat aliases
-    @property
-    def part_name(self):
-        return self.canonical_name or self.description or self.normalized_text or ""
-
-    @part_name.setter
-    def part_name(self, value):
-        self.canonical_name = value
-
-    @property
-    def category(self):
-        return self.category_code or self.procurement_class or ""
-
-    @category.setter
-    def category(self, value):
-        self.category_code = value
-
-    @property
-    def geometry_type(self):
-        return self.geometry
-
-    @geometry_type.setter
-    def geometry_type(self, value):
-        self.geometry = value
-
-    @property
-    def notes(self):
-        return self.raw_text or ""
-
-    @notes.setter
-    def notes(self, value):
-        self.raw_text = value
-
-    @property
-    def part_type(self):
-        return "custom" if self.is_custom else "standard"
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     bom = relationship("BOM", back_populates="parts")
+
+
+class AnalysisResult(Base):
+    __tablename__ = "analysis_results"
+    __table_args__ = (
+        Index("ix_analysis_bom", "bom_id"),
+        {"schema": "bom"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False, unique=True)
+    user_id = Column(UUID(as_uuid=False), nullable=True)
+    guest_session_id = Column(UUID(as_uuid=False), nullable=True)
+    project_id = Column(UUID(as_uuid=False), nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    report_json = Column(JSONB, nullable=False, default=dict)
+    summary_json = Column(JSONB, nullable=False, default=dict)
+    strategy_json = Column(JSONB, nullable=False, default=dict)
+    scoring_json = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    bom = relationship("BOM", back_populates="analysis")

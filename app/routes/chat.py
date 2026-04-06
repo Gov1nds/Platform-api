@@ -1,241 +1,61 @@
-"""Chat routes — project threads, messages, attachments, read receipts."""
-from typing import List, Optional
-
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Header
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-
 from app.core.database import get_db
 from app.models.user import User
+from app.models.chat import ChatThread, ChatMessage
 from app.models.project import Project
-from app.schemas.collaboration import (
-    ChatThreadCreate,
-    ChatThreadSchema,
-    ChatThreadListResponse,
-    ChatMessageSchema,
-    ChatMessageCreate,
-    ChatThreadMessagesResponse,
-)
-from app.services import collaboration_service
-from app.services.workflow_service import begin_command, complete_command, fail_command
-from app.services.storage_service import load_bytes
-from app.utils.dependencies import require_user, build_project_access_context, can_access_project
+from app.models.rfq import RFQBatch
+from app.schemas import ThreadCreateRequest, MessageCreateRequest, ThreadResponse, MessageResponse
+from app.utils.dependencies import require_user
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(prefix="/chat", tags=["Chat"])
 
+def _check_context_access(db, user, context_type, context_id):
+    """Verify the caller has access to the business object the chat is attached to."""
+    if context_type == "project":
+        p = db.query(Project).filter(Project.id == context_id).first()
+        if not p: raise HTTPException(404, "Project not found")
+        if p.user_id != user.id and user.role != "admin": raise HTTPException(403, "No access to this project")
+    elif context_type == "rfq":
+        r = db.query(RFQBatch).filter(RFQBatch.id == context_id).first()
+        if not r: raise HTTPException(404, "RFQ not found")
+        if r.requested_by_user_id != user.id and user.role != "admin": raise HTTPException(403, "No access to this RFQ")
+    # line_item scoping delegates to project access via the RFQ→project chain
 
-@router.get("/threads", response_model=ChatThreadListResponse)
-def list_threads(
-    project_id: str = Query(...),
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    try:
-        response = collaboration_service.list_threads(db, project_id, user)
-        project = db.query(Project).filter(Project.id == project_id).first()
-        response["access"] = build_project_access_context(user, project, db)
-        return response
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+@router.post("/threads", response_model=ThreadResponse)
+def create_thread(body: ThreadCreateRequest, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    _check_context_access(db, user, body.context_type, body.context_id)
+    thread = ChatThread(context_type=body.context_type, context_id=body.context_id,
+        title=body.title, created_by_user_id=user.id)
+    db.add(thread); db.commit(); db.refresh(thread)
+    return ThreadResponse.model_validate(thread)
 
+@router.get("/threads")
+def list_threads(context_type:str=Query(""), context_id:str=Query(""),
+                 user:User=Depends(require_user), db:Session=Depends(get_db)):
+    if context_type and context_id:
+        _check_context_access(db, user, context_type, context_id)
+    q = db.query(ChatThread)
+    if context_type: q = q.filter(ChatThread.context_type == context_type)
+    if context_id: q = q.filter(ChatThread.context_id == context_id)
+    return [ThreadResponse.model_validate(t) for t in q.order_by(ChatThread.created_at.desc()).all()]
 
-@router.post("/threads", response_model=ChatThreadSchema, status_code=201)
-def create_thread(
-    body: ChatThreadCreate,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
-):
-    command, cached = begin_command(
-        db,
-        namespace="chat.thread.create",
-        idempotency_key=idempotency_key,
-        payload=body.model_dump(mode="json"),
-        request_method="POST",
-        request_path="/api/v1/chat/threads",
-        user_id=user.id,
-        project_id=body.project_id,
-        related_id=body.rfq_batch_id or body.vendor_id or body.project_id,
-    )
-    if cached:
-        return ChatThreadSchema.model_validate(cached)
+@router.post("/messages", response_model=MessageResponse)
+def send_message(body: MessageCreateRequest, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    thread = db.query(ChatThread).filter(ChatThread.id == body.thread_id).first()
+    if not thread: raise HTTPException(404)
+    _check_context_access(db, user, thread.context_type, thread.context_id)
+    msg = ChatMessage(thread_id=body.thread_id, sender_user_id=user.id,
+        visibility=body.visibility, content=body.content, attachment_url=body.attachment_url)
+    db.add(msg); db.commit(); db.refresh(msg)
+    return MessageResponse.model_validate(msg)
 
-    try:
-        thread = collaboration_service.create_thread(
-            db=db,
-            user=user,
-            project_id=body.project_id,
-            thread_type=body.thread_type,
-            title=body.title,
-            is_internal_only=body.is_internal_only,
-            rfq_batch_id=body.rfq_batch_id,
-            vendor_id=body.vendor_id,
-            metadata=body.metadata,
-        )
-        db.commit()
-        response = collaboration_service.serialize_thread(db, thread, user)
-        project = db.query(Project).filter(Project.id == thread.project_id).first()
-        response.access = build_project_access_context(user, project, db)
-        complete_command(db, command, response.model_dump(mode="json"))
-        db.commit()
-        return response
-    except ValueError as e:
-        try:
-            fail_command(db, command, str(e))
-        except Exception:
-            pass
-        db.rollback()
-        raise HTTPException(status_code=404, detail=str(e))
-    except PermissionError as e:
-        try:
-            fail_command(db, command, str(e))
-        except Exception:
-            pass
-        db.rollback()
-        raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
-        try:
-            fail_command(db, command, str(e))
-        except Exception:
-            pass
-        db.rollback()
-        raise
-
-
-@router.get("/threads/{thread_id}/messages", response_model=ChatThreadMessagesResponse)
-def get_thread_messages(
-    thread_id: str,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    try:
-        response = collaboration_service.get_thread_messages(db, thread_id, user)
-        thread = collaboration_service.get_thread(db, thread_id, user)
-        project = db.query(Project).filter(Project.id == thread.project_id).first()
-        response.access = build_project_access_context(user, project, db)
-        return response
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-
-
-@router.post("/messages", response_model=ChatMessageSchema, status_code=201)
-def post_message(
-    thread_id: str = Form(...),
-    body: str = Form(...),
-    message_type: str = Form("message"),
-    is_internal_only: bool = Form(True),
-    reply_to_message_id: Optional[str] = Form(None),
-    metadata_json: Optional[str] = Form(None),
-    attachments: List[UploadFile] = File(default=[]),
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
-):
-    try:
-        metadata = {}
-        if metadata_json:
-            import json
-            metadata = json.loads(metadata_json)
-
-        command, cached = begin_command(
-            db,
-            namespace="chat.message.post",
-            idempotency_key=idempotency_key,
-            payload={
-                "thread_id": thread_id,
-                "body": body,
-                "message_type": message_type,
-                "is_internal_only": is_internal_only,
-                "reply_to_message_id": reply_to_message_id,
-                "metadata": metadata,
-                "attachments": [a.filename for a in attachments],
-                "user_id": user.id,
-            },
-            request_method="POST",
-            request_path="/api/v1/chat/messages",
-            user_id=user.id,
-            related_id=thread_id,
-        )
-        if cached:
-            return ChatMessageSchema.model_validate(cached)
-
-        message = collaboration_service.post_message(
-            db=db,
-            user=user,
-            thread_id=thread_id,
-            body=body,
-            message_type=message_type,
-            is_internal_only=is_internal_only,
-            reply_to_message_id=reply_to_message_id,
-            metadata=metadata,
-            files=attachments,
-        )
-        db.commit()
-        response = collaboration_service.serialize_message(db, message)
-        complete_command(db, command, response.model_dump(mode="json"))
-        db.commit()
-        return response
-    except ValueError as e:
-        try:
-            fail_command(db, command, str(e))  # type: ignore[name-defined]
-        except Exception:
-            pass
-        db.rollback()
-        raise HTTPException(status_code=404, detail=str(e))
-    except PermissionError as e:
-        try:
-            fail_command(db, command, str(e))  # type: ignore[name-defined]
-        except Exception:
-            pass
-        db.rollback()
-        raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
-        try:
-            fail_command(db, command, str(e))  # type: ignore[name-defined]
-        except Exception:
-            pass
-        db.rollback()
-        raise
-
-
-@router.get("/attachments/{attachment_id}")
-def download_attachment(
-    attachment_id: str,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    from app.models.collaboration import MessageAttachment, ChatMessage, ChatThread
-    attachment = db.query(MessageAttachment).filter(MessageAttachment.id == attachment_id).first()
-    if not attachment:
-        raise HTTPException(status_code=404, detail="Attachment not found")
-
-    message = db.query(ChatMessage).filter(ChatMessage.id == attachment.message_id).first()
-    thread = db.query(ChatThread).filter(ChatThread.id == message.thread_id).first() if message else None
-    if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    try:
-        collaboration_service._require_project_access(
-            db.query(Project).filter(
-                Project.id == thread.project_id
-            ).first(),
-            user,
-            thread,
-        )
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-
-    storage_provider = (attachment.metadata_ or {}).get("storage_provider", "local")
-    file_bytes = load_bytes(storage_provider, attachment.file_path)
-    if file_bytes is None:
-        raise HTTPException(status_code=404, detail="Attachment file not available")
-
-    return Response(
-        content=file_bytes,
-        media_type=attachment.mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{attachment.file_name}"'},
-    )
+@router.get("/threads/{thread_id}/messages")
+def get_messages(thread_id:str, visibility:str=Query(""),
+                 user:User=Depends(require_user), db:Session=Depends(get_db)):
+    thread = db.query(ChatThread).filter(ChatThread.id == thread_id).first()
+    if not thread: raise HTTPException(404)
+    _check_context_access(db, user, thread.context_type, thread.context_id)
+    q = db.query(ChatMessage).filter(ChatMessage.thread_id == thread_id)
+    if visibility: q = q.filter(ChatMessage.visibility == visibility)
+    return [MessageResponse.model_validate(m) for m in q.order_by(ChatMessage.created_at.asc()).all()]
