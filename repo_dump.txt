@@ -1,0 +1,2497 @@
+=== FILE: .\.gitignore ===
+venv/
+__pycache__/
+*.pyc
+.env
+*.db
+
+=== FILE: .\dump_repo.py ===
+import os
+
+IGNORE_DIRS = {"node_modules", ".git", "dist", "build", "__pycache__"}
+OUTPUT_FILE = "repo_dump.txt"
+
+def should_ignore(path):
+    return any(part in IGNORE_DIRS for part in path.split(os.sep))
+
+with open(OUTPUT_FILE, "w", encoding="utf-8") as out:
+    for root, dirs, files in os.walk("."):
+        dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+
+        for file in files:
+            filepath = os.path.join(root, file)
+
+            if should_ignore(filepath):
+                continue
+
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    out.write(f"=== FILE: {filepath} ===\n")
+                    out.write(f.read())
+                    out.write("\n\n")
+            except:
+                pass
+
+=== FILE: .\Procfile ===
+web: uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+
+
+=== FILE: .\repo_dump.txt ===
+
+
+=== FILE: .\requirements.txt ===
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+alembic==1.13.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9
+httpx==0.27.0
+python-dotenv==1.0.1
+pydantic==2.7.4
+pydantic-settings==2.3.4
+openpyxl==3.1.5
+
+
+=== FILE: .\app\main.py ===
+import logging
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import settings
+from app.core.database import init_db
+from app.routes import auth, bom, projects, vendors, rfq, chat, orders, vendor_portal, analytics, intake
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger("main")
+
+app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
+app.add_middleware(CORSMiddleware, allow_origins=settings.ALLOWED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+prefix = settings.API_PREFIX
+for r in [auth, bom, projects, vendors, rfq, chat, orders, vendor_portal, analytics, intake]:
+    app.include_router(r.router, prefix=prefix)
+
+@app.on_event("startup")
+def startup():
+    logger.info("Initializing database...")
+    init_db()
+    logger.info(f"{settings.PROJECT_NAME} v{settings.VERSION} started")
+
+@app.get("/", tags=["System"])
+def root():
+    return {"service": settings.PROJECT_NAME, "version": settings.VERSION, "status": "operational"}
+
+@app.get("/health", tags=["System"])
+def health():
+    return {"status": "ok"}
+
+
+=== FILE: .\app\__init__.py ===
+
+
+=== FILE: .\app\core\config.py ===
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _bool(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes"}
+
+
+def _db_url() -> str:
+    raw = os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/pgi")
+    if raw.startswith("postgres://"):
+        raw = raw.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif raw.startswith("postgresql://") and "+psycopg2" not in raw:
+        raw = raw.replace("postgresql://", "postgresql+psycopg2://", 1)
+    return raw
+
+
+class Settings:
+    PROJECT_NAME: str = "PGI Platform"
+    VERSION: str = "3.0.0"
+    API_PREFIX: str = "/api/v1"
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    DATABASE_URL: str = _db_url()
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-me")
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+    BOM_ANALYZER_URL: str = os.getenv("BOM_ANALYZER_URL", "http://localhost:8001")
+    INTERNAL_API_KEY: str = os.getenv("INTERNAL_API_KEY", "")
+    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "./uploads")
+    ALLOWED_ORIGINS: list[str] = [
+        o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if o.strip()
+    ]
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT == "production"
+
+
+settings = Settings()
+Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+
+
+=== FILE: .\app\core\database.py ===
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from app.core.config import settings
+
+engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def init_db():
+    with engine.connect() as conn:
+        for schema in ("auth", "bom", "projects", "sourcing", "pricing", "ops", "market", "finance", "logistics"):
+            conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+        conn.commit()
+    Base.metadata.create_all(bind=engine)
+
+
+=== FILE: .\app\core\security.py ===
+from datetime import datetime, timedelta, timezone
+from passlib.context import CryptContext
+from jose import jwt, JWTError
+from app.core.config import settings
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode["exp"] = expire
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_token(token: str) -> dict | None:
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError:
+        return None
+
+
+=== FILE: .\app\core\__init__.py ===
+
+
+=== FILE: .\app\models\bom.py ===
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Numeric, Boolean, BigInteger, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
+class BOM(Base):
+    __tablename__ = "boms"
+    __table_args__ = (
+        Index("ix_boms_user_id", "uploaded_by_user_id"),
+        Index("ix_boms_guest_session", "guest_session_id"),
+        Index("ix_boms_project_id", "project_id"),
+        {"schema": "bom"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    uploaded_by_user_id = Column(UUID(as_uuid=False), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
+    guest_session_id = Column(UUID(as_uuid=False), ForeignKey("auth.guest_sessions.id", ondelete="SET NULL"), nullable=True)
+    project_id = Column(UUID(as_uuid=False), nullable=True)
+    source_file_name = Column(Text, nullable=False, default="upload.csv")
+    source_file_type = Column(Text, nullable=False, default="csv")
+    source_checksum = Column(Text, nullable=True)
+    original_filename = Column(Text, nullable=True)
+    file_size_bytes = Column(BigInteger, nullable=True)
+    target_currency = Column(String(3), nullable=False, default="USD")
+    delivery_location = Column(Text, nullable=True)
+    priority = Column(Text, nullable=False, default="balanced")
+    status = Column(Text, nullable=False, default="uploaded")
+    total_parts = Column(Integer, nullable=False, default=0)
+    raw_payload = Column(JSONB, nullable=False, default=dict)
+    parse_summary = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    user = relationship("User", back_populates="boms", foreign_keys=[uploaded_by_user_id])
+    parts = relationship("BOMPart", back_populates="bom", cascade="all, delete-orphan")
+    analysis = relationship("AnalysisResult", back_populates="bom", uselist=False, cascade="all, delete-orphan")
+    rfqs = relationship("RFQBatch", back_populates="bom")
+
+
+class BOMPart(Base):
+    __tablename__ = "bom_parts"
+    __table_args__ = (
+        Index("ix_bom_parts_bom_id", "bom_id"),
+        Index("ix_bom_parts_canonical_key", "canonical_part_key"),
+        {"schema": "bom"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False)
+    item_id = Column(Text, nullable=False, default="")
+    raw_text = Column(Text, nullable=True)
+    normalized_text = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    quantity = Column(Numeric(18, 6), nullable=False, default=1)
+    unit = Column(Text, nullable=True)
+    part_number = Column(Text, nullable=True)
+    mpn = Column(Text, nullable=True)
+    manufacturer = Column(Text, nullable=True)
+    supplier_name = Column(Text, nullable=True)
+    category_code = Column(Text, nullable=True)
+    procurement_class = Column(Text, nullable=False, default="unknown")
+    material = Column(Text, nullable=True)
+    material_form = Column(Text, nullable=True)
+    geometry = Column(Text, nullable=True)
+    tolerance = Column(Text, nullable=True)
+    secondary_ops = Column(JSONB, nullable=False, default=list)
+    specs = Column(JSONB, nullable=False, default=dict)
+    classification_confidence = Column(Numeric(12, 6), nullable=False, default=0)
+    classification_reason = Column(Text, nullable=True)
+    has_mpn = Column(Boolean, nullable=False, default=False)
+    is_custom = Column(Boolean, nullable=False, default=False)
+    is_raw = Column(Boolean, nullable=False, default=False)
+    rfq_required = Column(Boolean, nullable=False, default=False)
+    drawing_required = Column(Boolean, nullable=False, default=False)
+    canonical_part_key = Column(Text, nullable=True)
+    review_status = Column(Text, nullable=True, default="auto")
+    metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    bom = relationship("BOM", back_populates="parts")
+
+
+class AnalysisResult(Base):
+    __tablename__ = "analysis_results"
+    __table_args__ = (
+        Index("ix_analysis_bom", "bom_id"),
+        {"schema": "bom"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False, unique=True)
+    user_id = Column(UUID(as_uuid=False), nullable=True)
+    guest_session_id = Column(UUID(as_uuid=False), nullable=True)
+    project_id = Column(UUID(as_uuid=False), nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    report_json = Column(JSONB, nullable=False, default=dict)
+    summary_json = Column(JSONB, nullable=False, default=dict)
+    strategy_json = Column(JSONB, nullable=False, default=dict)
+    scoring_json = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    bom = relationship("BOM", back_populates="analysis")
+
+
+=== FILE: .\app\models\chat.py ===
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, Text, DateTime, ForeignKey, Boolean, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
+class ChatThread(Base):
+    __tablename__ = "chat_threads"
+    __table_args__ = (
+        Index("ix_ct_context", "context_type", "context_id"),
+        {"schema": "ops"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    context_type = Column(Text, nullable=False)  # project, rfq, line_item
+    context_id = Column(UUID(as_uuid=False), nullable=False)
+    title = Column(Text, nullable=True)
+    created_by_user_id = Column(UUID(as_uuid=False), nullable=True)
+    is_archived = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    messages = relationship("ChatMessage", back_populates="thread", cascade="all, delete-orphan")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        Index("ix_cm_thread", "thread_id"),
+        {"schema": "ops"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    thread_id = Column(UUID(as_uuid=False), ForeignKey("ops.chat_threads.id", ondelete="CASCADE"), nullable=False)
+    sender_user_id = Column(UUID(as_uuid=False), nullable=True)
+    sender_vendor_user_id = Column(UUID(as_uuid=False), nullable=True)
+    visibility = Column(Text, nullable=False, default="internal")  # internal, vendor_visible
+    content = Column(Text, nullable=False)
+    attachment_url = Column(Text, nullable=True)
+    message_metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+    thread = relationship("ChatThread", back_populates="messages")
+
+
+=== FILE: .\app\models\events.py ===
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, Text, DateTime, Integer
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from app.core.database import Base
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
+class PlatformEvent(Base):
+    __tablename__ = "platform_events"
+    __table_args__ = {"schema": "ops"}
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    event_type = Column(Text, nullable=False)
+    actor_id = Column(UUID(as_uuid=False), nullable=True)
+    actor_type = Column(Text, nullable=False, default="user")
+    resource_type = Column(Text, nullable=True)
+    resource_id = Column(UUID(as_uuid=False), nullable=True)
+    payload = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+
+class ReportSnapshot(Base):
+    __tablename__ = "report_snapshots"
+    __table_args__ = {"schema": "ops"}
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    report_type = Column(Text, nullable=False)
+    scope_type = Column(Text, nullable=True)
+    scope_id = Column(UUID(as_uuid=False), nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    filters_json = Column(JSONB, nullable=False, default=dict)
+    data_json = Column(JSONB, nullable=False, default=dict)
+    summary_json = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+
+=== FILE: .\app\models\logistics.py ===
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, Text, DateTime, ForeignKey, Numeric, Boolean, Integer, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
+class Shipment(Base):
+    __tablename__ = "shipments"
+    __table_args__ = (
+        Index("ix_shipments_po", "po_id"),
+        {"schema": "logistics"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    po_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.purchase_orders.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(UUID(as_uuid=False), nullable=True)
+    carrier = Column(Text, nullable=True)
+    tracking_number = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="created")
+    origin = Column(Text, nullable=True)
+    destination = Column(Text, nullable=True)
+    eta = Column(DateTime(timezone=True), nullable=True)
+    actual_delivery = Column(DateTime(timezone=True), nullable=True)
+    shipment_metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    milestones = relationship("ShipmentMilestone", back_populates="shipment", cascade="all, delete-orphan")
+
+
+class ShipmentMilestone(Base):
+    __tablename__ = "shipment_milestones"
+    __table_args__ = (
+        Index("ix_sm_shipment", "shipment_id"),
+        {"schema": "logistics"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    shipment_id = Column(UUID(as_uuid=False), ForeignKey("logistics.shipments.id", ondelete="CASCADE"), nullable=False)
+    milestone_type = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="completed")
+    location = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    source = Column(Text, nullable=True)
+    is_delay = Column(Boolean, nullable=False, default=False)
+    attachment_url = Column(Text, nullable=True)
+    occurred_at = Column(DateTime(timezone=True), default=_now)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+    shipment = relationship("Shipment", back_populates="milestones")
+
+
+=== FILE: .\app\models\market.py ===
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Text, DateTime, Numeric, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from app.core.database import Base
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
+class FXRate(Base):
+    __tablename__ = "fx_rates"
+    __table_args__ = (
+        Index("ix_fx_pair", "base_currency", "quote_currency"),
+        {"schema": "market"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    base_currency = Column(String(3), nullable=False)
+    quote_currency = Column(String(3), nullable=False)
+    rate = Column(Numeric(18, 8), nullable=False)
+    source = Column(Text, nullable=True)
+    confidence = Column(Numeric(6, 4), nullable=False, default=1.0)
+    effective_from = Column(DateTime(timezone=True), nullable=False, default=_now)
+    effective_to = Column(DateTime(timezone=True), nullable=True)
+    last_verified_at = Column(DateTime(timezone=True), default=_now)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+
+class FreightRate(Base):
+    __tablename__ = "freight_rates"
+    __table_args__ = (
+        Index("ix_freight_route", "origin_region", "destination_region"),
+        {"schema": "market"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    origin_region = Column(Text, nullable=False)
+    destination_region = Column(Text, nullable=False)
+    mode = Column(Text, nullable=False, default="sea")
+    rate_per_kg = Column(Numeric(18, 6), nullable=True)
+    rate_per_cbm = Column(Numeric(18, 6), nullable=True)
+    min_charge = Column(Numeric(18, 6), nullable=True)
+    currency = Column(String(3), nullable=False, default="USD")
+    transit_days = Column(Numeric(12, 2), nullable=True)
+    source = Column(Text, nullable=True)
+    confidence = Column(Numeric(6, 4), nullable=False, default=0.7)
+    effective_from = Column(DateTime(timezone=True), nullable=False, default=_now)
+    effective_to = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+
+class TariffSchedule(Base):
+    __tablename__ = "tariff_schedules"
+    __table_args__ = (
+        Index("ix_tariff_hs", "hs_code"),
+        {"schema": "market"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    hs_code = Column(String(20), nullable=False)
+    origin_country = Column(String(3), nullable=False)
+    destination_country = Column(String(3), nullable=False)
+    duty_rate_pct = Column(Numeric(8, 4), nullable=False, default=0)
+    additional_taxes_pct = Column(Numeric(8, 4), nullable=False, default=0)
+    source = Column(Text, nullable=True)
+    confidence = Column(Numeric(6, 4), nullable=False, default=0.6)
+    effective_from = Column(DateTime(timezone=True), nullable=False, default=_now)
+    effective_to = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+
+class CommodityIndex(Base):
+    __tablename__ = "commodity_indices"
+    __table_args__ = (
+        Index("ix_commodity_name", "commodity_name"),
+        {"schema": "market"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    commodity_name = Column(Text, nullable=False)
+    unit = Column(Text, nullable=False, default="kg")
+    price = Column(Numeric(18, 6), nullable=False)
+    currency = Column(String(3), nullable=False, default="USD")
+    source = Column(Text, nullable=True)
+    confidence = Column(Numeric(6, 4), nullable=False, default=0.7)
+    effective_from = Column(DateTime(timezone=True), nullable=False, default=_now)
+    effective_to = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+
+=== FILE: .\app\models\project.py ===
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Numeric, Boolean, Float, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+def _now(): return datetime.now(timezone.utc)
+def _uuid(): return str(uuid.uuid4())
+
+WORKFLOW_STAGES = [
+    "draft","analyzing","analyzed","strategy","vendor_match",
+    "rfq_pending","rfq_sent","quote_compare","negotiation",
+    "vendor_selected","po_issued","in_production","qc_inspection",
+    "shipped","delivered","completed","cancelled",
+]
+
+class Project(Base):
+    __tablename__ = "projects"
+    __table_args__ = (
+        Index("ix_projects_user_id","user_id"),
+        Index("ix_projects_guest_session","guest_session_id"),
+        {"schema":"projects"},
+    )
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
+    guest_session_id = Column(UUID(as_uuid=False), ForeignKey("auth.guest_sessions.id", ondelete="SET NULL"), nullable=True)
+    sourcing_case_id = Column(UUID(as_uuid=False), nullable=True)
+    name = Column(Text, nullable=False, default="Uploaded BOM")
+    file_name = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="draft")
+    visibility = Column(Text, nullable=False, default="owner_only")
+    total_parts = Column(Integer, nullable=False, default=0)
+    average_cost = Column(Numeric(18,6), nullable=True)
+    cost_range_low = Column(Numeric(18,6), nullable=True)
+    cost_range_high = Column(Numeric(18,6), nullable=True)
+    lead_time_days = Column(Numeric(12,2), nullable=True)
+    decision_summary = Column(Text, nullable=True)
+    current_rfq_id = Column(UUID(as_uuid=False), nullable=True)
+    current_po_id = Column(UUID(as_uuid=False), nullable=True)
+    analyzer_report = Column(JSONB, nullable=False, default=dict)
+    strategy = Column(JSONB, nullable=False, default=dict)
+    project_metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+    user = relationship("User", back_populates="projects")
+    events = relationship("ProjectEvent", back_populates="project", cascade="all, delete-orphan")
+    acl_entries = relationship("ProjectACL", back_populates="project", cascade="all, delete-orphan")
+
+class ProjectACL(Base):
+    __tablename__ = "project_acl"
+    __table_args__ = (
+        Index("ix_pacl_project","project_id"),
+        Index("ix_pacl_principal","principal_type","principal_id"),
+        {"schema":"projects"},
+    )
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=False)
+    principal_type = Column(Text, nullable=False)
+    principal_id = Column(UUID(as_uuid=False), nullable=False)
+    role = Column(Text, nullable=False, default="viewer")
+    granted_at = Column(DateTime(timezone=True), default=_now)
+    project = relationship("Project", back_populates="acl_entries")
+
+class ProjectEvent(Base):
+    __tablename__ = "project_events"
+    __table_args__ = {"schema":"projects"}
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=False)
+    event_type = Column(Text, nullable=False)
+    old_status = Column(Text, nullable=True)
+    new_status = Column(Text, nullable=True)
+    payload = Column(JSONB, nullable=False, default=dict)
+    actor_user_id = Column(UUID(as_uuid=False), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    project = relationship("Project", back_populates="events")
+
+class SearchSession(Base):
+    __tablename__ = "search_sessions"
+    __table_args__ = (
+        Index("ix_ss_user","user_id"),
+        Index("ix_ss_guest","guest_session_id"),
+        {"schema":"projects"},
+    )
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    user_id = Column(UUID(as_uuid=False), nullable=True)
+    guest_session_id = Column(UUID(as_uuid=False), nullable=True)
+    session_token = Column(String(120), nullable=True)
+    query_text = Column(Text, nullable=True)
+    query_type = Column(String(40), nullable=False, default="component")
+    input_type = Column(String(40), nullable=False, default="text")
+    delivery_location = Column(Text, nullable=True)
+    target_currency = Column(String(10), nullable=True, default="USD")
+    results_json = Column(JSONB, nullable=False, default=dict)
+    analysis_payload = Column(JSONB, nullable=False, default=dict)
+    promoted_to = Column(String(40), nullable=True)
+    promoted_to_id = Column(UUID(as_uuid=False), nullable=True)
+    status = Column(String(40), nullable=False, default="active")
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+class SourcingCase(Base):
+    __tablename__ = "sourcing_cases"
+    __table_args__ = (
+        Index("ix_sc_user","user_id"),
+        Index("ix_sc_guest","guest_session_id"),
+        {"schema":"projects"},
+    )
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    user_id = Column(UUID(as_uuid=False), nullable=True)
+    guest_session_id = Column(UUID(as_uuid=False), nullable=True)
+    session_token = Column(String(120), nullable=True)
+    search_session_id = Column(UUID(as_uuid=False), nullable=True)
+    name = Column(Text, nullable=False, default="Saved search")
+    query_text = Column(Text, nullable=True)
+    analysis_payload = Column(JSONB, nullable=False, default=dict)
+    vendor_shortlist = Column(JSONB, nullable=False, default=list)
+    notes = Column(Text, nullable=True)
+    promoted_to_project_id = Column(UUID(as_uuid=False), nullable=True)
+    status = Column(String(40), nullable=False, default="active")
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+class IntakeSession(Base):
+    __tablename__ = "intake_sessions"
+    __table_args__ = (
+        Index("ix_intake_user","user_id"),
+        Index("ix_intake_token","session_token"),
+        {"schema":"projects"},
+    )
+    id = Column(String(36), primary_key=True, default=_uuid)
+    user_id = Column(String(36), nullable=True)
+    guest_session_id = Column(String(36), ForeignKey("auth.guest_sessions.id", ondelete="SET NULL"), nullable=True)
+    session_token = Column(String(120), nullable=True)
+    input_type = Column(String(40), nullable=False, default="auto")
+    raw_input_text = Column(Text, nullable=True)
+    source_file_name = Column(Text, nullable=True)
+    source_file_path = Column(Text, nullable=True)
+    delivery_location = Column(String(120), nullable=True)
+    target_currency = Column(String(20), nullable=True)
+    priority = Column(String(20), nullable=True, default="cost")
+    item_count = Column(Integer, nullable=False, default=0)
+    recommended_flow = Column(String(40), nullable=False, default="search_session")
+    status = Column(String(40), nullable=False, default="received")
+    parsed_payload = Column(JSONB, nullable=False, default=dict)
+    analysis_payload = Column(JSONB, nullable=False, default=dict)
+    bom_id = Column(String(36), nullable=True)
+    project_id = Column(String(36), nullable=True)
+    search_session_id = Column(String(36), nullable=True)
+    sourcing_case_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+    items = relationship("IntakeItem", back_populates="session", cascade="all, delete-orphan")
+
+class IntakeItem(Base):
+    __tablename__ = "intake_items"
+    __table_args__ = (Index("ix_ii_session","session_id"),{"schema":"projects"})
+    id = Column(String(36), primary_key=True, default=_uuid)
+    session_id = Column(String(36), ForeignKey("projects.intake_sessions.id", ondelete="CASCADE"), nullable=False)
+    line_no = Column(Integer, nullable=False, default=1)
+    raw_text = Column(Text, nullable=False, default="")
+    item_name = Column(Text, nullable=False, default="")
+    category = Column(String(80), nullable=False, default="standard")
+    material = Column(Text, nullable=True)
+    process = Column(Text, nullable=True)
+    quantity = Column(Float, nullable=False, default=1.0)
+    unit = Column(String(30), nullable=True)
+    specs = Column(JSONB, nullable=False, default=dict)
+    confidence = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    session = relationship("IntakeSession", back_populates="items")
+
+
+=== FILE: .\app\models\rfq.py ===
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Numeric, Boolean, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+def _now(): return datetime.now(timezone.utc)
+def _uuid(): return str(uuid.uuid4())
+
+RFQ_STATUSES = ["draft","sent","partial","quoted","approved","rejected","closed"]
+INVITATION_STATUSES = ["invited","opened","questions_asked","partially_quoted","fully_quoted","rejected","expired","accepted","negotiated","awarded"]
+QUOTE_STATUSES = ["draft","submitted","received","under_review","accepted","rejected","revised","expired"]
+
+class RFQBatch(Base):
+    __tablename__ = "rfq_batches"
+    __table_args__ = (Index("ix_rfq_project","project_id"),{"schema":"sourcing"})
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=True)
+    bom_id = Column(UUID(as_uuid=False), ForeignKey("bom.boms.id", ondelete="CASCADE"), nullable=False)
+    requested_by_user_id = Column(UUID(as_uuid=False), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
+    guest_session_id = Column(UUID(as_uuid=False), ForeignKey("auth.guest_sessions.id", ondelete="SET NULL"), nullable=True)
+    target_currency = Column(String(3), nullable=False, default="USD")
+    status = Column(Text, nullable=False, default="draft")
+    notes = Column(Text, nullable=True)
+    deadline = Column(DateTime(timezone=True), nullable=True)
+    batch_metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+    user = relationship("User", back_populates="rfqs")
+    bom = relationship("BOM", back_populates="rfqs")
+    items = relationship("RFQItem", back_populates="rfq", cascade="all, delete-orphan")
+    invitations = relationship("RFQVendorInvitation", back_populates="rfq", cascade="all, delete-orphan")
+    quote_headers = relationship("RFQQuoteHeader", back_populates="rfq", cascade="all, delete-orphan")
+
+class RFQItem(Base):
+    __tablename__ = "rfq_items"
+    __table_args__ = {"schema":"sourcing"}
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    rfq_batch_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_batches.id", ondelete="CASCADE"), nullable=False)
+    bom_part_id = Column(UUID(as_uuid=False), ForeignKey("bom.bom_parts.id", ondelete="CASCADE"), nullable=False)
+    part_key = Column(Text, nullable=True)
+    requested_quantity = Column(Numeric(18,6), nullable=False, default=1)
+    requested_material = Column(Text, nullable=True)
+    requested_process = Column(Text, nullable=True)
+    drawing_required = Column(Boolean, nullable=False, default=False)
+    spec_summary = Column(JSONB, nullable=False, default=dict)
+    status = Column(Text, nullable=False, default="pending")
+    created_at = Column(DateTime(timezone=True), default=_now)
+    rfq = relationship("RFQBatch", back_populates="items")
+
+class RFQVendorInvitation(Base):
+    __tablename__ = "rfq_vendor_invitations"
+    __table_args__ = (Index("ix_rvi_rfq","rfq_batch_id"),Index("ix_rvi_vendor","vendor_id"),{"schema":"sourcing"})
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    rfq_batch_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_batches.id", ondelete="CASCADE"), nullable=False)
+    vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="CASCADE"), nullable=False)
+    status = Column(Text, nullable=False, default="invited")
+    invited_at = Column(DateTime(timezone=True), default=_now)
+    opened_at = Column(DateTime(timezone=True), nullable=True)
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+    portal_token = Column(String(120), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    rfq = relationship("RFQBatch", back_populates="invitations")
+    vendor = relationship("Vendor")
+    status_history = relationship("InvitationStatusEvent", back_populates="invitation", cascade="all, delete-orphan")
+
+class InvitationStatusEvent(Base):
+    __tablename__ = "invitation_status_events"
+    __table_args__ = {"schema":"sourcing"}
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    invitation_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_vendor_invitations.id", ondelete="CASCADE"), nullable=False)
+    old_status = Column(Text, nullable=True)
+    new_status = Column(Text, nullable=False)
+    actor_id = Column(UUID(as_uuid=False), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    invitation = relationship("RFQVendorInvitation", back_populates="status_history")
+
+class RFQQuoteHeader(Base):
+    __tablename__ = "rfq_quote_headers"
+    __table_args__ = (Index("ix_rqh_rfq","rfq_batch_id"),Index("ix_rqh_vendor","vendor_id"),{"schema":"sourcing"})
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    rfq_batch_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_batches.id", ondelete="CASCADE"), nullable=False)
+    vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="SET NULL"), nullable=True)
+    quote_number = Column(Text, nullable=True)
+    quote_status = Column(Text, nullable=False, default="received")
+    quote_currency = Column(String(3), nullable=False, default="USD")
+    incoterms = Column(Text, nullable=True)
+    quote_version = Column(Integer, nullable=False, default=1)
+    is_revision = Column(Boolean, nullable=False, default=False)
+    parent_quote_id = Column(UUID(as_uuid=False), nullable=True)
+    acceptance_status = Column(Text, nullable=False, default="pending")
+    subtotal = Column(Numeric(18,6), nullable=True)
+    freight = Column(Numeric(18,6), nullable=True)
+    taxes = Column(Numeric(18,6), nullable=True)
+    total = Column(Numeric(18,6), nullable=True)
+    valid_until = Column(DateTime(timezone=True), nullable=True)
+    received_at = Column(DateTime(timezone=True), default=_now)
+    response_payload = Column(JSONB, nullable=False, default=dict)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+    rfq = relationship("RFQBatch", back_populates="quote_headers")
+    vendor = relationship("Vendor")
+    lines = relationship("RFQQuoteLine", back_populates="header", cascade="all, delete-orphan")
+
+class RFQQuoteLine(Base):
+    __tablename__ = "rfq_quote_lines"
+    __table_args__ = (Index("ix_rql_header","quote_header_id"),{"schema":"sourcing"})
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    quote_header_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_quote_headers.id", ondelete="CASCADE"), nullable=False)
+    rfq_item_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_items.id", ondelete="CASCADE"), nullable=False)
+    part_name = Column(Text, nullable=True)
+    quantity = Column(Numeric(18,6), nullable=False, default=1)
+    unit_price = Column(Numeric(18,6), nullable=True)
+    line_currency = Column(String(3), nullable=False, default="USD")
+    lead_time_days = Column(Numeric(12,2), nullable=True)
+    moq = Column(Numeric(18,6), nullable=True)
+    notes = Column(Text, nullable=True)
+    line_payload = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    header = relationship("RFQQuoteHeader", back_populates="lines")
+
+class PurchaseOrder(Base):
+    __tablename__ = "purchase_orders"
+    __table_args__ = (Index("ix_po_project","project_id"),{"schema":"sourcing"})
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=False)
+    rfq_batch_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.rfq_batches.id", ondelete="SET NULL"), nullable=True)
+    vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="SET NULL"), nullable=True)
+    po_number = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="draft")
+    total = Column(Numeric(18,6), nullable=True)
+    currency = Column(String(3), nullable=False, default="USD")
+    shipping_terms = Column(Text, nullable=True)
+    payment_terms = Column(Text, nullable=True)
+    issued_at = Column(DateTime(timezone=True), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    po_metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+    line_items = relationship("POLineItem", back_populates="po", cascade="all, delete-orphan")
+    vendor = relationship("Vendor")
+
+class POLineItem(Base):
+    __tablename__ = "po_line_items"
+    __table_args__ = {"schema":"sourcing"}
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    po_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.purchase_orders.id", ondelete="CASCADE"), nullable=False)
+    bom_part_id = Column(UUID(as_uuid=False), nullable=True)
+    description = Column(Text, nullable=True)
+    quantity = Column(Numeric(18,6), nullable=False, default=1)
+    unit_price = Column(Numeric(18,6), nullable=True)
+    total_price = Column(Numeric(18,6), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    po = relationship("PurchaseOrder", back_populates="line_items")
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    __table_args__ = {"schema":"finance"}
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    po_id = Column(UUID(as_uuid=False), ForeignKey("sourcing.purchase_orders.id", ondelete="SET NULL"), nullable=True)
+    vendor_id = Column(UUID(as_uuid=False), nullable=True)
+    invoice_number = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="pending")
+    amount = Column(Numeric(18,6), nullable=True)
+    currency = Column(String(3), nullable=False, default="USD")
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+class Payment(Base):
+    __tablename__ = "payments"
+    __table_args__ = {"schema":"finance"}
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    invoice_id = Column(UUID(as_uuid=False), ForeignKey("finance.invoices.id", ondelete="SET NULL"), nullable=True)
+    amount = Column(Numeric(18,6), nullable=False)
+    currency = Column(String(3), nullable=False, default="USD")
+    method = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="pending")
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+
+=== FILE: .\app\models\user.py ===
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Text, Boolean, DateTime, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (Index("ix_users_email", "email", unique=True), {"schema": "auth"})
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    email = Column(String(320), nullable=False, unique=True)
+    password_hash = Column(Text, nullable=False)
+    full_name = Column(Text, nullable=False, default="")
+    role = Column(String(40), nullable=False, default="buyer")
+    is_active = Column(Boolean, nullable=False, default=True)
+    is_verified = Column(Boolean, nullable=False, default=False)
+    permissions = Column(JSONB, nullable=False, default=list)
+    metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    projects = relationship("Project", back_populates="user")
+    boms = relationship("BOM", back_populates="user")
+    rfqs = relationship("RFQBatch", back_populates="user")
+
+
+class GuestSession(Base):
+    __tablename__ = "guest_sessions"
+    __table_args__ = (Index("ix_guest_sessions_token", "session_token", unique=True), {"schema": "auth"})
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    session_token = Column(String(120), nullable=False, unique=True)
+    merged_user_id = Column(UUID(as_uuid=False), nullable=True)
+    merged_at = Column(DateTime(timezone=True), nullable=True)
+    metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class VendorUser(Base):
+    __tablename__ = "vendor_users"
+    __table_args__ = (Index("ix_vendor_users_email", "email", unique=True), {"schema": "auth"})
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    vendor_id = Column(UUID(as_uuid=False), nullable=False, index=True)
+    email = Column(String(320), nullable=False, unique=True)
+    password_hash = Column(Text, nullable=False)
+    full_name = Column(Text, nullable=False, default="")
+    role = Column(String(40), nullable=False, default="vendor_user")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+=== FILE: .\app\models\vendor.py ===
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey, Numeric, Integer, Index
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
+class Vendor(Base):
+    __tablename__ = "vendors"
+    __table_args__ = {"schema": "pricing"}
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    name = Column(Text, nullable=False)
+    legal_name = Column(Text, nullable=True)
+    country = Column(Text, nullable=True)
+    region = Column(Text, nullable=True)
+    website = Column(Text, nullable=True)
+    contact_email = Column(Text, nullable=True)
+    contact_phone = Column(Text, nullable=True)
+    reliability_score = Column(Numeric(12, 6), nullable=False, default=0.8)
+    avg_lead_time_days = Column(Numeric(12, 2), nullable=True)
+    default_currency = Column(String(3), nullable=False, default="USD")
+    default_moq = Column(Numeric(18, 6), nullable=True)
+    regions_served = Column(JSONB, nullable=False, default=list)
+    certifications = Column(JSONB, nullable=False, default=list)
+    capacity_profile = Column(JSONB, nullable=False, default=dict)
+    quality_rating = Column(Numeric(12, 6), nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+    metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    capabilities = relationship("VendorCapability", back_populates="vendor", cascade="all, delete-orphan")
+    matches = relationship("VendorMatch", back_populates="vendor", cascade="all, delete-orphan")
+
+
+class VendorCapability(Base):
+    __tablename__ = "vendor_capabilities"
+    __table_args__ = (
+        Index("ix_vendor_cap_vendor", "vendor_id"),
+        Index("ix_vendor_cap_process", "process"),
+        {"schema": "pricing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="CASCADE"), nullable=False)
+    process = Column(Text, nullable=False)
+    material_family = Column(Text, nullable=True)
+    proficiency = Column(Numeric(6, 4), nullable=False, default=0.8)
+    typical_lead_days = Column(Numeric(12, 2), nullable=True)
+    certifications = Column(JSONB, nullable=False, default=list)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+    vendor = relationship("Vendor", back_populates="capabilities")
+
+
+class VendorMatchRun(Base):
+    __tablename__ = "vendor_match_runs"
+    __table_args__ = (
+        Index("ix_vmr_project", "project_id"),
+        {"schema": "pricing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=False), nullable=True)
+    filters_json = Column(JSONB, nullable=False, default=dict)
+    weights_json = Column(JSONB, nullable=False, default=dict)
+    summary_json = Column(JSONB, nullable=False, default=dict)
+    total_vendors_considered = Column(Integer, nullable=False, default=0)
+    total_matches = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+    matches = relationship("VendorMatch", back_populates="run", cascade="all, delete-orphan")
+
+
+class VendorMatch(Base):
+    __tablename__ = "vendor_matches"
+    __table_args__ = (
+        Index("ix_vm_run", "match_run_id"),
+        Index("ix_vm_vendor", "vendor_id"),
+        {"schema": "pricing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    match_run_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendor_match_runs.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=False)
+    vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="CASCADE"), nullable=False)
+    rank = Column(Integer, nullable=False, default=0)
+    score = Column(Numeric(12, 6), nullable=False, default=0)
+    score_breakdown = Column(JSONB, nullable=False, default=dict)
+    explanation = Column(Text, nullable=True)
+    explanation_json = Column(JSONB, nullable=False, default=dict)
+    shortlist_status = Column(Text, nullable=False, default="shortlisted")
+    is_primary = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+    run = relationship("VendorMatchRun", back_populates="matches")
+    vendor = relationship("Vendor", back_populates="matches")
+
+
+=== FILE: .\app\models\__init__.py ===
+from app.models.user import User, GuestSession, VendorUser
+from app.models.bom import BOM, BOMPart, AnalysisResult
+from app.models.project import (Project, ProjectACL, ProjectEvent, SearchSession,
+    SourcingCase)
+from app.models.vendor import Vendor, VendorCapability, VendorMatchRun, VendorMatch
+from app.models.rfq import (RFQBatch, RFQItem, RFQVendorInvitation, InvitationStatusEvent,
+    RFQQuoteHeader, RFQQuoteLine, PurchaseOrder, POLineItem, Invoice, Payment)
+from app.models.logistics import Shipment, ShipmentMilestone
+from app.models.chat import ChatThread, ChatMessage
+from app.models.market import FXRate, FreightRate, TariffSchedule, CommodityIndex
+from app.models.events import PlatformEvent, ReportSnapshot
+
+
+=== FILE: .\app\routes\analytics.py ===
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from app.core.database import get_db
+from app.models.user import User
+from app.models.project import Project
+from app.models.rfq import RFQBatch, PurchaseOrder
+from app.models.bom import BOMPart
+from app.models.logistics import Shipment
+from app.models.events import ReportSnapshot
+from app.schemas import ReportRequest, ReportResponse
+from app.utils.dependencies import require_user
+
+router = APIRouter(prefix="/analytics", tags=["Analytics"])
+
+@router.get("/dashboard")
+def dashboard_analytics(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    uid = user.id
+    total_p = db.query(Project).filter(Project.user_id==uid).count()
+    active_p = db.query(Project).filter(Project.user_id==uid, Project.status.notin_(["completed","cancelled"])).count()
+    total_rfqs = db.query(RFQBatch).filter(RFQBatch.requested_by_user_id==uid).count()
+    pending_rfqs = db.query(RFQBatch).filter(RFQBatch.requested_by_user_id==uid, RFQBatch.status.in_(["sent","draft"])).count()
+    total_pos = db.query(PurchaseOrder).join(Project).filter(Project.user_id==uid).count()
+    active_shipments = db.query(Shipment).join(PurchaseOrder).join(Project).filter(Project.user_id==uid, Shipment.status.notin_(["delivered","cancelled"])).count()
+    total_spend = 0.0
+    pos = db.query(PurchaseOrder).join(Project).filter(Project.user_id==uid, PurchaseOrder.total.isnot(None)).all()
+    total_spend = sum(float(po.total) for po in pos)
+    cats = db.query(BOMPart.category_code, func.count(BOMPart.id)).join(Project, Project.bom_id==BOMPart.bom_id).filter(Project.user_id==uid).group_by(BOMPart.category_code).all()
+    stats = db.query(Project.status, func.count(Project.id)).filter(Project.user_id==uid).group_by(Project.status).all()
+    # Recent projects for "continue where you left off"
+    recent = db.query(Project).filter(Project.user_id==uid, Project.status.notin_(["completed","cancelled"])).order_by(Project.updated_at.desc()).limit(5).all()
+    return {
+        "total_projects":total_p,"active_projects":active_p,"total_rfqs":total_rfqs,"pending_rfqs":pending_rfqs,
+        "total_pos":total_pos,"active_shipments":active_shipments,"total_spend":round(total_spend,2),
+        "category_breakdown":{c or "unknown":cnt for c,cnt in cats},
+        "status_breakdown":{s:cnt for s,cnt in stats},
+        "continue_where_left_off":[{"id":p.id,"name":p.name,"status":p.status,"updated_at":str(p.updated_at)} for p in recent],
+    }
+
+@router.post("/reports", response_model=ReportResponse)
+def generate_report(body: ReportRequest, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    uid = user.id
+    data = {}; summary = {}
+    if body.report_type == "executive":
+        tp = db.query(Project).filter(Project.user_id==uid).count()
+        comp = db.query(Project).filter(Project.user_id==uid, Project.status=="completed").count()
+        spend = sum(float(po.total) for po in db.query(PurchaseOrder).join(Project).filter(Project.user_id==uid, PurchaseOrder.total.isnot(None)).all())
+        data = {"total_projects":tp,"completed":comp,"total_spend":round(spend,2)}
+        summary = {"completion_rate":round(comp/max(tp,1)*100,1),"avg_spend":round(spend/max(comp,1),2)}
+    elif body.report_type == "spend":
+        pos = db.query(PurchaseOrder).join(Project).filter(Project.user_id==uid, PurchaseOrder.total.isnot(None)).all()
+        spend = sum(float(po.total) for po in pos)
+        by_vendor = {}
+        for po in pos:
+            vid = str(po.vendor_id or "unknown")
+            by_vendor[vid] = by_vendor.get(vid,0) + float(po.total)
+        data = {"total_spend":round(spend,2),"po_count":len(pos),"by_vendor":by_vendor}
+        summary = {"avg_po_value":round(spend/max(len(pos),1),2)}
+    elif body.report_type == "category":
+        cats = db.query(BOMPart.category_code, func.count(BOMPart.id)).join(Project, Project.bom_id==BOMPart.bom_id).filter(Project.user_id==uid).group_by(BOMPart.category_code).all()
+        data = {"categories":{c or "unknown":cnt for c,cnt in cats}}
+        summary = {"total_categories":len(cats)}
+    elif body.report_type == "supplier":
+        from app.models.vendor import VendorMatch
+        matches = db.query(VendorMatch).join(Project).filter(Project.user_id==uid).all()
+        vendor_scores = {}
+        for m in matches:
+            vid = str(m.vendor_id)
+            if vid not in vendor_scores: vendor_scores[vid] = []
+            vendor_scores[vid].append(float(m.score))
+        data = {"vendor_avg_scores":{vid:round(sum(s)/len(s),4) for vid,s in vendor_scores.items()}}
+        summary = {"vendors_evaluated":len(vendor_scores)}
+    elif body.report_type == "risk":
+        from app.models.bom import AnalysisResult
+        analyses = db.query(AnalysisResult).join(Project, AnalysisResult.project_id==Project.id).filter(Project.user_id==uid).all()
+        high_risk = 0; total_items = 0
+        for a in analyses:
+            comps = (a.report_json or {}).get("components",[])
+            for c in comps:
+                total_items += 1
+                if (c.get("risk_assessment") or {}).get("risk_level") == "high": high_risk += 1
+        data = {"total_items":total_items,"high_risk_items":high_risk}
+        summary = {"high_risk_pct":round(high_risk/max(total_items,1)*100,1)}
+    elif body.report_type == "operational":
+        active = db.query(Project).filter(Project.user_id==uid, Project.status.notin_(["completed","cancelled"])).count()
+        delayed_shipments = db.query(Shipment).join(PurchaseOrder).join(Project).filter(Project.user_id==uid).join(
+            # simplified — check for any delay milestone
+        ).count() if False else 0
+        data = {"active_projects":active}
+        summary = {}
+    else:
+        data = {"report_type":body.report_type}; summary = {}
+
+    snap = ReportSnapshot(report_type=body.report_type, scope_type=body.scope_type, scope_id=body.scope_id,
+        filters_json=body.filters, data_json=data, summary_json=summary)
+    db.add(snap); db.commit(); db.refresh(snap)
+    return ReportResponse.model_validate(snap)
+
+
+=== FILE: .\app\routes\auth.py ===
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from app.core.database import get_db
+from app.core.security import hash_password, verify_password, create_access_token
+from app.schemas import UserRegister, UserLogin, TokenResponse, UserResponse, VendorUserLogin, VendorTokenResponse, VendorUserResponse
+from app.models.user import User, GuestSession, VendorUser
+from app.utils.dependencies import require_user
+from app.services.event_service import track
+
+router = APIRouter(prefix="/auth", tags=["Auth"])
+
+def _merge_guest(db: Session, user_id: str, session_token: str|None) -> dict:
+    if not session_token: return {"merged":False}
+    guest = db.query(GuestSession).filter(GuestSession.session_token == session_token).first()
+    if not guest: return {"merged":False}
+    gid = guest.id
+    tables = [
+        ("bom.boms","uploaded_by_user_id","guest_session_id"),
+        ("projects.projects","user_id","guest_session_id"),
+        ("bom.analysis_results","user_id","guest_session_id"),
+        ("sourcing.rfq_batches","requested_by_user_id","guest_session_id"),
+        ("projects.search_sessions","user_id","guest_session_id"),
+        ("projects.sourcing_cases","user_id","guest_session_id"),
+    ]
+    counts = {}
+    for tbl,uid_col,gsid_col in tables:
+        try:
+            r = db.execute(text(f"UPDATE {tbl} SET {uid_col}=:uid, updated_at=now() WHERE {gsid_col}=:gid AND ({uid_col} IS NULL OR {uid_col}!=:uid)"),{"uid":user_id,"gid":gid})
+            counts[tbl.split(".")[-1]] = r.rowcount
+        except Exception: counts[tbl.split(".")[-1]] = 0
+    try: db.execute(text("UPDATE auth.guest_sessions SET merged_user_id=:uid, merged_at=now() WHERE id=:gid"),{"uid":user_id,"gid":gid})
+    except Exception: pass
+    # Fix project visibility and ACL
+    try: db.execute(text("UPDATE projects.projects SET visibility='owner_only' WHERE user_id=:uid AND visibility='guest_preview'"),{"uid":user_id})
+    except Exception: pass
+    # Grant owner ACL on merged projects
+    try:
+        db.execute(text(
+            "INSERT INTO projects.project_acl (id,project_id,principal_type,principal_id,role) "
+            "SELECT gen_random_uuid()::text, id, 'user', :uid, 'owner' FROM projects.projects WHERE user_id=:uid "
+            "ON CONFLICT DO NOTHING"
+        ),{"uid":user_id})
+    except Exception: pass
+    return {"merged":True,"counts":counts}
+
+@router.post("/register", response_model=TokenResponse, status_code=201)
+def register(body: UserRegister, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == body.email).first():
+        raise HTTPException(400, "Email already registered")
+    user = User(email=body.email, password_hash=hash_password(body.password), full_name=body.full_name)
+    db.add(user); db.flush(); db.refresh(user)
+    merge = _merge_guest(db, user.id, body.session_token)
+    track(db,"signup",actor_id=user.id,resource_type="user",resource_id=user.id)
+    db.commit()
+    token = create_access_token({"sub":user.id,"email":user.email,"role":user.role,"type":"buyer"})
+    return TokenResponse(access_token=token, user=UserResponse.model_validate(user), merge_result=merge)
+
+@router.post("/login", response_model=TokenResponse)
+def login(body: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == body.email).first()
+    if not user or not verify_password(body.password, user.password_hash):
+        raise HTTPException(401, "Invalid credentials")
+    merge = _merge_guest(db, user.id, body.session_token)
+    db.commit()
+    token = create_access_token({"sub":user.id,"email":user.email,"role":user.role,"type":"buyer"})
+    return TokenResponse(access_token=token, user=UserResponse.model_validate(user), merge_result=merge)
+
+@router.get("/me", response_model=UserResponse)
+def me(user: User = Depends(require_user)):
+    return UserResponse.model_validate(user)
+
+@router.post("/vendor/login", response_model=VendorTokenResponse)
+def vendor_login(body: VendorUserLogin, db: Session = Depends(get_db)):
+    vu = db.query(VendorUser).filter(VendorUser.email == body.email).first()
+    if not vu or not verify_password(body.password, vu.password_hash):
+        raise HTTPException(401, "Invalid vendor credentials")
+    token = create_access_token({"sub":vu.id,"email":vu.email,"type":"vendor","vendor_id":vu.vendor_id})
+    return VendorTokenResponse(access_token=token, user=VendorUserResponse.model_validate(vu))
+
+
+=== FILE: .\app\routes\bom.py ===
+import uuid
+from pathlib import Path
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+from app.core.config import settings
+from app.core.database import get_db
+from app.models.user import User, GuestSession
+from app.models.bom import BOM, BOMPart, AnalysisResult
+from app.models.project import Project, ProjectACL, SearchSession
+from app.schemas import BOMAnalyzeResponse, BOMUploadResponse
+from app.utils.dependencies import get_current_user
+from app.services import analyzer_service
+from app.services.event_service import track
+from app.services.workflow.state_machine import transition_project
+
+router = APIRouter(prefix="/bom", tags=["BOM"])
+
+def _ensure_guest(db, token):
+    if not token: return None
+    gs = db.query(GuestSession).filter(GuestSession.session_token == token).first()
+    if not gs: gs = GuestSession(session_token=token); db.add(gs); db.flush()
+    return gs
+
+def _store_bom_and_parts(db, file_bytes, filename, user, guest, delivery_location, target_currency, priority, result):
+    bom = BOM(
+        uploaded_by_user_id=user.id if user else None,
+        guest_session_id=guest.id if guest else None,
+        source_file_name=filename, source_file_type=Path(filename).suffix.lstrip("."),
+        original_filename=filename, file_size_bytes=len(file_bytes),
+        target_currency=target_currency, delivery_location=delivery_location, priority=priority,
+    )
+    db.add(bom); db.flush()
+    components = result.get("components",[])
+    for comp in components:
+        db.add(BOMPart(
+            bom_id=bom.id, item_id=comp.get("item_id",""), raw_text=comp.get("raw_text",""),
+            normalized_text=comp.get("standard_text",""), description=comp.get("description",""),
+            quantity=comp.get("quantity",1), unit=comp.get("unit","each"),
+            part_number=comp.get("part_number",""), mpn=comp.get("mpn",""),
+            manufacturer=comp.get("manufacturer",""), supplier_name=comp.get("supplier_name",""),
+            category_code=comp.get("category",""), procurement_class=comp.get("procurement_class","unknown"),
+            material=comp.get("material",""), material_form=comp.get("material_form"),
+            specs=comp.get("specs",{}), classification_confidence=comp.get("classification_confidence",0),
+            classification_reason=comp.get("classification_reason",""),
+            has_mpn=comp.get("has_mpn",False), is_custom=comp.get("is_custom",False),
+            is_raw=comp.get("is_raw",False), rfq_required=comp.get("rfq_required",False),
+            drawing_required=comp.get("drawing_required",False),
+            canonical_part_key=comp.get("canonical_part_key",""),
+            review_status=comp.get("review_status","auto"),
+        ))
+    bom.total_parts = len(components); bom.status = "analyzed"
+    bom.raw_payload = result.get("summary",{})
+    db.add(AnalysisResult(bom_id=bom.id, user_id=user.id if user else None,
+        guest_session_id=guest.id if guest else None, report_json=result, summary_json=result.get("summary",{})))
+    db.flush()
+    return bom, components
+
+@router.post("/analyze", response_model=BOMAnalyzeResponse)
+async def analyze_bom(
+    file: UploadFile = File(...),
+    delivery_location: str = Form(""), target_currency: str = Form("USD"),
+    priority: str = Form("balanced"), session_token: str = Form(""),
+    user: User|None = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    """Analyze a BOM file → returns search session. Does NOT create a project."""
+    file_bytes = await file.read()
+    guest = _ensure_guest(db, session_token) if session_token and not user else None
+
+    # Save file
+    fid = str(uuid.uuid4()); ext = Path(file.filename or "upload.csv").suffix
+    (Path(settings.UPLOAD_DIR)/f"{fid}{ext}").write_bytes(file_bytes)
+
+    try:
+        result = await analyzer_service.call_analyzer(file_bytes, file.filename or "upload.csv", delivery_location, target_currency)
+    except Exception as e:
+        result = {"components":[],"summary":{"total_items":0,"error":str(e)}}
+
+    bom, components = _store_bom_and_parts(db, file_bytes, file.filename or "upload.csv", user, guest, delivery_location, target_currency, priority, result)
+
+    # Create search session (not a project)
+    ss = SearchSession(
+        user_id=user.id if user else None, guest_session_id=guest.id if guest else None,
+        session_token=session_token, query_text=file.filename or "BOM upload",
+        query_type="bom", input_type="file", delivery_location=delivery_location,
+        target_currency=target_currency, results_json=result.get("summary",{}),
+        analysis_payload={"bom_id":bom.id, "total_parts":len(components), "components_preview":[
+            {"item_id":c.get("item_id"),"description":c.get("description","")[:100],"category":c.get("category",""),
+             "cost_estimate":c.get("cost_estimate",{}),"risk_assessment":c.get("risk_assessment",{})}
+            for c in components[:20]
+        ]},
+        status="analyzed",
+    )
+    db.add(ss); db.flush()
+    track(db,"analyze_completed",actor_id=user.id if user else None,resource_type="bom",resource_id=bom.id)
+    db.commit()
+
+    n = len(components)
+    return BOMAnalyzeResponse(
+        search_session_id=ss.id, total_parts=n, analysis=result.get("summary",{}),
+        recommended_flow="project" if n > 3 else "search_session",
+    )
+
+@router.post("/promote-to-project", response_model=BOMUploadResponse)
+def promote_to_project(
+    search_session_id: str = Form(...), session_token: str = Form(""),
+    user: User|None = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    """Promote a search session to a full project."""
+    ss = db.query(SearchSession).filter(SearchSession.id == search_session_id).first()
+    if not ss: raise HTTPException(404, "Search session not found")
+    if ss.promoted_to_id: return BOMUploadResponse(bom_id=ss.analysis_payload.get("bom_id",""),project_id=ss.promoted_to_id,total_parts=0,status="already_promoted")
+
+    bom_id = ss.analysis_payload.get("bom_id")
+    if not bom_id: raise HTTPException(400, "No BOM associated with this session")
+    bom = db.query(BOM).filter(BOM.id == bom_id).first()
+    if not bom: raise HTTPException(404, "BOM not found")
+
+    guest = _ensure_guest(db, session_token) if session_token and not user else None
+    project = Project(
+        bom_id=bom.id, user_id=user.id if user else None,
+        guest_session_id=guest.id if guest else None,
+        name=bom.original_filename or "Uploaded BOM", file_name=bom.original_filename,
+        status="analyzed", visibility="owner_only" if user else "guest_preview",
+        total_parts=bom.total_parts,
+        analyzer_report=bom.raw_payload,
+    )
+    db.add(project); db.flush()
+    bom.project_id = project.id
+
+    # ACL
+    if user: db.add(ProjectACL(project_id=project.id, principal_type="user", principal_id=user.id, role="owner"))
+    elif guest: db.add(ProjectACL(project_id=project.id, principal_type="guest_session", principal_id=guest.id, role="viewer"))
+
+    ss.promoted_to = "project"; ss.promoted_to_id = project.id; ss.status = "promoted"
+    track(db,"project_created",actor_id=user.id if user else None,resource_type="project",resource_id=project.id)
+    db.commit()
+
+    return BOMUploadResponse(bom_id=bom.id, project_id=project.id, total_parts=bom.total_parts, status="analyzed", analysis=bom.raw_payload or {})
+
+@router.get("/{bom_id}/parts")
+def get_parts(bom_id: str, db: Session = Depends(get_db)):
+    parts = db.query(BOMPart).filter(BOMPart.bom_id == bom_id).all()
+    return [{"id":p.id,"item_id":p.item_id,"description":p.description,"quantity":float(p.quantity),"category_code":p.category_code,"procurement_class":p.procurement_class,"material":p.material,"mpn":p.mpn,"is_custom":p.is_custom,"rfq_required":p.rfq_required,"specs":p.specs,"canonical_part_key":p.canonical_part_key} for p in parts]
+
+
+=== FILE: .\app\routes\chat.py ===
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.models.user import User
+from app.models.chat import ChatThread, ChatMessage
+from app.models.project import Project
+from app.models.rfq import RFQBatch
+from app.schemas import ThreadCreateRequest, MessageCreateRequest, ThreadResponse, MessageResponse
+from app.utils.dependencies import require_user
+
+router = APIRouter(prefix="/chat", tags=["Chat"])
+
+def _check_context_access(db, user, context_type, context_id):
+    """Verify the caller has access to the business object the chat is attached to."""
+    if context_type == "project":
+        p = db.query(Project).filter(Project.id == context_id).first()
+        if not p: raise HTTPException(404, "Project not found")
+        if p.user_id != user.id and user.role != "admin": raise HTTPException(403, "No access to this project")
+    elif context_type == "rfq":
+        r = db.query(RFQBatch).filter(RFQBatch.id == context_id).first()
+        if not r: raise HTTPException(404, "RFQ not found")
+        if r.requested_by_user_id != user.id and user.role != "admin": raise HTTPException(403, "No access to this RFQ")
+    # line_item scoping delegates to project access via the RFQ→project chain
+
+@router.post("/threads", response_model=ThreadResponse)
+def create_thread(body: ThreadCreateRequest, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    _check_context_access(db, user, body.context_type, body.context_id)
+    thread = ChatThread(context_type=body.context_type, context_id=body.context_id,
+        title=body.title, created_by_user_id=user.id)
+    db.add(thread); db.commit(); db.refresh(thread)
+    return ThreadResponse.model_validate(thread)
+
+@router.get("/threads")
+def list_threads(context_type:str=Query(""), context_id:str=Query(""),
+                 user:User=Depends(require_user), db:Session=Depends(get_db)):
+    if context_type and context_id:
+        _check_context_access(db, user, context_type, context_id)
+    q = db.query(ChatThread)
+    if context_type: q = q.filter(ChatThread.context_type == context_type)
+    if context_id: q = q.filter(ChatThread.context_id == context_id)
+    return [ThreadResponse.model_validate(t) for t in q.order_by(ChatThread.created_at.desc()).all()]
+
+@router.post("/messages", response_model=MessageResponse)
+def send_message(body: MessageCreateRequest, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    thread = db.query(ChatThread).filter(ChatThread.id == body.thread_id).first()
+    if not thread: raise HTTPException(404)
+    _check_context_access(db, user, thread.context_type, thread.context_id)
+    msg = ChatMessage(thread_id=body.thread_id, sender_user_id=user.id,
+        visibility=body.visibility, content=body.content, attachment_url=body.attachment_url)
+    db.add(msg); db.commit(); db.refresh(msg)
+    return MessageResponse.model_validate(msg)
+
+@router.get("/threads/{thread_id}/messages")
+def get_messages(thread_id:str, visibility:str=Query(""),
+                 user:User=Depends(require_user), db:Session=Depends(get_db)):
+    thread = db.query(ChatThread).filter(ChatThread.id == thread_id).first()
+    if not thread: raise HTTPException(404)
+    _check_context_access(db, user, thread.context_type, thread.context_id)
+    q = db.query(ChatMessage).filter(ChatMessage.thread_id == thread_id)
+    if visibility: q = q.filter(ChatMessage.visibility == visibility)
+    return [MessageResponse.model_validate(m) for m in q.order_by(ChatMessage.created_at.asc()).all()]
+
+
+=== FILE: .\app\routes\intake.py ===
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
+from sqlalchemy.orm import Session
+from typing import Optional
+from app.core.database import get_db
+from app.models.user import User, GuestSession
+from app.models.project import SearchSession, SourcingCase, Project, ProjectACL
+from app.models.bom import BOM
+from app.schemas import SearchSessionResponse, SourcingCaseResponse
+from app.utils.dependencies import get_current_user
+from app.services.event_service import track
+
+router = APIRouter(prefix="/intake", tags=["Intake"])
+
+def _gs(db, token):
+    if not token: return None
+    gs = db.query(GuestSession).filter(GuestSession.session_token == token).first()
+    if not gs: gs = GuestSession(session_token=token); db.add(gs); db.flush()
+    return gs
+
+@router.post("/search", response_model=SearchSessionResponse)
+def create_search(query_text:str=Form(""), query_type:str=Form("component"), session_token:str=Form(""),
+                  delivery_location:str=Form(""), target_currency:str=Form("USD"),
+                  user:User|None=Depends(get_current_user), db:Session=Depends(get_db)):
+    guest = _gs(db, session_token) if session_token and not user else None
+    ss = SearchSession(user_id=user.id if user else None, guest_session_id=guest.id if guest else None,
+        session_token=session_token, query_text=query_text, query_type=query_type, input_type="text",
+        delivery_location=delivery_location, target_currency=target_currency, status="active")
+    db.add(ss); db.commit(); db.refresh(ss)
+    return SearchSessionResponse.model_validate(ss)
+
+@router.get("/search/{session_id}", response_model=SearchSessionResponse)
+def get_search(session_id:str, db:Session=Depends(get_db)):
+    ss = db.query(SearchSession).filter(SearchSession.id == session_id).first()
+    if not ss: raise HTTPException(404)
+    return SearchSessionResponse.model_validate(ss)
+
+@router.post("/search/{session_id}/save", response_model=SourcingCaseResponse)
+def save_as_sourcing_case(session_id:str, name:str=Form("Saved search"), notes:str=Form(""),
+                          session_token:str=Form(""), user:User|None=Depends(get_current_user),
+                          db:Session=Depends(get_db)):
+    ss = db.query(SearchSession).filter(SearchSession.id == session_id).first()
+    if not ss: raise HTTPException(404)
+    if ss.promoted_to == "sourcing_case" and ss.promoted_to_id:
+        sc = db.query(SourcingCase).filter(SourcingCase.id == ss.promoted_to_id).first()
+        if sc: return SourcingCaseResponse.model_validate(sc)
+    guest = _gs(db, session_token) if session_token and not user else None
+    sc = SourcingCase(user_id=user.id if user else None, guest_session_id=guest.id if guest else None,
+        session_token=session_token, search_session_id=ss.id, name=name,
+        query_text=ss.query_text, analysis_payload=ss.analysis_payload, notes=notes, status="active")
+    db.add(sc); db.flush()
+    ss.promoted_to = "sourcing_case"; ss.promoted_to_id = sc.id; ss.status = "saved"
+    db.commit()
+    return SourcingCaseResponse.model_validate(sc)
+
+@router.post("/sourcing-case/{case_id}/promote")
+def promote_case_to_project(case_id:str, session_token:str=Form(""),
+                            user:User|None=Depends(get_current_user), db:Session=Depends(get_db)):
+    sc = db.query(SourcingCase).filter(SourcingCase.id == case_id).first()
+    if not sc: raise HTTPException(404)
+    if sc.promoted_to_project_id:
+        return {"project_id":sc.promoted_to_project_id,"status":"already_promoted"}
+    bom_id = sc.analysis_payload.get("bom_id")
+    if not bom_id:
+        bom = BOM(uploaded_by_user_id=user.id if user else None, source_file_name="sourcing_case", status="uploaded")
+        db.add(bom); db.flush(); bom_id = bom.id
+    guest = _gs(db, session_token) if session_token and not user else None
+    project = Project(bom_id=bom_id, user_id=user.id if user else None,
+        guest_session_id=guest.id if guest else None, sourcing_case_id=sc.id,
+        name=sc.name, status="draft", visibility="owner_only" if user else "guest_preview")
+    db.add(project); db.flush()
+    if user: db.add(ProjectACL(project_id=project.id, principal_type="user", principal_id=user.id, role="owner"))
+    sc.promoted_to_project_id = project.id; sc.status = "promoted"
+    track(db,"project_created",actor_id=user.id if user else None,resource_type="project",resource_id=project.id)
+    db.commit()
+    return {"project_id":project.id,"status":"promoted"}
+
+@router.get("/sourcing-cases")
+def list_sourcing_cases(session_token:str=Query(""), user:User|None=Depends(get_current_user), db:Session=Depends(get_db)):
+    q = db.query(SourcingCase)
+    if user: q = q.filter(SourcingCase.user_id == user.id)
+    elif session_token: q = q.filter(SourcingCase.session_token == session_token)
+    else: return []
+    return [SourcingCaseResponse.model_validate(sc) for sc in q.order_by(SourcingCase.created_at.desc()).limit(50).all()]
+
+@router.get("/sessions")
+def list_sessions(session_token:str=Query(""), user:User|None=Depends(get_current_user), db:Session=Depends(get_db)):
+    q = db.query(SearchSession)
+    if user: q = q.filter(SearchSession.user_id == user.id)
+    elif session_token: q = q.filter(SearchSession.session_token == session_token)
+    else: return []
+    return [SearchSessionResponse.model_validate(s) for s in q.order_by(SearchSession.created_at.desc()).limit(50).all()]
+
+
+=== FILE: .\app\routes\orders.py ===
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.models.user import User
+from app.models.rfq import PurchaseOrder, POLineItem
+from app.models.logistics import Shipment, ShipmentMilestone
+from app.models.project import Project
+from app.schemas import POCreateRequest, POResponse, ShipmentCreateRequest, MilestoneCreateRequest, ShipmentResponse
+from app.utils.dependencies import require_user, require_project_owner
+from app.services.event_service import track
+from app.services.workflow.state_machine import transition_project, enforce_po_stage
+
+router = APIRouter(prefix="/orders", tags=["Orders"])
+
+@router.post("/po", response_model=POResponse)
+def create_po(body: POCreateRequest, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    project = require_project_owner(body.project_id, db, user)
+    enforce_po_stage(project)
+    po = PurchaseOrder(project_id=body.project_id, rfq_batch_id=body.rfq_batch_id, vendor_id=body.vendor_id,
+        po_number=f"PO-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+        status="issued", shipping_terms=body.shipping_terms, payment_terms=body.payment_terms,
+        issued_at=datetime.now(timezone.utc))
+    db.add(po); db.flush()
+    total = 0
+    for item in body.line_items:
+        tp = float(item.get("quantity",1))*float(item.get("unit_price",0))
+        db.add(POLineItem(po_id=po.id, bom_part_id=item.get("bom_part_id"),
+            description=item.get("description",""), quantity=item.get("quantity",1),
+            unit_price=item.get("unit_price",0), total_price=tp))
+        total += tp
+    po.total = total; project.current_po_id = po.id
+    transition_project(db, project, "po_issued", actor_user_id=user.id)
+    track(db,"po_created",actor_id=user.id,resource_type="po",resource_id=po.id)
+    db.commit()
+    return POResponse.model_validate(po)
+
+@router.get("/po/{po_id}", response_model=POResponse)
+def get_po(po_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po: raise HTTPException(404)
+    project = db.query(Project).filter(Project.id == po.project_id).first()
+    if project and project.user_id != user.id and user.role != "admin": raise HTTPException(403)
+    return POResponse.model_validate(po)
+
+@router.get("/po")
+def list_pos(project_id:str|None=None, user:User=Depends(require_user), db:Session=Depends(get_db)):
+    q = db.query(PurchaseOrder).join(Project).filter(Project.user_id == user.id)
+    if project_id: q = q.filter(PurchaseOrder.project_id == project_id)
+    return [POResponse.model_validate(p) for p in q.order_by(PurchaseOrder.created_at.desc()).all()]
+
+MILESTONE_STATUS_MAP = {"picked_up":"in_transit","departed":"in_transit","customs_hold":"customs",
+    "customs_cleared":"in_transit","out_for_delivery":"out_for_delivery","delivered":"delivered",
+    "booking_confirmed":"booked","pickup_scheduled":"pickup_scheduled"}
+
+@router.post("/shipment", response_model=ShipmentResponse)
+def create_shipment(body: ShipmentCreateRequest, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == body.po_id).first()
+    if not po: raise HTTPException(404)
+    project = db.query(Project).filter(Project.id == po.project_id).first()
+    if project and project.user_id != user.id and user.role != "admin": raise HTTPException(403)
+    shipment = Shipment(po_id=body.po_id, project_id=body.project_id or po.project_id,
+        carrier=body.carrier, tracking_number=body.tracking_number, origin=body.origin,
+        destination=body.destination, eta=body.eta, status="created")
+    db.add(shipment); db.flush()
+    db.add(ShipmentMilestone(shipment_id=shipment.id, milestone_type="shipment_created", source="platform"))
+    track(db,"shipment_started",actor_id=user.id,resource_type="shipment",resource_id=shipment.id)
+    db.commit(); db.refresh(shipment)
+    return _ship_resp(shipment)
+
+@router.post("/shipment/milestone")
+def add_milestone(body: MilestoneCreateRequest, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    shipment = db.query(Shipment).filter(Shipment.id == body.shipment_id).first()
+    if not shipment: raise HTTPException(404)
+    # Ownership via PO→Project chain
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == shipment.po_id).first()
+    if po:
+        project = db.query(Project).filter(Project.id == po.project_id).first()
+        if project and project.user_id != user.id and user.role != "admin": raise HTTPException(403)
+    db.add(ShipmentMilestone(shipment_id=body.shipment_id, milestone_type=body.milestone_type,
+        location=body.location, notes=body.notes, is_delay=body.is_delay, source="platform"))
+    if body.milestone_type in MILESTONE_STATUS_MAP: shipment.status = MILESTONE_STATUS_MAP[body.milestone_type]
+    if body.milestone_type == "delivered":
+        shipment.actual_delivery = datetime.now(timezone.utc)
+        track(db,"delivered",resource_type="shipment",resource_id=shipment.id)
+    db.commit()
+    return {"status":"ok"}
+
+@router.get("/shipment/{shipment_id}", response_model=ShipmentResponse)
+def get_shipment(shipment_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    s = db.query(Shipment).filter(Shipment.id == shipment_id).first()
+    if not s: raise HTTPException(404)
+    # Ownership check via PO→Project chain
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == s.po_id).first()
+    if po:
+        project = db.query(Project).filter(Project.id == po.project_id).first()
+        if project and project.user_id != user.id and user.role != "admin":
+            raise HTTPException(403, "Access denied")
+    return _ship_resp(s)
+
+def _ship_resp(s):
+    return ShipmentResponse(id=s.id, po_id=s.po_id, carrier=s.carrier, tracking_number=s.tracking_number,
+        status=s.status, eta=s.eta,
+        milestones=[{"type":m.milestone_type,"location":m.location,"notes":m.notes,
+            "is_delay":m.is_delay,"occurred_at":str(m.occurred_at),"source":m.source} for m in s.milestones],
+        created_at=s.created_at)
+
+
+=== FILE: .\app\routes\projects.py ===
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.models.user import User
+from app.models.project import Project, ProjectEvent
+from app.schemas import ProjectResponse, ProjectListResponse
+from app.utils.dependencies import get_current_user, require_user, require_project_access, require_project_owner
+from app.services.workflow.state_machine import transition_project, can_transition
+
+router = APIRouter(prefix="/projects", tags=["Projects"])
+
+def _serialize(p):
+    d = ProjectResponse.model_validate(p).model_dump()
+    d["events"] = [{"event_type":e.event_type,"old_status":e.old_status,"new_status":e.new_status,"created_at":str(e.created_at)} for e in (p.events or [])]
+    return d
+
+@router.get("", response_model=ProjectListResponse)
+def list_projects(limit:int=Query(50,ge=1,le=200), offset:int=Query(0,ge=0),
+                  user:User=Depends(require_user), db:Session=Depends(get_db)):
+    q = db.query(Project).filter(Project.user_id == user.id).order_by(Project.created_at.desc())
+    total = q.count()
+    items = q.offset(offset).limit(limit).all()
+    return ProjectListResponse(items=[ProjectResponse(**_serialize(p)) for p in items], total=total)
+
+@router.get("/{project_id}")
+def get_project(project_id:str, session_token:str=Query(""),
+                user:User|None=Depends(get_current_user), db:Session=Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project: raise HTTPException(404,"Project not found")
+    # ACL check
+    from app.utils.dependencies import _check_project_access
+    _check_project_access(db, project, user, session_token)
+    return _serialize(project)
+
+@router.patch("/{project_id}/status")
+def update_status(project_id:str, new_status:str=Query(...),
+                  user:User=Depends(require_user), db:Session=Depends(get_db)):
+    project = require_project_owner(project_id, db, user)
+    transition_project(db, project, new_status, actor_user_id=user.id)
+    db.commit()
+    return _serialize(project)
+
+@router.patch("/{project_id}")
+def update_project(project_id:str, body:dict, user:User=Depends(require_user), db:Session=Depends(get_db)):
+    project = require_project_owner(project_id, db, user)
+    for f in ("name","decision_summary"):
+        if f in body: setattr(project, f, body[f])
+    db.commit()
+    return _serialize(project)
+
+
+=== FILE: .\app\routes\rfq.py ===
+import uuid
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.models.user import User
+from app.models.bom import BOMPart
+from app.models.project import Project
+from app.models.rfq import RFQBatch, RFQItem, RFQVendorInvitation, InvitationStatusEvent, RFQQuoteHeader, RFQQuoteLine
+from app.schemas import RFQCreateRequest, RFQResponse, QuoteSubmitRequest, QuoteResponse
+from app.utils.dependencies import require_user, require_project_owner
+from app.services.event_service import track
+from app.services.workflow.state_machine import enforce_rfq_stage, transition_project
+
+router = APIRouter(prefix="/rfq", tags=["RFQ"])
+
+def _rfq_response(rfq):
+    return RFQResponse(id=rfq.id, project_id=rfq.project_id, bom_id=rfq.bom_id, status=rfq.status,
+        notes=rfq.notes, deadline=rfq.deadline,
+        items=[{"id":i.id,"part_key":i.part_key,"quantity":float(i.requested_quantity)} for i in rfq.items],
+        invitations=[{"id":inv.id,"vendor_id":inv.vendor_id,"status":inv.status} for inv in rfq.invitations],
+        quotes=[{"id":h.id,"vendor_id":h.vendor_id,"quote_status":h.quote_status,"total":float(h.total) if h.total else None,"quote_version":h.quote_version} for h in rfq.quote_headers],
+        created_at=rfq.created_at)
+
+@router.post("/create", response_model=RFQResponse)
+def create_rfq(body: RFQCreateRequest, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    # Ownership + stage enforcement
+    project = require_project_owner(body.project_id, db, user)
+    enforce_rfq_stage(project)
+    parts = db.query(BOMPart).filter(BOMPart.bom_id == body.bom_id).all()
+    if not parts: raise HTTPException(400, "No parts found")
+
+    rfq = RFQBatch(bom_id=body.bom_id, project_id=body.project_id, requested_by_user_id=user.id,
+        status="draft", notes=body.notes, deadline=body.deadline)
+    db.add(rfq); db.flush()
+    for part in parts:
+        db.add(RFQItem(rfq_batch_id=rfq.id, bom_part_id=part.id,
+            part_key=part.canonical_part_key or part.description or "",
+            requested_quantity=part.quantity, requested_material=part.material,
+            requested_process=part.procurement_class, drawing_required=part.drawing_required))
+    for vid in body.vendor_ids:
+        inv = RFQVendorInvitation(rfq_batch_id=rfq.id, vendor_id=vid, status="invited", portal_token=str(uuid.uuid4()))
+        db.add(inv); db.flush()
+        db.add(InvitationStatusEvent(invitation_id=inv.id, new_status="invited"))
+    if body.vendor_ids:
+        rfq.status = "sent"
+        transition_project(db, project, "rfq_sent", actor_user_id=user.id)
+    track(db,"rfq_sent",actor_id=user.id,resource_type="rfq",resource_id=rfq.id)
+    db.commit(); db.refresh(rfq)
+    return _rfq_response(rfq)
+
+@router.get("/{rfq_id}", response_model=RFQResponse)
+def get_rfq(rfq_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
+    if not rfq: raise HTTPException(404, "RFQ not found")
+    if rfq.requested_by_user_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Access denied")
+    return _rfq_response(rfq)
+
+@router.get("")
+def list_rfqs(project_id:str|None=None, user:User=Depends(require_user), db:Session=Depends(get_db)):
+    q = db.query(RFQBatch).filter(RFQBatch.requested_by_user_id == user.id)
+    if project_id: q = q.filter(RFQBatch.project_id == project_id)
+    return [_rfq_response(r) for r in q.order_by(RFQBatch.created_at.desc()).all()]
+
+@router.get("/{rfq_id}/quotes")
+def get_quotes(rfq_id: str, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
+    if not rfq: raise HTTPException(404)
+    if rfq.requested_by_user_id != user.id and user.role != "admin": raise HTTPException(403)
+    return [QuoteResponse(id=h.id, rfq_batch_id=rfq_id, vendor_id=h.vendor_id, quote_status=h.quote_status,
+        quote_version=h.quote_version, total=float(h.total) if h.total else None,
+        lines=[{"part_name":l.part_name,"unit_price":float(l.unit_price) if l.unit_price else None,
+                "quantity":float(l.quantity),"lead_time_days":float(l.lead_time_days) if l.lead_time_days else None,
+                "moq":float(l.moq) if l.moq else None,"notes":l.notes} for l in h.lines],
+        created_at=h.created_at) for h in rfq.quote_headers]
+
+@router.post("/quote/submit", response_model=QuoteResponse)
+def submit_quote(body: QuoteSubmitRequest, db: Session = Depends(get_db)):
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == body.rfq_batch_id).first()
+    if not rfq: raise HTTPException(404)
+    # Check existing versions
+    existing_count = db.query(RFQQuoteHeader).filter(
+        RFQQuoteHeader.rfq_batch_id==rfq.id, RFQQuoteHeader.vendor_id==body.vendor_id).count()
+    header = RFQQuoteHeader(rfq_batch_id=rfq.id, vendor_id=body.vendor_id, quote_number=body.quote_number,
+        quote_status="received", quote_currency=body.currency, incoterms=body.incoterms,
+        valid_until=body.valid_until, quote_version=existing_count+1,
+        is_revision=existing_count>0, notes=body.notes)
+    db.add(header); db.flush()
+    total = 0
+    for ld in body.lines:
+        db.add(RFQQuoteLine(quote_header_id=header.id, rfq_item_id=ld.get("rfq_item_id",""),
+            part_name=ld.get("part_name",""), quantity=ld.get("quantity",1),
+            unit_price=ld.get("unit_price",0), line_currency=body.currency,
+            lead_time_days=ld.get("lead_time_days"), moq=ld.get("moq"), notes=ld.get("notes","")))
+        total += float(ld.get("unit_price",0)) * float(ld.get("quantity",1))
+    header.total = total; rfq.status = "quoted"
+    track(db,"quote_received",resource_type="rfq",resource_id=rfq.id,payload={"vendor_id":body.vendor_id,"version":header.quote_version})
+    db.commit()
+    return QuoteResponse(id=header.id, rfq_batch_id=rfq.id, vendor_id=body.vendor_id,
+        quote_status="received", quote_version=header.quote_version, total=float(total),
+        lines=[{"part_name":l.part_name,"unit_price":float(l.unit_price) if l.unit_price else None} for l in header.lines],
+        created_at=header.created_at)
+
+
+=== FILE: .\app\routes\vendors.py ===
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.models.user import User
+from app.models.vendor import Vendor, VendorCapability, VendorMatchRun, VendorMatch
+from app.models.project import Project
+from app.models.bom import BOMPart
+from app.schemas import VendorResponse, VendorMatchListResponse, VendorMatchResponse
+from app.utils.dependencies import require_user, require_project_owner
+from app.services.scoring.vendor_scorer import rank_vendors, load_market_context
+
+router = APIRouter(prefix="/vendors", tags=["Vendors"])
+
+@router.get("")
+def list_vendors(search:str=Query(""), limit:int=Query(50,ge=1,le=200), db:Session=Depends(get_db)):
+    q = db.query(Vendor).filter(Vendor.is_active==True)
+    if search: q = q.filter(Vendor.name.ilike(f"%{search}%"))
+    return [VendorResponse.model_validate(v) for v in q.limit(limit).all()]
+
+@router.get("/{vendor_id}", response_model=VendorResponse)
+def get_vendor(vendor_id:str, db:Session=Depends(get_db)):
+    v = db.query(Vendor).filter(Vendor.id==vendor_id).first()
+    if not v: raise HTTPException(404,"Vendor not found")
+    return VendorResponse.model_validate(v)
+
+@router.get("/match/run", response_model=VendorMatchListResponse)
+def match_vendors(project_id:str=Query(...), user:User=Depends(require_user), db:Session=Depends(get_db)):
+    project = require_project_owner(project_id, db, user)
+    parts = db.query(BOMPart).filter(BOMPart.bom_id==project.bom_id).all()
+    processes = set(); materials = set(); total_qty = 0
+    for p in parts:
+        if p.procurement_class and p.procurement_class != "unknown": processes.add(p.procurement_class)
+        if p.material: materials.add(p.material)
+        total_qty += float(p.quantity or 0)
+    delivery_region = (project.project_metadata or {}).get("delivery_region","")
+    requirements = {"processes":list(processes),"materials":list(materials),"total_quantity":total_qty,
+        "delivery_region":delivery_region,"required_certifications":[],"target_lead_time_days":30}
+    market_ctx = load_market_context(db, delivery_region, "USD")
+    market_ctx["market_median_price"] = None
+
+    vendors = db.query(Vendor).filter(Vendor.is_active==True).all()
+    vdicts = []
+    for v in vendors:
+        caps = db.query(VendorCapability).filter(VendorCapability.vendor_id==v.id,VendorCapability.is_active==True).all()
+        vdicts.append({"id":v.id,"name":v.name,"reliability_score":float(v.reliability_score) if v.reliability_score else 0.5,
+            "avg_lead_time_days":float(v.avg_lead_time_days) if v.avg_lead_time_days else None,
+            "regions_served":v.regions_served or[],"certifications":v.certifications or[],
+            "capacity_profile":v.capacity_profile or{},"capabilities":[{"process":c.process,"material_family":c.material_family} for c in caps]})
+
+    scored = rank_vendors(vdicts, requirements, market_ctx)
+    run = VendorMatchRun(project_id=project.id, user_id=user.id, filters_json=requirements,
+        weights_json={}, total_vendors_considered=len(vdicts), total_matches=len(scored))
+    db.add(run); db.flush()
+    for s in scored:
+        db.add(VendorMatch(match_run_id=run.id, project_id=project.id, vendor_id=s["vendor_id"],
+            rank=s["rank"], score=s["total_score"], score_breakdown=s["breakdown"],
+            explanation=s["explanation"], explanation_json=s["explanation_json"]))
+    db.commit()
+    return VendorMatchListResponse(run_id=run.id, project_id=project.id,
+        matches=[VendorMatchResponse(**s) for s in scored], total_considered=len(vdicts))
+
+
+=== FILE: .\app\routes\vendor_portal.py ===
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.models.user import VendorUser
+from app.models.rfq import RFQBatch, RFQVendorInvitation, InvitationStatusEvent, RFQQuoteHeader, RFQQuoteLine, PurchaseOrder
+from app.models.logistics import Shipment
+from app.schemas import QuoteSubmitRequest, QuoteResponse
+from app.utils.dependencies import require_vendor_user
+from app.services.event_service import track
+
+router = APIRouter(prefix="/vendor-portal", tags=["Vendor Portal"])
+
+def _transition_inv(db, inv, new_status):
+    old = inv.status; inv.status = new_status
+    db.add(InvitationStatusEvent(invitation_id=inv.id, old_status=old, new_status=new_status))
+
+@router.get("/dashboard")
+def vendor_dashboard(vu: VendorUser = Depends(require_vendor_user), db: Session = Depends(get_db)):
+    invs = db.query(RFQVendorInvitation).filter(RFQVendorInvitation.vendor_id == vu.vendor_id).order_by(RFQVendorInvitation.created_at.desc()).limit(100).all()
+    open_rfqs = [i for i in invs if i.status in ("invited","opened")]
+    quoted = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.vendor_id == vu.vendor_id).count()
+    orders = db.query(PurchaseOrder).filter(PurchaseOrder.vendor_id == vu.vendor_id).count()
+    shipments = db.query(Shipment).join(PurchaseOrder).filter(PurchaseOrder.vendor_id == vu.vendor_id).count()
+    return {"vendor_id":vu.vendor_id,"open_rfqs":len(open_rfqs),"total_invitations":len(invs),
+        "quotes_submitted":quoted,"active_orders":orders,"active_shipments":shipments,
+        "recent_rfqs":[{"id":i.id,"rfq_batch_id":i.rfq_batch_id,"status":i.status,"invited_at":str(i.invited_at)} for i in open_rfqs[:10]]}
+
+@router.get("/rfqs")
+def vendor_rfqs(vu: VendorUser = Depends(require_vendor_user), db: Session = Depends(get_db)):
+    invs = db.query(RFQVendorInvitation).filter(RFQVendorInvitation.vendor_id == vu.vendor_id).order_by(RFQVendorInvitation.created_at.desc()).all()
+    result = []
+    for inv in invs:
+        rfq = db.query(RFQBatch).filter(RFQBatch.id == inv.rfq_batch_id).first()
+        if rfq:
+            result.append({"invitation_id":inv.id,"rfq_id":rfq.id,"status":inv.status,"rfq_status":rfq.status,
+                "deadline":str(rfq.deadline) if rfq.deadline else None,"item_count":len(rfq.items),"invited_at":str(inv.invited_at)})
+    return result
+
+@router.get("/rfqs/{rfq_id}")
+def vendor_rfq_detail(rfq_id:str, vu:VendorUser=Depends(require_vendor_user), db:Session=Depends(get_db)):
+    inv = db.query(RFQVendorInvitation).filter(RFQVendorInvitation.rfq_batch_id==rfq_id, RFQVendorInvitation.vendor_id==vu.vendor_id).first()
+    if not inv: raise HTTPException(403, "Not invited")
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
+    if not rfq: raise HTTPException(404)
+    if inv.status == "invited":
+        _transition_inv(db, inv, "opened"); inv.opened_at = datetime.now(timezone.utc); db.commit()
+    # Get existing quotes for revision history
+    existing = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.rfq_batch_id==rfq_id, RFQQuoteHeader.vendor_id==vu.vendor_id).order_by(RFQQuoteHeader.quote_version.desc()).all()
+    return {"rfq_id":rfq.id,"status":rfq.status,"deadline":str(rfq.deadline) if rfq.deadline else None,"notes":rfq.notes,
+        "items":[{"id":i.id,"part_key":i.part_key,"quantity":float(i.requested_quantity),"material":i.requested_material,
+            "process":i.requested_process,"drawing_required":i.drawing_required} for i in rfq.items],
+        "quote_history":[{"id":q.id,"version":q.quote_version,"status":q.quote_status,"total":float(q.total) if q.total else None,
+            "created_at":str(q.created_at)} for q in existing]}
+
+@router.post("/rfqs/{rfq_id}/quote", response_model=QuoteResponse)
+def vendor_submit_quote(rfq_id:str, body:QuoteSubmitRequest, vu:VendorUser=Depends(require_vendor_user), db:Session=Depends(get_db)):
+    inv = db.query(RFQVendorInvitation).filter(RFQVendorInvitation.rfq_batch_id==rfq_id, RFQVendorInvitation.vendor_id==vu.vendor_id).first()
+    if not inv: raise HTTPException(403, "Not invited")
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
+    if not rfq: raise HTTPException(404)
+    existing_count = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.rfq_batch_id==rfq.id, RFQQuoteHeader.vendor_id==vu.vendor_id).count()
+    header = RFQQuoteHeader(rfq_batch_id=rfq.id, vendor_id=vu.vendor_id, quote_number=body.quote_number,
+        quote_status="submitted", quote_currency=body.currency, incoterms=body.incoterms,
+        valid_until=body.valid_until, quote_version=existing_count+1, is_revision=existing_count>0, notes=body.notes)
+    db.add(header); db.flush()
+    total = 0
+    for ld in body.lines:
+        db.add(RFQQuoteLine(quote_header_id=header.id, rfq_item_id=ld.get("rfq_item_id",""),
+            part_name=ld.get("part_name",""), quantity=ld.get("quantity",1), unit_price=ld.get("unit_price",0),
+            line_currency=body.currency, lead_time_days=ld.get("lead_time_days"), moq=ld.get("moq"), notes=ld.get("notes","")))
+        total += float(ld.get("unit_price",0))*float(ld.get("quantity",1))
+    header.total = total
+    new_inv_status = "fully_quoted" if len(body.lines) >= len(rfq.items) else "partially_quoted"
+    _transition_inv(db, inv, new_inv_status); inv.responded_at = datetime.now(timezone.utc)
+    track(db,"quote_received",resource_type="rfq",resource_id=rfq.id,payload={"vendor_id":vu.vendor_id,"version":header.quote_version})
+    db.commit()
+    return QuoteResponse(id=header.id, rfq_batch_id=rfq.id, vendor_id=vu.vendor_id, quote_status="submitted",
+        quote_version=header.quote_version, total=float(total),
+        lines=[{"part_name":l.part_name,"unit_price":float(l.unit_price) if l.unit_price else None} for l in header.lines],
+        created_at=header.created_at)
+
+@router.get("/orders")
+def vendor_orders(vu:VendorUser=Depends(require_vendor_user), db:Session=Depends(get_db)):
+    orders = db.query(PurchaseOrder).filter(PurchaseOrder.vendor_id == vu.vendor_id).order_by(PurchaseOrder.created_at.desc()).all()
+    return [{"id":o.id,"po_number":o.po_number,"status":o.status,"total":float(o.total) if o.total else None,"created_at":str(o.created_at)} for o in orders]
+
+@router.get("/performance")
+def vendor_performance(vu:VendorUser=Depends(require_vendor_user), db:Session=Depends(get_db)):
+    total_quotes = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.vendor_id == vu.vendor_id).count()
+    total_orders = db.query(PurchaseOrder).filter(PurchaseOrder.vendor_id == vu.vendor_id).count()
+    completed = db.query(PurchaseOrder).filter(PurchaseOrder.vendor_id == vu.vendor_id, PurchaseOrder.status=="completed").count()
+    return {"total_quotes":total_quotes,"total_orders":total_orders,"completed_orders":completed,
+        "completion_rate":round(completed/max(total_orders,1)*100,1)}
+
+
+=== FILE: .\app\routes\__init__.py ===
+
+
+=== FILE: .\app\schemas\__init__.py ===
+from __future__ import annotations
+from pydantic import BaseModel
+from datetime import datetime
+
+class UserRegister(BaseModel):
+    email:str; password:str; full_name:str=""; session_token:str|None=None
+class UserLogin(BaseModel):
+    email:str; password:str; session_token:str|None=None
+class UserResponse(BaseModel):
+    id:str; email:str; full_name:str; role:str="buyer"; is_active:bool=True; is_verified:bool=False
+    model_config={"from_attributes":True}
+class TokenResponse(BaseModel):
+    access_token:str; token_type:str="bearer"; user:UserResponse; merge_result:dict={}
+class VendorUserLogin(BaseModel):
+    email:str; password:str
+class VendorUserResponse(BaseModel):
+    id:str; vendor_id:str; email:str; full_name:str; role:str
+    model_config={"from_attributes":True}
+class VendorTokenResponse(BaseModel):
+    access_token:str; token_type:str="bearer"; user:VendorUserResponse
+
+class BOMAnalyzeResponse(BaseModel):
+    search_session_id:str; total_parts:int=0; analysis:dict={}; recommended_flow:str="search_session"
+class BOMUploadResponse(BaseModel):
+    bom_id:str; project_id:str; total_parts:int=0; status:str="analyzed"; analysis:dict={}
+
+class ProjectResponse(BaseModel):
+    id:str; bom_id:str; name:str; status:str; visibility:str; total_parts:int=0
+    average_cost:float|None=None; cost_range_low:float|None=None; cost_range_high:float|None=None
+    lead_time_days:float|None=None; decision_summary:str|None=None; file_name:str|None=None
+    analyzer_report:dict={}; strategy:dict={}; events:list[dict]=[]; created_at:datetime|None=None
+    model_config={"from_attributes":True}
+class ProjectListResponse(BaseModel):
+    items:list[ProjectResponse]=[]; total:int=0
+
+class SearchSessionResponse(BaseModel):
+    id:str; query_text:str|None=None; query_type:str; input_type:str; results_json:dict={}
+    analysis_payload:dict={}; status:str; promoted_to:str|None=None; promoted_to_id:str|None=None
+    created_at:datetime|None=None
+    model_config={"from_attributes":True}
+class SourcingCaseResponse(BaseModel):
+    id:str; name:str; query_text:str|None=None; analysis_payload:dict={}; vendor_shortlist:list=[]
+    status:str; promoted_to_project_id:str|None=None; created_at:datetime|None=None
+    model_config={"from_attributes":True}
+
+class VendorResponse(BaseModel):
+    id:str; name:str; country:str|None=None; region:str|None=None; website:str|None=None
+    contact_email:str|None=None; reliability_score:float=0.8; avg_lead_time_days:float|None=None
+    certifications:list=[]; regions_served:list=[]; capacity_profile:dict={}; is_active:bool=True
+    model_config={"from_attributes":True}
+class VendorMatchResponse(BaseModel):
+    vendor_id:str; vendor_name:str; rank:int; total_score:float; breakdown:dict={}
+    explanation:str=""; explanation_json:dict={}; market_freshness:str=""
+class VendorMatchListResponse(BaseModel):
+    run_id:str; project_id:str; matches:list[VendorMatchResponse]=[]; total_considered:int=0
+
+class RFQCreateRequest(BaseModel):
+    bom_id:str; project_id:str; vendor_ids:list[str]=[]; notes:str=""; deadline:datetime|None=None
+class RFQResponse(BaseModel):
+    id:str; project_id:str|None=None; bom_id:str; status:str; notes:str|None=None
+    deadline:datetime|None=None; items:list[dict]=[]; invitations:list[dict]=[]
+    quotes:list[dict]=[]; created_at:datetime|None=None
+    model_config={"from_attributes":True}
+
+class QuoteSubmitRequest(BaseModel):
+    rfq_batch_id:str=""; vendor_id:str=""; quote_number:str|None=None; currency:str="USD"
+    incoterms:str|None=None; valid_until:datetime|None=None; lines:list[dict]=[]
+    notes:str=""
+class QuoteResponse(BaseModel):
+    id:str; rfq_batch_id:str; vendor_id:str|None=None; quote_status:str; quote_version:int=1
+    total:float|None=None; lines:list[dict]=[]; created_at:datetime|None=None
+    model_config={"from_attributes":True}
+
+class POCreateRequest(BaseModel):
+    project_id:str; rfq_batch_id:str|None=None; vendor_id:str
+    shipping_terms:str|None=None; payment_terms:str|None=None; line_items:list[dict]=[]
+class POResponse(BaseModel):
+    id:str; project_id:str; vendor_id:str|None=None; po_number:str|None=None
+    status:str; total:float|None=None; currency:str="USD"; created_at:datetime|None=None
+    model_config={"from_attributes":True}
+
+class ShipmentCreateRequest(BaseModel):
+    po_id:str; project_id:str|None=None; carrier:str|None=None; tracking_number:str|None=None
+    origin:str|None=None; destination:str|None=None; eta:datetime|None=None
+class MilestoneCreateRequest(BaseModel):
+    shipment_id:str; milestone_type:str; location:str|None=None; notes:str|None=None; is_delay:bool=False
+class ShipmentResponse(BaseModel):
+    id:str; po_id:str; carrier:str|None=None; tracking_number:str|None=None; status:str
+    eta:datetime|None=None; milestones:list[dict]=[]; created_at:datetime|None=None
+    model_config={"from_attributes":True}
+
+class ThreadCreateRequest(BaseModel):
+    context_type:str; context_id:str; title:str|None=None
+class MessageCreateRequest(BaseModel):
+    thread_id:str; content:str; visibility:str="internal"; attachment_url:str|None=None
+class ThreadResponse(BaseModel):
+    id:str; context_type:str; context_id:str; title:str|None=None; created_at:datetime|None=None
+    model_config={"from_attributes":True}
+class MessageResponse(BaseModel):
+    id:str; thread_id:str; sender_user_id:str|None=None; visibility:str; content:str
+    created_at:datetime|None=None
+    model_config={"from_attributes":True}
+
+class ReportRequest(BaseModel):
+    report_type:str; scope_type:str|None=None; scope_id:str|None=None; filters:dict={}
+class ReportResponse(BaseModel):
+    id:str; report_type:str; data_json:dict={}; summary_json:dict={}; created_at:datetime|None=None
+    model_config={"from_attributes":True}
+
+
+=== FILE: .\app\services\analyzer_service.py ===
+"""HTTP bridge to BOM Intelligence Engine microservice."""
+import logging
+import httpx
+from app.core.config import settings
+
+logger = logging.getLogger("analyzer_service")
+TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+
+
+async def call_analyzer(file_bytes: bytes, filename: str, user_location: str = "", target_currency: str = "USD") -> dict:
+    url = f"{settings.BOM_ANALYZER_URL}/api/analyze-bom"
+    headers = {}
+    if settings.INTERNAL_API_KEY:
+        headers["X-Internal-Key"] = settings.INTERNAL_API_KEY
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        resp = await client.post(
+            url,
+            files={"file": (filename, file_bytes)},
+            data={"user_location": user_location, "target_currency": target_currency},
+            headers=headers,
+        )
+        resp.raise_for_status()
+    result = resp.json()
+    if "components" in result:
+        return result
+    raise RuntimeError("Invalid analyzer response format")
+
+
+async def health_check() -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{settings.BOM_ANALYZER_URL}/health")
+            return {"status": "ok", "detail": r.json()}
+    except Exception as e:
+        return {"status": "degraded", "error": str(e)}
+
+
+=== FILE: .\app\services\event_service.py ===
+"""Platform observability — event tracking."""
+from sqlalchemy.orm import Session
+from app.models.events import PlatformEvent
+
+
+def track(db: Session, event_type: str, actor_id: str | None = None, actor_type: str = "user",
+          resource_type: str | None = None, resource_id: str | None = None, payload: dict | None = None):
+    ev = PlatformEvent(
+        event_type=event_type,
+        actor_id=actor_id,
+        actor_type=actor_type,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        payload=payload or {},
+    )
+    db.add(ev)
+    db.flush()
+    return ev
+
+
+=== FILE: .\app\services\__init__.py ===
+
+
+=== FILE: .\app\services\market_data\__init__.py ===
+
+
+=== FILE: .\app\services\scoring\vendor_scorer.py ===
+"""Multi-factor vendor scoring with market data integration and freshness awareness."""
+from datetime import datetime, timezone
+from sqlalchemy.orm import Session
+from app.models.market import FXRate, FreightRate
+
+DEFAULT_WEIGHTS = {
+    "capability_match":0.22,"price_competitiveness":0.18,"lead_time":0.15,
+    "reliability":0.14,"logistics_fit":0.10,"compliance":0.09,
+    "capacity":0.05,"freshness":0.07,
+}
+LABELS = {
+    "capability_match":"Capability Match","price_competitiveness":"Price","lead_time":"Lead Time",
+    "reliability":"Reliability","logistics_fit":"Logistics","compliance":"Compliance",
+    "capacity":"Capacity","freshness":"Data Freshness",
+}
+
+def load_market_context(db: Session, delivery_region: str, currency: str) -> dict:
+    ctx = {"fx_rate":1.0,"freight_per_kg":None,"data_age_days":None}
+    if currency and currency != "USD":
+        fx = db.query(FXRate).filter(FXRate.base_currency=="USD",FXRate.quote_currency==currency).order_by(FXRate.effective_from.desc()).first()
+        if fx:
+            ctx["fx_rate"] = float(fx.rate)
+            age = (datetime.now(timezone.utc) - fx.effective_from.replace(tzinfo=timezone.utc) if fx.effective_from.tzinfo is None else (datetime.now(timezone.utc) - fx.effective_from))
+            ctx["data_age_days"] = age.days
+    if delivery_region:
+        fr = db.query(FreightRate).filter(FreightRate.destination_region.ilike(f"%{delivery_region}%")).order_by(FreightRate.effective_from.desc()).first()
+        if fr and fr.rate_per_kg:
+            ctx["freight_per_kg"] = float(fr.rate_per_kg)
+    return ctx
+
+def score_vendor(vendor: dict, requirements: dict, market_ctx: dict, weights: dict|None=None) -> dict:
+    w = weights or DEFAULT_WEIGHTS
+    bd = {}
+    bd["capability_match"] = _cap(vendor.get("capabilities",[]),requirements.get("processes",[]),requirements.get("materials",[]))
+    bd["price_competitiveness"] = _price(vendor.get("typical_unit_price"),market_ctx.get("market_median_price"))
+    bd["lead_time"] = _lt(vendor.get("avg_lead_time_days"),requirements.get("target_lead_time_days",30))
+    bd["reliability"] = min(1.0, max(0.0, float(vendor.get("reliability_score",0.5))))
+    bd["logistics_fit"] = _logfit(vendor.get("regions_served",[]),requirements.get("delivery_region",""))
+    bd["compliance"] = _comp(vendor.get("certifications",[]),requirements.get("required_certifications",[]))
+    bd["capacity"] = _capac(vendor.get("capacity_profile",{}),requirements.get("total_quantity",0))
+    age = market_ctx.get("data_age_days")
+    bd["freshness"] = 1.0 if age is None else max(0.0,1.0 - (age/90))
+    total = sum(w.get(k,0)*v for k,v in bd.items())
+    expl_parts = []
+    for f,s in sorted(bd.items(), key=lambda x: w.get(x[0],0)*x[1], reverse=True):
+        lbl = LABELS.get(f,f)
+        tag = "strong" if s>=0.8 else "moderate" if s>=0.5 else "weak"
+        expl_parts.append(f"{lbl}: {tag} ({s:.0%})")
+    return {
+        "total_score":round(total,4),
+        "breakdown":{k:round(v,4) for k,v in bd.items()},
+        "weights":w,
+        "explanation":"; ".join(expl_parts),
+        "explanation_json":{k:{"score":round(v,4),"weight":w.get(k,0),"contribution":round(w.get(k,0)*v,4)} for k,v in bd.items()},
+        "market_freshness":"fresh" if (age is None or age<7) else "stale" if age>30 else "recent",
+    }
+
+def rank_vendors(vendors:list, requirements:dict, market_ctx:dict, weights:dict|None=None) -> list:
+    scored = []
+    for v in vendors:
+        r = score_vendor(v, requirements, market_ctx, weights)
+        r["vendor_id"]=v["id"]; r["vendor_name"]=v.get("name","")
+        scored.append(r)
+    scored.sort(key=lambda x:x["total_score"],reverse=True)
+    for i,s in enumerate(scored): s["rank"]=i+1
+    return scored
+
+def _cap(caps,procs,mats):
+    if not procs and not mats: return 0.5
+    t=len(procs)+len(mats); m=0
+    cp={c.get("process","").lower() for c in caps}
+    cm={c.get("material_family","").lower() for c in caps}
+    for p in procs:
+        if p.lower() in cp: m+=1
+    for mt in mats:
+        if any(mt.lower() in c for c in cm): m+=1
+    return min(1.0,m/max(t,1))
+
+def _price(vp,mm):
+    if not vp or not mm: return 0.5
+    r=float(vp)/float(mm)
+    if r<=0.8: return 1.0
+    if r>=1.5: return 0.0
+    return max(0.0,1.0-(r-0.8)/0.7)
+
+def _lt(vlt,tlt):
+    if not vlt or not tlt: return 0.5
+    r=float(vlt)/float(tlt)
+    if r<=0.5: return 1.0
+    if r>=2.0: return 0.0
+    return max(0.0,1.0-(r-0.5)/1.5)
+
+def _logfit(rs,dr):
+    if not dr or not rs: return 0.5
+    d=dr.lower()
+    return 1.0 if any(d in str(r).lower() for r in rs) else 0.3
+
+def _comp(vc,rc):
+    if not rc: return 1.0
+    s={str(c).upper() for c in vc}
+    return sum(1 for c in rc if str(c).upper() in s)/len(rc)
+
+def _capac(cp,q):
+    if not q or not cp: return 0.5
+    mx=cp.get("max_monthly_units",0)
+    if mx<=0: return 0.5
+    if float(q)<=mx*0.5: return 1.0
+    if float(q)>mx: return 0.1
+    return 0.6
+
+
+=== FILE: .\app\services\scoring\__init__.py ===
+
+
+=== FILE: .\app\services\workflow\state_machine.py ===
+"""Canonical workflow state machine — enforced at API boundary."""
+from fastapi import HTTPException
+from app.models.project import Project, ProjectEvent
+
+TRANSITIONS = {
+    "draft":["analyzing","cancelled"],
+    "analyzing":["analyzed","draft"],
+    "analyzed":["strategy","vendor_match","rfq_pending","cancelled"],
+    "strategy":["vendor_match","rfq_pending","cancelled"],
+    "vendor_match":["rfq_pending","cancelled"],
+    "rfq_pending":["rfq_sent","cancelled"],
+    "rfq_sent":["quote_compare","cancelled"],
+    "quote_compare":["negotiation","vendor_selected","cancelled"],
+    "negotiation":["vendor_selected","quote_compare","cancelled"],
+    "vendor_selected":["po_issued","cancelled"],
+    "po_issued":["in_production","cancelled"],
+    "in_production":["qc_inspection","shipped","cancelled"],
+    "qc_inspection":["shipped","in_production","cancelled"],
+    "shipped":["delivered","cancelled"],
+    "delivered":["completed"],
+    "completed":[],
+    "cancelled":[],
+}
+
+RFQ_ALLOWED_STAGES = {"analyzed","strategy","vendor_match","rfq_pending"}
+PO_ALLOWED_STAGES = {"vendor_selected","negotiation","quote_compare"}
+
+def can_transition(current: str, target: str) -> bool:
+    return target in TRANSITIONS.get(current, [])
+
+def transition_project(db, project: Project, new_status: str, actor_user_id: str | None = None, payload: dict | None = None) -> Project:
+    if not can_transition(project.status, new_status):
+        raise HTTPException(400, f"Cannot transition from '{project.status}' to '{new_status}'")
+    old = project.status
+    project.status = new_status
+    db.add(ProjectEvent(project_id=project.id, event_type="status_change",
+        old_status=old, new_status=new_status, actor_user_id=actor_user_id, payload=payload or {}))
+    return project
+
+def enforce_rfq_stage(project: Project):
+    if project.status not in RFQ_ALLOWED_STAGES:
+        raise HTTPException(400, f"Cannot create RFQ from project stage '{project.status}'")
+
+def enforce_po_stage(project: Project):
+    if project.status not in PO_ALLOWED_STAGES:
+        raise HTTPException(400, f"Cannot create PO from project stage '{project.status}'")
+
+
+=== FILE: .\app\services\workflow\__init__.py ===
+
+
+=== FILE: .\app\utils\dependencies.py ===
+from fastapi import Depends, HTTPException, Header, Query
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.core.security import decode_token
+from app.models.user import User, VendorUser
+from app.models.project import Project, ProjectACL
+
+
+def get_current_user(authorization: str = Header(default=""), db: Session = Depends(get_db)) -> User | None:
+    if not authorization.startswith("Bearer "):
+        return None
+    payload = decode_token(authorization.removeprefix("Bearer ").strip())
+    if not payload or "sub" not in payload or payload.get("type") == "vendor":
+        return None
+    return db.query(User).filter(User.id == payload["sub"]).first()
+
+
+def require_user(user: User | None = Depends(get_current_user)) -> User:
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    return user
+
+
+def require_admin(user: User = Depends(require_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(403, "Admin access required")
+    return user
+
+
+def get_vendor_user(authorization: str = Header(default=""), db: Session = Depends(get_db)) -> VendorUser | None:
+    if not authorization.startswith("Bearer "):
+        return None
+    payload = decode_token(authorization.removeprefix("Bearer ").strip())
+    if not payload or payload.get("type") != "vendor":
+        return None
+    return db.query(VendorUser).filter(VendorUser.id == payload["sub"]).first()
+
+
+def require_vendor_user(vu: VendorUser | None = Depends(get_vendor_user)) -> VendorUser:
+    if not vu:
+        raise HTTPException(401, "Vendor authentication required")
+    return vu
+
+
+# ── Object-scoped access guards ──────────────────
+
+def _check_project_access(db: Session, project: Project, user: User | None,
+                          session_token: str | None, require_role: str | None = None) -> bool:
+    """ACL-based project access. Returns True if allowed, raises 403 otherwise."""
+    if not project:
+        raise HTTPException(404, "Project not found")
+    # Owner always allowed
+    if user and project.user_id and project.user_id == user.id:
+        return True
+    # Admin always allowed
+    if user and user.role == "admin":
+        return True
+    # Check explicit ACL entries
+    if user:
+        acl = db.query(ProjectACL).filter(
+            ProjectACL.project_id == project.id,
+            ProjectACL.principal_type == "user",
+            ProjectACL.principal_id == user.id,
+        ).first()
+        if acl:
+            if require_role and acl.role not in (require_role, "owner", "editor"):
+                raise HTTPException(403, "Insufficient role")
+            return True
+    # Guest preview: only if project has guest_session_id AND the session_token matches
+    if session_token and project.guest_session_id and project.visibility == "guest_preview":
+        from app.models.user import GuestSession
+        gs = db.query(GuestSession).filter(
+            GuestSession.id == project.guest_session_id,
+            GuestSession.session_token == session_token,
+        ).first()
+        if gs:
+            if require_role and require_role not in ("viewer",):
+                raise HTTPException(403, "Guest sessions have read-only access")
+            return True
+    raise HTTPException(403, "Access denied")
+
+
+def require_project_access(project_id: str, db: Session = Depends(get_db),
+                           user: User | None = Depends(get_current_user),
+                           session_token: str = Query(default="")) -> Project:
+    project = db.query(Project).filter(Project.id == project_id).first()
+    _check_project_access(db, project, user, session_token)
+    return project
+
+
+def require_project_owner(project_id: str, db: Session = Depends(get_db),
+                          user: User = Depends(require_user)) -> Project:
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if project.user_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Not the project owner")
+    return project
+
+
+=== FILE: .\app\utils\__init__.py ===
+
+
