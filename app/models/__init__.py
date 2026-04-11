@@ -1,11 +1,58 @@
-from app.models.user import User, GuestSession, VendorUser
+"""
+Model registry. All models must be imported here so Alembic autogenerate
+and Base.metadata.create_all() discover every table.
+"""
+from app.models.user import (
+    User, GuestSession, VendorUser, Organization, OrganizationMembership,
+)
 from app.models.bom import BOM, BOMPart, AnalysisResult
-from app.models.project import (Project, ProjectACL, ProjectEvent, SearchSession,
-    SourcingCase)
-from app.models.vendor import Vendor, VendorCapability, VendorMatchRun, VendorMatch
-from app.models.rfq import (RFQBatch, RFQItem, RFQVendorInvitation, InvitationStatusEvent,
-    RFQQuoteHeader, RFQQuoteLine, PurchaseOrder, POLineItem, Invoice, Payment)
+from app.models.project import (
+    Project, ProjectACL, ProjectEvent, SearchSession, SourcingCase,
+)
+from app.models.vendor import (
+    Vendor, VendorCapability, VendorMatchRun, VendorMatch,
+    VendorPerformanceSnapshot,
+)
+from app.models.rfq import (
+    RFQBatch, RFQItem, RFQVendorInvitation, InvitationStatusEvent,
+    RFQQuoteHeader, RFQQuoteLine, PurchaseOrder, POLineItem,
+    Invoice, InvoiceLine, Payment, GoodsReceipt, GoodsReceiptLine,
+    ApprovalRequest,
+)
 from app.models.logistics import Shipment, ShipmentMilestone
 from app.models.chat import ChatThread, ChatMessage
-from app.models.market import FXRate, FreightRate, TariffSchedule, CommodityIndex
-from app.models.events import PlatformEvent, ReportSnapshot
+from app.models.market import (
+    FXRate, FreightRate, TariffSchedule, CommodityIndex, IntegrationRunLog,
+)
+from app.models.events import (
+    PlatformEvent, ReportSnapshot, EventAuditLog, IdempotencyRecord,
+)
+from app.models.notification import Notification, NotificationPreference
+
+__all__ = [
+    # auth
+    "User", "GuestSession", "VendorUser", "Organization", "OrganizationMembership",
+    # bom
+    "BOM", "BOMPart", "AnalysisResult",
+    # project
+    "Project", "ProjectACL", "ProjectEvent", "SearchSession", "SourcingCase",
+    # vendor
+    "Vendor", "VendorCapability", "VendorMatchRun", "VendorMatch",
+    "VendorPerformanceSnapshot",
+    # rfq / quote / po / invoice / payment / gr / approval
+    "RFQBatch", "RFQItem", "RFQVendorInvitation", "InvitationStatusEvent",
+    "RFQQuoteHeader", "RFQQuoteLine", "PurchaseOrder", "POLineItem",
+    "Invoice", "InvoiceLine", "Payment", "GoodsReceipt", "GoodsReceiptLine",
+    "ApprovalRequest",
+    # logistics
+    "Shipment", "ShipmentMilestone",
+    # chat
+    "ChatThread", "ChatMessage",
+    # market
+    "FXRate", "FreightRate", "TariffSchedule", "CommodityIndex",
+    "IntegrationRunLog",
+    # events / ops
+    "PlatformEvent", "ReportSnapshot", "EventAuditLog", "IdempotencyRecord",
+    # notifications
+    "Notification", "NotificationPreference",
+]

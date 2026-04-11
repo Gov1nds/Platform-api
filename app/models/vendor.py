@@ -1,8 +1,19 @@
+"""
+Vendor, capability, match, and performance snapshot models.
+
+References: GAP-013 (MKT-002), GAP-017, GAP-005, state-machines.md MKT-002,
+            canonical-domain-model.md BC-08
+"""
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey, Numeric, Integer, Index
+
+from sqlalchemy import (
+    Column, String, Text, Boolean, DateTime, ForeignKey, Numeric,
+    Integer, Date, Index,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
+
 from app.core.database import Base
 
 
@@ -15,8 +26,18 @@ def _uuid():
 
 
 class Vendor(Base):
+    """
+    Vendor entity.
+
+    Status follows VendorStatus enum (MKT-002):
+    GHOST → INVITED → CLAIM_PENDING → BASIC → STANDARD → PREMIUM | SUSPENDED | DEACTIVATED
+    """
     __tablename__ = "vendors"
-    __table_args__ = {"schema": "pricing"}
+    __table_args__ = (
+        Index("ix_vendors_org", "organization_id"),
+        Index("ix_vendors_status", "status"),
+        {"schema": "pricing"},
+    )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     name = Column(Text, nullable=False)
@@ -29,18 +50,41 @@ class Vendor(Base):
     reliability_score = Column(Numeric(12, 6), nullable=False, default=0.8)
     avg_lead_time_days = Column(Numeric(12, 2), nullable=True)
     default_currency = Column(String(3), nullable=False, default="USD")
-    default_moq = Column(Numeric(18, 6), nullable=True)
+    default_moq = Column(Numeric(20, 8), nullable=True)
     regions_served = Column(JSONB, nullable=False, default=list)
     certifications = Column(JSONB, nullable=False, default=list)
     capacity_profile = Column(JSONB, nullable=False, default=dict)
     quality_rating = Column(Numeric(12, 6), nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
+
+    # Lifecycle (MKT-002)
+    status = Column(String(40), nullable=False, default="GHOST")  # VendorStatus
+    organization_id = Column(UUID(as_uuid=False), nullable=True)
+    profile_completeness = Column(Integer, nullable=False, default=0)  # 0-100
+    identity_json = Column(JSONB, nullable=False, default=dict)  # tax_id, duns, etc.
+    commercial_terms_json = Column(JSONB, nullable=False, default=dict)
+    lead_time_profile_json = Column(JSONB, nullable=False, default=dict)
+    onboarding_method = Column(String(40), nullable=True)  # platform_seeded, self_onboarded, buyer_invited
+    claimed_by_user_id = Column(UUID(as_uuid=False), nullable=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+    suspended_reason = Column(Text, nullable=True)
+
+    # Timestamps
     created_at = Column(DateTime(timezone=True), default=_now)
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
-    capabilities = relationship("VendorCapability", back_populates="vendor", cascade="all, delete-orphan")
-    matches = relationship("VendorMatch", back_populates="vendor", cascade="all, delete-orphan")
+    # Relationships
+    capabilities = relationship(
+        "VendorCapability", back_populates="vendor", cascade="all, delete-orphan"
+    )
+    matches = relationship(
+        "VendorMatch", back_populates="vendor", cascade="all, delete-orphan"
+    )
+    performance_snapshots = relationship(
+        "VendorPerformanceSnapshot", back_populates="vendor", cascade="all, delete-orphan"
+    )
 
 
 class VendorCapability(Base):
@@ -52,7 +96,11 @@ class VendorCapability(Base):
     )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="CASCADE"), nullable=False)
+    vendor_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("pricing.vendors.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     process = Column(Text, nullable=False)
     material_family = Column(Text, nullable=True)
     proficiency = Column(Numeric(6, 4), nullable=False, default=0.8)
@@ -68,18 +116,26 @@ class VendorMatchRun(Base):
     __tablename__ = "vendor_match_runs"
     __table_args__ = (
         Index("ix_vmr_project", "project_id"),
+        Index("ix_vmr_org", "organization_id"),
         {"schema": "pricing"},
     )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("projects.projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    organization_id = Column(UUID(as_uuid=False), nullable=True)
     user_id = Column(UUID(as_uuid=False), nullable=True)
+    weight_profile = Column(String(40), nullable=True)
     filters_json = Column(JSONB, nullable=False, default=dict)
     weights_json = Column(JSONB, nullable=False, default=dict)
     summary_json = Column(JSONB, nullable=False, default=dict)
     total_vendors_considered = Column(Integer, nullable=False, default=0)
     total_matches = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), default=_now)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     matches = relationship("VendorMatch", back_populates="run", cascade="all, delete-orphan")
 
@@ -93,9 +149,21 @@ class VendorMatch(Base):
     )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    match_run_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendor_match_runs.id", ondelete="CASCADE"), nullable=False)
-    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.projects.id", ondelete="CASCADE"), nullable=False)
-    vendor_id = Column(UUID(as_uuid=False), ForeignKey("pricing.vendors.id", ondelete="CASCADE"), nullable=False)
+    match_run_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("pricing.vendor_match_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("projects.projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    vendor_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("pricing.vendors.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     rank = Column(Integer, nullable=False, default=0)
     score = Column(Numeric(12, 6), nullable=False, default=0)
     score_breakdown = Column(JSONB, nullable=False, default=dict)
@@ -103,7 +171,36 @@ class VendorMatch(Base):
     explanation_json = Column(JSONB, nullable=False, default=dict)
     shortlist_status = Column(Text, nullable=False, default="shortlisted")
     is_primary = Column(Boolean, nullable=False, default=False)
+    elimination_reasons = Column(JSONB, nullable=False, default=list)  # PC-005
+    confidence_level = Column(String(20), nullable=True)  # HIGH, MEDIUM, LOW
+    evidence_json = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), default=_now)
 
     run = relationship("VendorMatchRun", back_populates="matches")
     vendor = relationship("Vendor", back_populates="matches")
+
+
+class VendorPerformanceSnapshot(Base):
+    """Nightly-rebuilt 90-day performance snapshot per vendor."""
+    __tablename__ = "vendor_performance_snapshots"
+    __table_args__ = (
+        Index("ix_vps_vendor_date", "vendor_id", "snapshot_date"),
+        {"schema": "pricing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    vendor_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("pricing.vendors.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    snapshot_date = Column(Date, nullable=False)
+    total_pos = Column(Integer, nullable=False, default=0)
+    on_time_delivery_pct = Column(Numeric(8, 4), nullable=True)
+    quality_pass_pct = Column(Numeric(8, 4), nullable=True)
+    avg_response_time_hours = Column(Numeric(12, 4), nullable=True)
+    quote_win_rate = Column(Numeric(8, 4), nullable=True)
+    trailing_window_days = Column(Integer, nullable=False, default=90)
+    computed_at = Column(DateTime(timezone=True), default=_now)
+
+    vendor = relationship("Vendor", back_populates="performance_snapshots")
