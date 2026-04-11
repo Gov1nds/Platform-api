@@ -331,3 +331,37 @@ def get_current_actor(
         )
 
     return Actor(id=payload["sub"], type="user", role=BuyerRole.GUEST)
+
+# ── Guest session dependency (Batch 3: GAP-001) ────────────────────────────
+
+def get_guest_session_dep(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    FastAPI dependency: retrieve guest session from HttpOnly cookie.
+    Returns GuestSession or None.
+    """
+    from app.services.guest_service import get_guest_session
+    return get_guest_session(request, db)
+
+
+def require_guest_or_user(
+    request: Request,
+    authorization: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    """
+    Dependency that allows either authenticated user or guest session.
+    Returns (User | None, GuestSession | None). At least one must be present.
+    """
+    user = get_current_user(authorization=authorization, db=db)
+    if user:
+        return user, None
+
+    from app.services.guest_service import get_guest_session
+    gs = get_guest_session(request, db)
+    if gs:
+        return None, gs
+
+    raise HTTPException(401, "Authentication or guest session required")
