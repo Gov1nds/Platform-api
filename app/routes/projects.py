@@ -2,15 +2,15 @@
 Project management routes.
 
 Endpoints:
-  GET    /projects                         — List projects (org-scoped, cursor pagination)
-  POST   /projects                         — Create project explicitly
-  GET    /projects/{id}                    — Get project detail
-  PATCH  /projects/{id}                    — Update project fields
-  PATCH  /projects/{id}/status             — Transition project status (SM-002)
-  POST   /projects/{id}/archive            — Archive project
-  POST   /projects/{id}/cancel             — Cancel project
-  GET    /projects/{id}/weight-profile     — Get weight profile
-  PUT    /projects/{id}/weight-profile     — Set weight profile
+  GET    /projects                         -- List projects (org-scoped, cursor pagination)
+  POST   /projects                         -- Create project explicitly
+  GET    /projects/{id}                    -- Get project detail
+  PATCH  /projects/{id}                    -- Update project fields
+  PATCH  /projects/{id}/status             -- Transition project status (SM-002)
+  POST   /projects/{id}/archive            -- Archive project
+  POST   /projects/{id}/cancel             -- Cancel project
+  GET    /projects/{id}/weight-profile     -- Get weight profile
+  PUT    /projects/{id}/weight-profile     -- Set weight profile
 
 References: GAP-004 (SM-002), GAP-005 (org scoping),
             api-contract-review.md Section 5.2
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
 
-# ── Serializer ───────────────────────────────────────────────────────────────
+# -- Serializer ---------------------------------------------------------------
 
 def _serialize(p: Project) -> dict:
     d = ProjectResponse.model_validate(p).model_dump()
@@ -65,7 +65,7 @@ def _serialize(p: Project) -> dict:
     return d
 
 
-# ── GET /projects — org-scoped, cursor paginated ────────────────────────────
+# -- GET /projects -- org-scoped, cursor paginated ----------------------------
 
 @router.get("", response_model=ProjectCursorResponse)
 def list_projects(
@@ -80,7 +80,7 @@ def list_projects(
 
     q = db.query(Project).filter(Project.deleted_at.is_(None))
 
-    # Org scoping
+    # Org scoping (GAP-005)
     if org_id:
         q = q.filter(Project.organization_id == org_id)
     else:
@@ -93,7 +93,6 @@ def list_projects(
 
     # Cursor-based: use created_at desc, id desc
     if cursor:
-        # cursor is the project ID of the last item on the previous page
         ref = db.query(Project).filter(Project.id == cursor).first()
         if ref:
             q = q.filter(
@@ -111,7 +110,7 @@ def list_projects(
     )
 
 
-# ── POST /projects — explicit project creation ──────────────────────────────
+# -- POST /projects -- explicit project creation ------------------------------
 
 @router.post("", response_model=ProjectResponse, status_code=201)
 def create_project(
@@ -163,7 +162,7 @@ def create_project(
     return ProjectResponse(**_serialize(project))
 
 
-# ── GET /projects/{id} ──────────────────────────────────────────────────────
+# -- GET /projects/{id} ------------------------------------------------------
 
 @router.get("/{project_id}")
 def get_project(
@@ -184,7 +183,7 @@ def get_project(
     return _serialize(project)
 
 
-# ── PATCH /projects/{id}/status ─────────────────────────────────────────────
+# -- PATCH /projects/{id}/status -- SM-002 transition -------------------------
 
 @router.patch("/{project_id}/status")
 def update_status(
@@ -194,18 +193,26 @@ def update_status(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    """Transition project status via canonical SM-002 state machine."""
     project = require_org_scoped_project(project_id, request, db)
 
     # Ownership / role check
     if project.user_id != user.id and user.role not in ("admin", "BUYER_ADMIN", "ORGANIZATION_OWNER"):
         raise HTTPException(403, "Not the project owner")
 
-    transition_project(db, project, new_status, actor_user_id=user.id)
+    trace_id = getattr(request.state, "request_id", None)
+
+    transition_project(
+        db, project, new_status,
+        actor_user_id=user.id,
+        actor_type="USER",
+        trace_id=trace_id,
+    )
     db.commit()
     return _serialize(project)
 
 
-# ── PATCH /projects/{id} ────────────────────────────────────────────────────
+# -- PATCH /projects/{id} -- update fields ------------------------------------
 
 @router.patch("/{project_id}")
 def update_project(
@@ -229,7 +236,7 @@ def update_project(
     return _serialize(project)
 
 
-# ── POST /projects/{id}/archive ─────────────────────────────────────────────
+# -- POST /projects/{id}/archive -- SM-002: CLOSED -> ARCHIVED ----------------
 
 @router.post("/{project_id}/archive")
 def archive_project(
@@ -238,29 +245,33 @@ def archive_project(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Archive a project (terminal state)."""
+    """Archive a project. Only valid from CLOSED state (SM-002)."""
     project = require_org_scoped_project(project_id, request, db)
 
     if project.status in (ProjectStatus.CANCELLED, ProjectStatus.ARCHIVED):
         raise HTTPException(409, f"Project is already {project.status}")
 
-    # Archive is allowed from CLOSED or any non-terminal state
-    old = project.status
-    project.status = ProjectStatus.ARCHIVED
-    db.add(ProjectEvent(
-        project_id=project.id,
-        event_type="status_change",
-        old_status=old,
-        new_status=ProjectStatus.ARCHIVED,
+    if project.status != ProjectStatus.CLOSED:
+        raise HTTPException(
+            409,
+            f"Cannot archive project from '{project.status}'; must be CLOSED first",
+        )
+
+    trace_id = getattr(request.state, "request_id", None)
+
+    transition_project(
+        db, project, ProjectStatus.ARCHIVED,
         actor_user_id=user.id,
-    ))
+        actor_type="USER",
+        trace_id=trace_id,
+    )
 
     track(db, "project_archived", actor_id=user.id, resource_type="project", resource_id=project.id)
     db.commit()
     return _serialize(project)
 
 
-# ── POST /projects/{id}/cancel ──────────────────────────────────────────────
+# -- POST /projects/{id}/cancel -- SM-002: any non-terminal -> CANCELLED ------
 
 @router.post("/{project_id}/cancel")
 def cancel_project(
@@ -269,28 +280,27 @@ def cancel_project(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Cancel a project. Does NOT cascade to POs."""
+    """Cancel a project. Does NOT cascade to POs (INV-11)."""
     project = require_org_scoped_project(project_id, request, db)
 
     if project.status in (ProjectStatus.CANCELLED, ProjectStatus.ARCHIVED, ProjectStatus.CLOSED):
         raise HTTPException(409, f"Project is already {project.status}")
 
-    old = project.status
-    project.status = ProjectStatus.CANCELLED
-    db.add(ProjectEvent(
-        project_id=project.id,
-        event_type="status_change",
-        old_status=old,
-        new_status=ProjectStatus.CANCELLED,
+    trace_id = getattr(request.state, "request_id", None)
+
+    transition_project(
+        db, project, ProjectStatus.CANCELLED,
         actor_user_id=user.id,
-    ))
+        actor_type="USER",
+        trace_id=trace_id,
+    )
 
     track(db, "project_cancelled", actor_id=user.id, resource_type="project", resource_id=project.id)
     db.commit()
     return _serialize(project)
 
 
-# ── GET /projects/{id}/weight-profile ───────────────────────────────────────
+# -- GET /projects/{id}/weight-profile ----------------------------------------
 
 @router.get("/{project_id}/weight-profile")
 def get_weight_profile(
@@ -303,7 +313,7 @@ def get_weight_profile(
     return {"weight_profile": project.weight_profile}
 
 
-# ── PUT /projects/{id}/weight-profile ───────────────────────────────────────
+# -- PUT /projects/{id}/weight-profile ----------------------------------------
 
 @router.put("/{project_id}/weight-profile")
 def set_weight_profile(

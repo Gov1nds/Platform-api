@@ -1,9 +1,16 @@
 """
 Canonical workflow state machines — enforced at API boundary.
 
-Provides transition functions for all entities with state lifecycles.
-Batch 3 scope: Project (SM-002), BOM Upload, BOM Line (SM-001).
-Later batches will add RFQ (SM-004), Quote (SM-005), PO (SM-006), etc.
+Provides guarded transition functions for all lifecycle-bearing entities.
+Each transition:
+  1. Validates source -> target is legal
+  2. Evaluates guard conditions
+  3. Writes EventAuditLog (SMP-03)
+  4. Commits state change
+  5. Logs transition
+
+Batch 4 scope: Project (SM-002) guards, BOM Line (SM-001) guards,
+BOM Upload transitions. Later batches add RFQ/Quote/PO/Shipment/Invoice/Vendor.
 
 References: state-machines.md (FSD-01 through FSD-10), SMP-01 through SMP-06
 """
@@ -11,6 +18,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Any, Callable
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -22,46 +30,175 @@ from app.enums import (
     SessionStatus,
 )
 from app.models.bom import BOM, BOMPart
+from app.models.events import EventAuditLog
 from app.models.project import Project, ProjectEvent
 
 logger = logging.getLogger(__name__)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  SM-002: Project Lifecycle (12 states)
-# ═══════════════════════════════════════════════════════════════════════════════
+# -- Shared audit helper (SMP-03) --------------------------------------------
 
-PROJECT_TRANSITIONS: dict[tuple[str, str], dict] = {
-    # DRAFT → INTAKE_COMPLETE (guard: has at least one BOM upload)
-    (ProjectStatus.DRAFT, ProjectStatus.INTAKE_COMPLETE): {},
-    # INTAKE_COMPLETE → ANALYSIS_IN_PROGRESS (guard: BOM lines exist)
-    (ProjectStatus.INTAKE_COMPLETE, ProjectStatus.ANALYSIS_IN_PROGRESS): {},
-    # ANALYSIS_IN_PROGRESS → ANALYSIS_COMPLETE (guard: all lines scored)
-    (ProjectStatus.ANALYSIS_IN_PROGRESS, ProjectStatus.ANALYSIS_COMPLETE): {},
-    # ANALYSIS_COMPLETE → SOURCING_ACTIVE
+def _audit_transition(
+    db: Session,
+    event_type: str,
+    entity_type: str,
+    entity_id: str,
+    from_state: str,
+    to_state: str,
+    actor_id: str | None = None,
+    actor_type: str = "SYSTEM",
+    trace_id: str | None = None,
+    organization_id: str | None = None,
+    payload: dict | None = None,
+) -> EventAuditLog:
+    """Write an append-only audit record for a state transition."""
+    log = EventAuditLog(
+        event_type=event_type,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        from_state=from_state,
+        to_state=to_state,
+        actor_id=actor_id,
+        actor_type=actor_type,
+        trace_id=trace_id,
+        organization_id=organization_id,
+        payload=payload or {},
+    )
+    db.add(log)
+    return log
+
+
+# == Guard functions -- Project (SM-002) ======================================
+
+def _get_project_bom_ids(db: Session, project: Project) -> list[str]:
+    """Helper: collect all BOM IDs for a project."""
+    return [
+        b.id for b in
+        db.query(BOM.id).filter(
+            BOM.project_id == project.id,
+            BOM.deleted_at.is_(None),
+        ).all()
+    ]
+
+
+def _guard_has_bom_lines(db: Session, project: Project) -> bool:
+    """DRAFT -> INTAKE_COMPLETE: at least one BOM_Line created (status=RAW or later)."""
+    bom_ids = _get_project_bom_ids(db, project)
+    if not bom_ids:
+        return False
+    return db.query(BOMPart).filter(
+        BOMPart.bom_id.in_(bom_ids),
+        BOMPart.deleted_at.is_(None),
+    ).count() > 0
+
+
+def _guard_has_normalizing_lines(db: Session, project: Project) -> bool:
+    """INTAKE_COMPLETE -> ANALYSIS_IN_PROGRESS: at least one line in NORMALIZING state."""
+    bom_ids = _get_project_bom_ids(db, project)
+    if not bom_ids:
+        return False
+    return db.query(BOMPart).filter(
+        BOMPart.bom_id.in_(bom_ids),
+        BOMPart.deleted_at.is_(None),
+        BOMPart.status == BOMLineStatus.NORMALIZING,
+    ).count() > 0
+
+
+def _guard_all_lines_scored(db: Session, project: Project) -> bool:
+    """
+    ANALYSIS_IN_PROGRESS -> ANALYSIS_COMPLETE:
+    - No lines in NORMALIZING, ENRICHING, SCORING, or NEEDS_REVIEW
+    - At least one line in SCORED or later
+    """
+    bom_ids = _get_project_bom_ids(db, project)
+    if not bom_ids:
+        return False
+
+    processing_states = {
+        BOMLineStatus.NORMALIZING,
+        BOMLineStatus.ENRICHING,
+        BOMLineStatus.SCORING,
+        BOMLineStatus.NEEDS_REVIEW,
+    }
+    in_processing = db.query(BOMPart).filter(
+        BOMPart.bom_id.in_(bom_ids),
+        BOMPart.deleted_at.is_(None),
+        BOMPart.status.in_(processing_states),
+    ).count()
+    if in_processing > 0:
+        return False
+
+    scored_or_later = {
+        BOMLineStatus.SCORED, BOMLineStatus.RFQ_PENDING, BOMLineStatus.RFQ_SENT,
+        BOMLineStatus.QUOTED, BOMLineStatus.AWARDED, BOMLineStatus.ORDERED,
+        BOMLineStatus.DELIVERED, BOMLineStatus.CLOSED,
+    }
+    return db.query(BOMPart).filter(
+        BOMPart.bom_id.in_(bom_ids),
+        BOMPart.deleted_at.is_(None),
+        BOMPart.status.in_(scored_or_later),
+    ).count() > 0
+
+
+def _guard_no_shipped_pos(db: Session, project: Project) -> bool:
+    """
+    Cancellation guard: no POs in SHIPPED or later state.
+    PO model not fully wired in this batch -- stub returns True.
+    Will be enforced in Batch 6 when PO routes are implemented.
+    """
+    return True
+
+
+def _guard_raw_text_exists(db: Session, line: BOMPart) -> bool:
+    """RAW -> NORMALIZING: raw_text is not empty."""
+    return bool(line.raw_text)
+
+
+# == SM-002: Project Lifecycle (12 states) ====================================
+
+GuardFn = Callable[[Session, Any], bool]
+
+PROJECT_TRANSITIONS: dict[tuple[str, str], dict[str, Any]] = {
+    # -- Happy path --
+    (ProjectStatus.DRAFT, ProjectStatus.INTAKE_COMPLETE): {
+        "guard": _guard_has_bom_lines,
+    },
+    (ProjectStatus.INTAKE_COMPLETE, ProjectStatus.ANALYSIS_IN_PROGRESS): {
+        "guard": _guard_has_normalizing_lines,
+    },
+    (ProjectStatus.ANALYSIS_IN_PROGRESS, ProjectStatus.ANALYSIS_COMPLETE): {
+        "guard": _guard_all_lines_scored,
+    },
     (ProjectStatus.ANALYSIS_COMPLETE, ProjectStatus.SOURCING_ACTIVE): {},
-    # SOURCING_ACTIVE → ORDERING_IN_PROGRESS
     (ProjectStatus.SOURCING_ACTIVE, ProjectStatus.ORDERING_IN_PROGRESS): {},
-    # ORDERING_IN_PROGRESS → EXECUTION_ACTIVE
     (ProjectStatus.ORDERING_IN_PROGRESS, ProjectStatus.EXECUTION_ACTIVE): {},
-    # EXECUTION_ACTIVE → PARTIALLY_DELIVERED
     (ProjectStatus.EXECUTION_ACTIVE, ProjectStatus.PARTIALLY_DELIVERED): {},
-    # PARTIALLY_DELIVERED → FULLY_DELIVERED
     (ProjectStatus.PARTIALLY_DELIVERED, ProjectStatus.FULLY_DELIVERED): {},
-    # FULLY_DELIVERED → CLOSED
     (ProjectStatus.FULLY_DELIVERED, ProjectStatus.CLOSED): {},
-    # CLOSED → ARCHIVED
+    # -- Archive (only from CLOSED) --
     (ProjectStatus.CLOSED, ProjectStatus.ARCHIVED): {},
-    # Cancellation from most states
+    # -- Cancellation from non-terminal active states --
     (ProjectStatus.DRAFT, ProjectStatus.CANCELLED): {},
     (ProjectStatus.INTAKE_COMPLETE, ProjectStatus.CANCELLED): {},
     (ProjectStatus.ANALYSIS_IN_PROGRESS, ProjectStatus.CANCELLED): {},
     (ProjectStatus.ANALYSIS_COMPLETE, ProjectStatus.CANCELLED): {},
-    (ProjectStatus.SOURCING_ACTIVE, ProjectStatus.CANCELLED): {},
-    (ProjectStatus.ORDERING_IN_PROGRESS, ProjectStatus.CANCELLED): {},
+    (ProjectStatus.SOURCING_ACTIVE, ProjectStatus.CANCELLED): {
+        "guard": _guard_no_shipped_pos,
+    },
+    (ProjectStatus.ORDERING_IN_PROGRESS, ProjectStatus.CANCELLED): {
+        "guard": _guard_no_shipped_pos,
+    },
+    (ProjectStatus.EXECUTION_ACTIVE, ProjectStatus.CANCELLED): {
+        "guard": _guard_no_shipped_pos,
+    },
+    (ProjectStatus.PARTIALLY_DELIVERED, ProjectStatus.CANCELLED): {
+        "guard": _guard_no_shipped_pos,
+    },
 }
 
-# Legacy transitions — kept for backward compatibility with old status values
+_PROJECT_TERMINAL = {ProjectStatus.CLOSED, ProjectStatus.CANCELLED, ProjectStatus.ARCHIVED}
+
+# Legacy transitions -- kept for backward compatibility with old status values
 LEGACY_TRANSITIONS: dict[str, list[str]] = {
     "draft": ["analyzing", "cancelled"],
     "analyzing": ["analyzed", "draft"],
@@ -85,10 +222,8 @@ LEGACY_TRANSITIONS: dict[str, list[str]] = {
 
 def can_transition(current: str, target: str) -> bool:
     """Check if a project transition is valid (supports both canonical and legacy)."""
-    # Canonical SM-002
     if (current, target) in PROJECT_TRANSITIONS:
         return True
-    # Legacy
     return target in LEGACY_TRANSITIONS.get(current, [])
 
 
@@ -97,16 +232,41 @@ def transition_project(
     project: Project,
     new_status: str,
     actor_user_id: str | None = None,
+    actor_type: str = "USER",
+    trace_id: str | None = None,
     payload: dict | None = None,
+    skip_guard: bool = False,
 ) -> Project:
     """
-    Validate and execute a project state transition.
+    Validate and execute a project state transition (SM-002).
 
-    Supports both canonical SM-002 values and legacy status strings.
+    Steps (per SMP-01 through SMP-05):
+      1. Validates source -> target is a legal transition
+      2. Evaluates guard condition (unless skip_guard=True)
+      3. Writes EventAuditLog (append-only, SMP-03)
+      4. Creates legacy ProjectEvent for backward compat
+      5. Mutates entity status and updated_at
+
+    Raises:
+      HTTPException 409 -- invalid transition
+      HTTPException 400 -- guard failed
     """
     current = project.status
+    key = (current, new_status)
 
-    if not can_transition(current, new_status):
+    # -- Canonical SM-002 check --
+    if key in PROJECT_TRANSITIONS:
+        config = PROJECT_TRANSITIONS[key]
+        guard = config.get("guard")
+        if guard and not skip_guard:
+            if not guard(db, project):
+                raise HTTPException(
+                    400,
+                    f"Guard failed for project transition from '{current}' to '{new_status}'",
+                )
+    elif new_status in LEGACY_TRANSITIONS.get(current, []):
+        pass  # Legacy path -- no guards
+    else:
         raise HTTPException(
             409,
             f"Cannot transition project from '{current}' to '{new_status}'",
@@ -116,25 +276,40 @@ def transition_project(
     project.status = new_status
     project.updated_at = datetime.now(timezone.utc)
 
+    # -- Audit log (SMP-03) -- append-only, immutable --
+    _audit_transition(
+        db,
+        event_type="project.status_changed",
+        entity_type="project",
+        entity_id=project.id,
+        from_state=old,
+        to_state=new_status,
+        actor_id=actor_user_id,
+        actor_type=actor_type,
+        trace_id=trace_id,
+        organization_id=project.organization_id,
+        payload=payload or {},
+    )
+
+    # -- Legacy ProjectEvent (backward compat with existing UI) --
     db.add(ProjectEvent(
         project_id=project.id,
         event_type="status_change",
         old_status=old,
         new_status=new_status,
         actor_user_id=actor_user_id,
+        trace_id=trace_id,
         payload=payload or {},
     ))
 
     logger.info(
-        "Project %s transitioned: %s → %s (actor=%s)",
-        project.id, old, new_status, actor_user_id,
+        "Project %s transitioned: %s -> %s (actor=%s, type=%s)",
+        project.id, old, new_status, actor_user_id, actor_type,
     )
     return project
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  BOM Upload state transitions
-# ═══════════════════════════════════════════════════════════════════════════════
+# == BOM Upload state transitions =============================================
 
 BOM_UPLOAD_TRANSITIONS: dict[tuple[str, str], dict] = {
     (BOMUploadStatus.PENDING, BOMUploadStatus.PARSING): {},
@@ -150,7 +325,8 @@ def transition_bom_upload(
     bom: BOM,
     target_status: str,
     actor_id: str | None = None,
-    actor_type: str = "user",
+    actor_type: str = "USER",
+    trace_id: str | None = None,
 ) -> BOM:
     """Validate and execute a BOM upload state transition."""
     current = bom.status
@@ -162,33 +338,48 @@ def transition_bom_upload(
             f"Cannot transition BOM upload from '{current}' to '{target_status}'",
         )
 
+    old = bom.status
     bom.status = target_status
     bom.updated_at = datetime.now(timezone.utc)
-    logger.info("BOM %s transitioned: %s → %s", bom.id, current, target_status)
+
+    _audit_transition(
+        db,
+        event_type="bom_upload.status_changed",
+        entity_type="bom_upload",
+        entity_id=bom.id,
+        from_state=old,
+        to_state=target_status,
+        actor_id=actor_id,
+        actor_type=actor_type,
+        trace_id=trace_id,
+        organization_id=bom.organization_id,
+    )
+
+    logger.info("BOM %s transitioned: %s -> %s", bom.id, old, target_status)
     return bom
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  SM-001: BOM Line Lifecycle (17 states)
-# ═══════════════════════════════════════════════════════════════════════════════
+# == SM-001: BOM Line Lifecycle (17 states) ===================================
 
-BOM_LINE_TRANSITIONS: dict[tuple[str, str], dict] = {
-    # Intake / normalization
-    (BOMLineStatus.RAW, BOMLineStatus.NORMALIZING): {},
+BOM_LINE_TRANSITIONS: dict[tuple[str, str], dict[str, Any]] = {
+    # -- Intake / normalization --
+    (BOMLineStatus.RAW, BOMLineStatus.NORMALIZING): {
+        "guard": _guard_raw_text_exists,
+    },
     (BOMLineStatus.NORMALIZING, BOMLineStatus.NORMALIZED): {},
     (BOMLineStatus.NORMALIZING, BOMLineStatus.NEEDS_REVIEW): {},
     (BOMLineStatus.NORMALIZING, BOMLineStatus.ERROR): {},
     (BOMLineStatus.NEEDS_REVIEW, BOMLineStatus.NORMALIZED): {},
     (BOMLineStatus.NEEDS_REVIEW, BOMLineStatus.NORMALIZING): {},
-    # Enrichment
+    # -- Enrichment --
     (BOMLineStatus.NORMALIZED, BOMLineStatus.ENRICHING): {},
     (BOMLineStatus.ENRICHING, BOMLineStatus.ENRICHED): {},
     (BOMLineStatus.ENRICHING, BOMLineStatus.ERROR): {},
-    # Scoring
+    # -- Scoring --
     (BOMLineStatus.ENRICHED, BOMLineStatus.SCORING): {},
     (BOMLineStatus.SCORING, BOMLineStatus.SCORED): {},
     (BOMLineStatus.SCORING, BOMLineStatus.ERROR): {},
-    # Downstream (RFQ → delivery)
+    # -- Downstream (RFQ -> delivery) --
     (BOMLineStatus.SCORED, BOMLineStatus.RFQ_PENDING): {},
     (BOMLineStatus.RFQ_PENDING, BOMLineStatus.RFQ_SENT): {},
     (BOMLineStatus.RFQ_SENT, BOMLineStatus.QUOTED): {},
@@ -196,14 +387,17 @@ BOM_LINE_TRANSITIONS: dict[tuple[str, str], dict] = {
     (BOMLineStatus.AWARDED, BOMLineStatus.ORDERED): {},
     (BOMLineStatus.ORDERED, BOMLineStatus.DELIVERED): {},
     (BOMLineStatus.DELIVERED, BOMLineStatus.CLOSED): {},
-    # Cancellation from most states
+    # -- Cancellation from non-terminal active states --
     (BOMLineStatus.RAW, BOMLineStatus.CANCELLED): {},
     (BOMLineStatus.NORMALIZED, BOMLineStatus.CANCELLED): {},
     (BOMLineStatus.ENRICHED, BOMLineStatus.CANCELLED): {},
     (BOMLineStatus.SCORED, BOMLineStatus.CANCELLED): {},
     (BOMLineStatus.RFQ_PENDING, BOMLineStatus.CANCELLED): {},
     (BOMLineStatus.RFQ_SENT, BOMLineStatus.CANCELLED): {},
-    # Error recovery
+    (BOMLineStatus.QUOTED, BOMLineStatus.CANCELLED): {},
+    (BOMLineStatus.AWARDED, BOMLineStatus.CANCELLED): {},
+    (BOMLineStatus.ORDERED, BOMLineStatus.CANCELLED): {},
+    # -- Error recovery --
     (BOMLineStatus.ERROR, BOMLineStatus.RAW): {},
     (BOMLineStatus.ERROR, BOMLineStatus.NORMALIZING): {},
 }
@@ -214,10 +408,23 @@ def transition_bom_line(
     bom_line: BOMPart,
     target_status: str,
     actor_id: str | None = None,
-    actor_type: str = "user",
+    actor_type: str = "SYSTEM",
     trace_id: str | None = None,
+    skip_guard: bool = False,
 ) -> BOMPart:
-    """Validate and execute a BOM line state transition (SM-001)."""
+    """
+    Validate and execute a BOM line state transition (SM-001).
+
+    Steps (per SMP-01 through SMP-05):
+      1. Validates source -> target is a legal transition
+      2. Evaluates guard condition (unless skip_guard=True)
+      3. Writes EventAuditLog (append-only)
+      4. Mutates entity status and updated_at
+
+    Raises:
+      HTTPException 409 -- invalid transition
+      HTTPException 400 -- guard failed
+    """
     current = bom_line.status
     key = (current, target_status)
 
@@ -227,16 +434,122 @@ def transition_bom_line(
             f"Cannot transition BOM line from '{current}' to '{target_status}'",
         )
 
+    config = BOM_LINE_TRANSITIONS[key]
+    guard = config.get("guard")
+    if guard and not skip_guard:
+        if not guard(db, bom_line):
+            raise HTTPException(
+                400,
+                f"Guard failed for BOM line transition from '{current}' to '{target_status}'",
+            )
+
+    old = bom_line.status
     bom_line.status = target_status
     bom_line.updated_at = datetime.now(timezone.utc)
+
+    _audit_transition(
+        db,
+        event_type="bom_line.status_changed",
+        entity_type="bom_line",
+        entity_id=bom_line.id,
+        from_state=old,
+        to_state=target_status,
+        actor_id=actor_id,
+        actor_type=actor_type,
+        trace_id=trace_id,
+        organization_id=bom_line.organization_id,
+    )
+
     logger.info(
-        "BOMLine %s transitioned: %s → %s (actor=%s)",
-        bom_line.id, current, target_status, actor_id,
+        "BOMLine %s transitioned: %s -> %s (actor=%s)",
+        bom_line.id, old, target_status, actor_id,
     )
     return bom_line
 
 
-# ── Legacy helpers (retained for backward compat) ────────────────────────────
+# == Cross-machine state advancement helpers ==================================
+#
+# These check child entity states and explicitly advance parent entities.
+# Per LCA-02: Project state is NOT purely derived -- the system performs
+# explicit guarded transitions after checking child states.
+# =============================================================================
+
+def check_and_advance_project_to_intake_complete(
+    db: Session,
+    project: Project,
+    actor_id: str | None = None,
+    trace_id: str | None = None,
+) -> bool:
+    """
+    After BOM lines are created, check if project should advance
+    DRAFT -> INTAKE_COMPLETE.
+
+    Returns True if transition was performed.
+    """
+    if project.status != ProjectStatus.DRAFT:
+        return False
+    if not _guard_has_bom_lines(db, project):
+        return False
+    transition_project(
+        db, project, ProjectStatus.INTAKE_COMPLETE,
+        actor_user_id=actor_id,
+        actor_type="SYSTEM",
+        trace_id=trace_id,
+    )
+    return True
+
+
+def check_and_advance_project_to_analysis(
+    db: Session,
+    project: Project,
+    actor_id: str | None = None,
+    trace_id: str | None = None,
+) -> bool:
+    """
+    After batch-trigger starts normalizing lines, advance
+    INTAKE_COMPLETE -> ANALYSIS_IN_PROGRESS.
+
+    Returns True if transition was performed.
+    """
+    if project.status != ProjectStatus.INTAKE_COMPLETE:
+        return False
+    if not _guard_has_normalizing_lines(db, project):
+        return False
+    transition_project(
+        db, project, ProjectStatus.ANALYSIS_IN_PROGRESS,
+        actor_user_id=actor_id,
+        actor_type="SYSTEM",
+        trace_id=trace_id,
+    )
+    return True
+
+
+def check_and_advance_project_to_analysis_complete(
+    db: Session,
+    project: Project,
+    actor_id: str | None = None,
+    trace_id: str | None = None,
+) -> bool:
+    """
+    After all lines reach SCORED, advance
+    ANALYSIS_IN_PROGRESS -> ANALYSIS_COMPLETE.
+
+    Returns True if transition was performed.
+    """
+    if project.status != ProjectStatus.ANALYSIS_IN_PROGRESS:
+        return False
+    if not _guard_all_lines_scored(db, project):
+        return False
+    transition_project(
+        db, project, ProjectStatus.ANALYSIS_COMPLETE,
+        actor_user_id=actor_id,
+        actor_type="SYSTEM",
+        trace_id=trace_id,
+    )
+    return True
+
+
+# -- Legacy stage-gate helpers (retained for backward compat) -----------------
 
 RFQ_ALLOWED_STAGES = {
     "analyzed", "strategy", "vendor_match", "rfq_pending",
@@ -249,10 +562,12 @@ PO_ALLOWED_STAGES = {
 
 
 def enforce_rfq_stage(project: Project) -> None:
+    """Ensure project is in a valid stage for RFQ creation."""
     if project.status not in RFQ_ALLOWED_STAGES:
         raise HTTPException(400, f"Cannot create RFQ from project stage '{project.status}'")
 
 
 def enforce_po_stage(project: Project) -> None:
+    """Ensure project is in a valid stage for PO creation."""
     if project.status not in PO_ALLOWED_STAGES:
         raise HTTPException(400, f"Cannot create PO from project stage '{project.status}'")

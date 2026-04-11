@@ -2,18 +2,18 @@
 BOM upload and BOM line management routes.
 
 Endpoints (new RESTful project-scoped paths):
-  POST   /projects/{pid}/bom-uploads                         — Upload BOM file
-  GET    /projects/{pid}/bom-uploads/{uid}/mapping-preview    — Column mapping preview
-  POST   /projects/{pid}/bom-uploads/{uid}/confirm-mapping    — Confirm mapping → create lines
-  GET    /projects/{pid}/bom-lines                            — List BOM lines (filterable)
-  GET    /projects/{pid}/bom-lines/{bid}                      — Line detail
-  PATCH  /projects/{pid}/bom-lines/{bid}                      — Update line (review/override)
-  POST   /projects/{pid}/bom-lines/batch-trigger              — Trigger pipeline for eligible lines
+  POST   /projects/{pid}/bom-uploads                         -- Upload BOM file
+  GET    /projects/{pid}/bom-uploads/{uid}/mapping-preview    -- Column mapping preview
+  POST   /projects/{pid}/bom-uploads/{uid}/confirm-mapping    -- Confirm mapping -> create lines
+  GET    /projects/{pid}/bom-lines                            -- List BOM lines (filterable)
+  GET    /projects/{pid}/bom-lines/{bid}                      -- Line detail
+  PATCH  /projects/{pid}/bom-lines/{bid}                      -- Update line (review/override)
+  POST   /projects/{pid}/bom-lines/batch-trigger              -- Trigger pipeline for eligible lines
 
 Legacy (deprecated, retained for migration):
-  POST   /bom/analyze                                         — Monolithic upload+analyze
-  POST   /bom/promote-to-project                              — Promote session → project
-  GET    /bom/{bom_id}/parts                                  — List parts (now requires auth)
+  POST   /bom/analyze                                         -- Monolithic upload+analyze
+  POST   /bom/promote-to-project                              -- Promote session -> project
+  GET    /bom/{bom_id}/parts                                  -- List parts (now requires auth)
 
 References: GAP-011 (BOM_Upload), GAP-002 (per-line pipeline),
             GAP-024 (auth guard), api-contract-review.md Section 5.4
@@ -49,7 +49,12 @@ from app.schemas.bom import (
 from app.schemas.common import PaginatedResponse
 from app.services import analyzer_service
 from app.services.event_service import track
-from app.services.workflow.state_machine import transition_project
+from app.services.workflow.state_machine import (
+    check_and_advance_project_to_analysis,
+    check_and_advance_project_to_intake_complete,
+    transition_bom_line,
+    transition_project,
+)
 from app.utils.dependencies import (
     get_current_user,
     require_org_scoped_project,
@@ -62,11 +67,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["BOM"])
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 #  NEW RESTful project-scoped endpoints
-# ═══════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 
-# ── POST /projects/{pid}/bom-uploads ─────────────────────────────────────────
+# -- POST /projects/{pid}/bom-uploads -----------------------------------------
 
 @router.post(
     "/projects/{project_id}/bom-uploads",
@@ -83,7 +88,7 @@ async def upload_bom(
     """
     Upload a BOM file to a project.
 
-    Flow: file → S3 reference → virus scan trigger → status=PENDING
+    Flow: file -> S3 reference -> virus scan trigger -> status=PENDING
     Dedup: SHA-256 file_hash checked before processing.
     """
     project = require_org_scoped_project(project_id, request, db)
@@ -95,7 +100,7 @@ async def upload_bom(
 
     file_hash = hashlib.sha256(file_bytes).hexdigest()
 
-    # ── Dedup check ──────────────────────────────────────────────────────
+    # -- Dedup check --
     existing = (
         db.query(BOM)
         .filter(
@@ -113,16 +118,14 @@ async def upload_bom(
             message="A file with this content has already been uploaded",
         )
 
-    # ── S3 upload reference ──────────────────────────────────────────────
+    # -- S3 upload reference --
     filename = file.filename or "upload.csv"
     s3_key = f"bom-uploads/{org_id}/{uuid.uuid4()}/{filename}"
 
-    # Actual S3 upload delegated to an async helper; for intake we
-    # store the key and write to local UPLOAD_DIR as fallback.
     local_path = Path(settings.UPLOAD_DIR) / f"{uuid.uuid4()}{Path(filename).suffix}"
     local_path.write_bytes(file_bytes)
 
-    # ── Create BOM record ────────────────────────────────────────────────
+    # -- Create BOM record --
     bom = BOM(
         uploaded_by_user_id=user.id,
         project_id=project.id,
@@ -143,14 +146,11 @@ async def upload_bom(
     # Increment project upload counter
     project.bom_upload_count = (project.bom_upload_count or 0) + 1
 
-    # ── Enqueue virus scan + parse (background job hook) ─────────────────
-    # In production this dispatches to Celery:
-    #   celery_app.send_task("scan_and_parse_bom", args=[bom.id])
-    # For now, we transition directly to PARSING to indicate the intent.
+    # -- Enqueue virus scan + parse (background job hook) --
     bom.status = BOMUploadStatus.PARSING
-    bom.scan_status = "CLEAN"  # will be overwritten by actual scan task
+    bom.scan_status = "CLEAN"
 
-    # ── Inline parse (transitional — will move to background task) ───────
+    # -- Inline parse (transitional -- will move to background task) --
     try:
         result = await analyzer_service.call_analyzer(
             file_bytes, filename,
@@ -161,7 +161,6 @@ async def upload_bom(
         bom.status = BOMUploadStatus.AWAITING_MAPPING_CONFIRM
         bom.total_parts = len(result.get("components", []))
 
-        # Store raw analysis for mapping preview
         db.add(AnalysisResult(
             bom_id=bom.id,
             user_id=user.id,
@@ -185,7 +184,7 @@ async def upload_bom(
     )
 
 
-# ── GET /projects/{pid}/bom-uploads/{uid}/mapping-preview ────────────────────
+# -- GET /projects/{pid}/bom-uploads/{uid}/mapping-preview --------------------
 
 @router.get(
     "/projects/{project_id}/bom-uploads/{upload_id}/mapping-preview",
@@ -214,19 +213,17 @@ def mapping_preview(
             f"Upload status is {bom.status}; mapping preview not available",
         )
 
-    # Pull detected columns from the analysis result
     ar = db.query(AnalysisResult).filter(AnalysisResult.bom_id == bom.id).first()
     report = ar.report_json if ar else {}
     components = report.get("components", [])
 
-    # Build column detection from first component keys
     detected_columns = []
     if components:
         sample = components[0]
         for header in sample.keys():
             detected_columns.append({
                 "detected_header": header,
-                "suggested_field": header,  # identity mapping as default
+                "suggested_field": header,
                 "confidence": 0.9,
                 "sample_values": [str(c.get(header, ""))[:80] for c in components[:3]],
             })
@@ -240,7 +237,7 @@ def mapping_preview(
     )
 
 
-# ── POST /projects/{pid}/bom-uploads/{uid}/confirm-mapping ───────────────────
+# -- POST /projects/{pid}/bom-uploads/{uid}/confirm-mapping -------------------
 
 @router.post(
     "/projects/{project_id}/bom-uploads/{upload_id}/confirm-mapping",
@@ -257,7 +254,8 @@ def confirm_mapping(
     """
     User confirms column mapping. Creates BOM_Line records as RAW.
 
-    Transitions upload status: AWAITING_MAPPING_CONFIRM → MAPPING_CONFIRMED.
+    Transitions upload status: AWAITING_MAPPING_CONFIRM -> MAPPING_CONFIRMED.
+    After lines created, checks if project should advance to INTAKE_COMPLETE.
     """
     project = require_org_scoped_project(project_id, request, db)
     bom = _get_org_scoped_bom(db, upload_id, project)
@@ -321,6 +319,12 @@ def confirm_mapping(
     project.bom_line_count = (project.bom_line_count or 0) + lines_created
     project.total_parts = (project.total_parts or 0) + lines_created
 
+    # Cross-machine: advance project DRAFT -> INTAKE_COMPLETE if applicable
+    trace_id = getattr(request.state, "request_id", None)
+    check_and_advance_project_to_intake_complete(
+        db, project, actor_id=user.id, trace_id=trace_id,
+    )
+
     track(db, "mapping_confirmed", actor_id=user.id, resource_type="bom", resource_id=bom.id)
     db.commit()
 
@@ -331,7 +335,7 @@ def confirm_mapping(
     )
 
 
-# ── GET /projects/{pid}/bom-lines ────────────────────────────────────────────
+# -- GET /projects/{pid}/bom-lines --------------------------------------------
 
 @router.get("/projects/{project_id}/bom-lines")
 def list_bom_lines(
@@ -346,7 +350,6 @@ def list_bom_lines(
     """List BOM lines for a project, with optional status filter and cursor pagination."""
     project = require_org_scoped_project(project_id, request, db)
 
-    # Collect all BOM IDs for this project
     bom_ids = [
         b.id for b in
         db.query(BOM.id).filter(
@@ -368,7 +371,6 @@ def list_bom_lines(
 
     total = q.count()
 
-    # Cursor-based pagination (using created_at + id)
     if cursor:
         q = q.filter(BOMPart.id > cursor)
 
@@ -383,7 +385,7 @@ def list_bom_lines(
     )
 
 
-# ── GET /projects/{pid}/bom-lines/{bid} ─────────────────────────────────────
+# -- GET /projects/{pid}/bom-lines/{bid} --------------------------------------
 
 @router.get("/projects/{project_id}/bom-lines/{line_id}", response_model=BOMLineDetailResponse)
 def get_bom_line(
@@ -401,7 +403,7 @@ def get_bom_line(
     return BOMLineDetailResponse.model_validate(part)
 
 
-# ── PATCH /projects/{pid}/bom-lines/{bid} ────────────────────────────────────
+# -- PATCH /projects/{pid}/bom-lines/{bid} ------------------------------------
 
 @router.patch("/projects/{project_id}/bom-lines/{line_id}", response_model=BOMLineResponse)
 def update_bom_line(
@@ -430,7 +432,7 @@ def update_bom_line(
     return BOMLineResponse.model_validate(part)
 
 
-# ── POST /projects/{pid}/bom-lines/batch-trigger ────────────────────────────
+# -- POST /projects/{pid}/bom-lines/batch-trigger -----------------------------
 
 @router.post(
     "/projects/{project_id}/bom-lines/batch-trigger",
@@ -446,10 +448,13 @@ def batch_trigger(
     """
     Trigger batch pipeline (normalize, enrich, score) for eligible lines.
 
-    This is the intake handoff trigger — it does NOT execute the full
-    pipeline synchronously. In production, it enqueues background tasks.
+    This is the intake-to-analysis handoff trigger. It:
+    1. Transitions eligible RAW lines -> NORMALIZING via SM-001
+    2. Advances project INTAKE_COMPLETE -> ANALYSIS_IN_PROGRESS via SM-002
+    3. In production, enqueues background tasks for actual processing
     """
     project = require_org_scoped_project(project_id, request, db)
+    trace_id = getattr(request.state, "request_id", None)
 
     # Collect eligible lines
     bom_ids = [
@@ -473,11 +478,19 @@ def batch_trigger(
     skipped = 0
 
     for part in eligible:
-        # Mark as NORMALIZING to indicate pipeline entry
-        part.status = BOMLineStatus.NORMALIZING
-        part.normalization_status = "PENDING"
-        triggered += 1
-        # In production: celery_app.send_task("normalize_bom_line", args=[part.id])
+        try:
+            transition_bom_line(
+                db, part, BOMLineStatus.NORMALIZING,
+                actor_id=user.id,
+                actor_type="USER",
+                trace_id=trace_id,
+            )
+            part.normalization_status = "PENDING"
+            triggered += 1
+            # In production: celery_app.send_task("normalize_bom_line", args=[part.id])
+        except HTTPException:
+            # Guard failed (e.g. empty raw_text) -- skip this line
+            skipped += 1
 
     # Any non-RAW lines in the filter are skipped
     if body.line_ids:
@@ -486,6 +499,12 @@ def batch_trigger(
             BOMPart.deleted_at.is_(None),
         ).count()
         skipped = all_count - triggered
+
+    # Cross-machine: advance project INTAKE_COMPLETE -> ANALYSIS_IN_PROGRESS
+    if triggered > 0:
+        check_and_advance_project_to_analysis(
+            db, project, actor_id=user.id, trace_id=trace_id,
+        )
 
     track(
         db, "batch_triggered",
@@ -502,9 +521,9 @@ def batch_trigger(
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 #  LEGACY endpoints (deprecated, retained for migration)
-# ═══════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 
 @router.post("/bom/analyze", response_model=BOMAnalyzeResponse, deprecated=True)
 async def analyze_bom_legacy(
@@ -521,7 +540,6 @@ async def analyze_bom_legacy(
     """Legacy monolithic upload+analyze. Use project-scoped upload instead."""
     file_bytes = await file.read()
 
-    # Guest session handling — now via HttpOnly cookie
     guest: GuestSession | None = None
     if not user and response:
         guest = guest_service.get_or_create_guest_session(request, response, db)
@@ -534,7 +552,6 @@ async def analyze_bom_legacy(
             db.add(guest)
             db.flush()
 
-    # Save file locally
     fid = str(uuid.uuid4())
     ext = Path(file.filename or "upload.csv").suffix
     (Path(settings.UPLOAD_DIR) / f"{fid}{ext}").write_bytes(file_bytes)
@@ -685,12 +702,11 @@ def get_parts_legacy(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Legacy parts listing — now requires auth (GAP-024)."""
+    """Legacy parts listing -- now requires auth (GAP-024)."""
     bom = db.query(BOM).filter(BOM.id == bom_id).first()
     if not bom:
         raise HTTPException(404, "BOM not found")
 
-    # Basic ownership check
     if bom.uploaded_by_user_id and bom.uploaded_by_user_id != user.id:
         if user.organization_id and bom.organization_id != user.organization_id:
             raise HTTPException(403, "Access denied")
@@ -711,9 +727,9 @@ def get_parts_legacy(
     ]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 #  Helpers
-# ═══════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 
 def _get_org_scoped_bom(db: Session, upload_id: str, project: Project) -> BOM | None:
     return (
@@ -747,7 +763,6 @@ def _apply_mapping(component: dict, mapping: dict[str, str]) -> dict:
     for detected_header, canonical_field in mapping.items():
         if detected_header in component:
             result[canonical_field] = component[detected_header]
-    # Also copy any unmapped keys directly
     for k, v in component.items():
         if k not in result:
             result[k] = v
