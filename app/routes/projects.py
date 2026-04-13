@@ -11,6 +11,8 @@ Endpoints:
   POST   /projects/{id}/cancel             -- Cancel project
   GET    /projects/{id}/weight-profile     -- Get weight profile
   PUT    /projects/{id}/weight-profile     -- Set weight profile
+  POST   /projects/{id}/pipeline/run       -- Run Phase 1 runtime recommendation pipeline
+  GET    /projects/{id}/recommendation     -- Get latest persisted recommendation
 
 References: GAP-004 (SM-002), GAP-005 (org scoping),
             api-contract-review.md Section 5.2
@@ -33,7 +35,9 @@ from app.schemas.project import (
     ProjectResponse,
     WeightProfileRequest,
 )
+from app.schemas.recommendation import ProjectRecommendationResponse
 from app.services.event_service import track
+from app.services.runtime_pipeline import runtime_pipeline_service
 from app.services.workflow.state_machine import transition_project, can_transition
 from app.utils.dependencies import (
     get_current_user,
@@ -332,3 +336,67 @@ def set_weight_profile(
     project.weight_profile = body.weight_profile
     db.commit()
     return {"weight_profile": project.weight_profile}
+
+
+# -- POST /projects/{id}/pipeline/run -----------------------------------------
+
+@router.post("/{project_id}/pipeline/run", response_model=ProjectRecommendationResponse)
+def run_project_pipeline(
+    project_id: str,
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Run the Phase 1 persisted procurement recommendation pipeline.
+
+    Flow:
+    raw BOM -> analyzer normalization -> seeded vendor enrichment ->
+    live FX + freight baseline -> scoring -> persisted recommendation
+    """
+    project = require_org_scoped_project(project_id, request, db)
+
+    if project.user_id != user.id and user.role not in ("admin", "BUYER_ADMIN", "ORGANIZATION_OWNER"):
+        # Also allow explicit ACL access for collaborators.
+        _check_project_access(db, project, user, None, require_role="editor")
+
+    try:
+        recommendation = runtime_pipeline_service.run_project_pipeline(
+            db,
+            project=project,
+            actor_id=user.id,
+            trace_id=getattr(request.state, "request_id", None),
+        )
+        return recommendation
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Phase 1 runtime pipeline failed for project %s", project_id)
+        raise HTTPException(500, "Failed to generate Phase 1 recommendation") from exc
+
+
+# -- GET /projects/{id}/recommendation ----------------------------------------
+
+@router.get("/{project_id}/recommendation", response_model=ProjectRecommendationResponse)
+def get_latest_recommendation(
+    project_id: str,
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return the latest persisted recommendation snapshot for the project.
+    """
+    project = require_org_scoped_project(project_id, request, db)
+    _check_project_access(db, project, user, None)
+
+    recommendation = runtime_pipeline_service.get_latest_recommendation(
+        db,
+        project_id=project.id,
+    )
+    if recommendation is None:
+        raise HTTPException(404, "No recommendation snapshot found for this project")
+
+    return recommendation

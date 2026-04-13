@@ -91,7 +91,8 @@ class NotificationService:
                 )
                 db.add(channel_notif)
                 db.flush()
-                # In production: celery task_send_notification.delay(channel_notif.id)
+                from app.workers.notifications import enqueue_notification_send
+                enqueue_notification_send(channel_notif.id)
 
         return notif
 

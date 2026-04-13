@@ -21,76 +21,50 @@ def _get_db():
     return SessionLocal()
 
 
+def _deliver_notification(notification_id: str, *, retries: int = 0, retry_callable=None) -> dict:
+    from app.models.notification import Notification
+    from app.services.notification_delivery import notification_delivery_service
+
+    db = _get_db()
+    try:
+        notif = db.query(Notification).filter(Notification.id == notification_id).first()
+        if not notif:
+            return {"error": "not_found"}
+        if notif.delivery_status == "delivered":
+            return {"status": "already_delivered"}
+        try:
+            notification_delivery_service.deliver(db, notif)
+            notif.delivery_status = "delivered"
+            notif.delivered_at = datetime.now(timezone.utc)
+        except Exception as exc:
+            notif.retry_count = (notif.retry_count or 0) + 1
+            if notif.retry_count >= notif.max_retries:
+                notif.delivery_status = "failed"
+                logger.warning("Notification %s failed after %d retries", notification_id, notif.max_retries)
+            else:
+                notif.delivery_status = "pending"
+                db.commit()
+                if retry_callable:
+                    raise retry_callable(exc=exc)
+                raise
+        db.commit()
+        return {"status": notif.delivery_status}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 if celery_app:
 
     @celery_app.task(bind=True, max_retries=3, default_retry_delay=30)
     def task_send_notification(self, notification_id: str) -> dict:
-        """Dispatch notification to its configured channel."""
-        from app.models.notification import Notification
-
-        db = _get_db()
-        try:
-            notif = db.query(Notification).filter(
-                Notification.id == notification_id
-            ).first()
-            if not notif:
-                return {"error": "not_found"}
-
-            try:
-                if notif.channel == "email":
-                    _send_email(notif)
-                elif notif.channel == "sms":
-                    _send_sms(notif)
-                elif notif.channel == "push":
-                    _send_push(notif)
-
-                notif.delivery_status = "delivered"
-                notif.delivered_at = datetime.now(timezone.utc)
-            except Exception as e:
-                notif.retry_count = (notif.retry_count or 0) + 1
-                if notif.retry_count >= notif.max_retries:
-                    notif.delivery_status = "failed"
-                    logger.warning(
-                        "Notification %s failed after %d retries",
-                        notification_id, notif.max_retries,
-                    )
-                else:
-                    notif.delivery_status = "pending"
-                    db.commit()
-                    raise self.retry(exc=e)
-
-            db.commit()
-            return {"status": notif.delivery_status}
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            db.close()
+        return _deliver_notification(notification_id, retries=getattr(self.request, "retries", 0), retry_callable=self.retry)
 
 
-def _send_email(notif) -> None:
-    """Send via SendGrid."""
-    from app.core.config import settings
-    if not settings.SENDGRID_API_KEY:
-        logger.debug("SendGrid not configured — skipping email")
-        return
-    # In production: use sendgrid SDK
-    logger.info("Email sent to user %s: %s", notif.user_id, notif.title)
-
-
-def _send_sms(notif) -> None:
-    """Send via Twilio."""
-    from app.core.config import settings
-    if not settings.TWILIO_ACCOUNT_SID:
-        logger.debug("Twilio not configured — skipping SMS")
-        return
-    logger.info("SMS sent to user %s: %s", notif.user_id, notif.title)
-
-
-def _send_push(notif) -> None:
-    """Send via Firebase."""
-    from app.core.config import settings
-    if not settings.FIREBASE_CREDENTIALS_PATH:
-        logger.debug("Firebase not configured — skipping push")
-        return
-    logger.info("Push sent to user %s: %s", notif.user_id, notif.title)
+def enqueue_notification_send(notification_id: str) -> None:
+    if celery_app:
+        task_send_notification.delay(notification_id)
+    else:
+        _deliver_notification(notification_id)

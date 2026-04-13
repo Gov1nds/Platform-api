@@ -256,3 +256,46 @@ if celery_app:
             return {"triggered": len(lines), "project_id": project_id}
         finally:
             db.close()
+
+    @celery_app.task(bind=True, max_retries=2, default_retry_delay=15)
+    def task_run_project_pipeline(
+        self,
+        project_id: str,
+        actor_id: str | None = None,
+        trace_id: str | None = None,
+    ) -> dict:
+        """
+        Run the complete Phase 1 runtime recommendation pipeline for a project.
+
+        This is the persisted end-to-end procurement recommendation path:
+        raw BOM -> analyzer normalization -> seeded vendor enrichment ->
+        live FX + freight baseline -> deterministic scoring -> persisted recommendation
+        """
+        from app.models.project import Project
+        from app.services.runtime_pipeline import runtime_pipeline_service
+
+        db = _get_db_session()
+        try:
+            project = db.query(Project).filter(Project.id == project_id).first()
+            if not project:
+                return {"error": "Project not found", "project_id": project_id}
+
+            recommendation = runtime_pipeline_service.run_project_pipeline(
+                db,
+                project=project,
+                actor_id=actor_id,
+                trace_id=trace_id,
+            )
+            return {
+                "status": "success",
+                "project_id": project_id,
+                "recommended_vendor_id": recommendation.summary.recommended_vendor_id,
+                "recommended_vendor_name": recommendation.summary.recommended_vendor_name,
+                "ranked_vendor_count": recommendation.summary.ranked_vendor_count,
+            }
+        except Exception as exc:
+            db.rollback()
+            logger.exception("task_run_project_pipeline failed for project %s", project_id)
+            raise self.retry(exc=exc)
+        finally:
+            db.close()

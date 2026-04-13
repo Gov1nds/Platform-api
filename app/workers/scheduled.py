@@ -121,9 +121,22 @@ if celery_app:
 
     @celery_app.task
     def task_refresh_forex() -> dict:
-        """Refresh forex rates from INT-003 providers."""
-        logger.info("Forex refresh triggered (stub — provider integration pending)")
-        return {"status": "stub"}
+        """Refresh forex rates from Open Exchange Rates, retaining seed fallback rows."""
+        from app.services.market_data.fx_service import fx_service
+
+        db = _get_db()
+        try:
+            result = fx_service.refresh_rates(db)
+            db.commit()
+            return result
+        except Exception:
+            db.rollback()
+            fx_service.mark_provider_failure(db)
+            db.commit()
+            logger.exception("Forex refresh failed; seeded baseline remains available")
+            return {"status": "fallback", "updated": 0}
+        finally:
+            db.close()
 
     @celery_app.task
     def task_refresh_commodity() -> dict:

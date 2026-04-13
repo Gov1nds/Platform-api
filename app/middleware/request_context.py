@@ -49,6 +49,13 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request.state.request_id = request_id
         request.state.trace_id = trace_id
 
+        try:
+            from app.services.geoip_service import geoip_service
+            geo = geoip_service.resolve_request(request)
+            request.state.geoip = geo
+        except Exception:
+            request.state.geoip = None
+
         if _HAS_STRUCTLOG:
             structlog.contextvars.clear_contextvars()
             structlog.contextvars.bind_contextvars(

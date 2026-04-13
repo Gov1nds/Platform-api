@@ -86,6 +86,8 @@ class Settings:
     TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
     TWILIO_FROM_NUMBER: str = os.getenv("TWILIO_FROM_NUMBER", "")
     FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
+    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "")
+    SENDGRID_FROM_EMAIL: str = os.getenv("SENDGRID_FROM_EMAIL", "")
 
     # ── Distributor APIs (INT-001) ───────────────────────────────────────
     DIGIKEY_CLIENT_ID: str = os.getenv("DIGIKEY_CLIENT_ID", "")
@@ -101,6 +103,8 @@ class Settings:
     XE_API_KEY: str = os.getenv("XE_API_KEY", "")
 
     # ── Carrier / Logistics APIs (INT-005) ───────────────────────────────
+    AFTERSHIP_API_KEY: str = os.getenv("AFTERSHIP_API_KEY", "")
+    AFTERSHIP_WEBHOOK_SECRET: str = os.getenv("AFTERSHIP_WEBHOOK_SECRET", "")
     DHL_API_KEY: str = os.getenv("DHL_API_KEY", "")
     DHL_API_SECRET: str = os.getenv("DHL_API_SECRET", "")
     FEDEX_API_KEY: str = os.getenv("FEDEX_API_KEY", "")
@@ -112,7 +116,9 @@ class Settings:
     CLAMAV_PORT: int = _int("CLAMAV_PORT", "3310")
 
     # ── Geolocation ──────────────────────────────────────────────────────
+    MAXMIND_ACCOUNT_ID: str = os.getenv("MAXMIND_ACCOUNT_ID", "")
     MAXMIND_LICENSE_KEY: str = os.getenv("MAXMIND_LICENSE_KEY", "")
+    MAXMIND_DB_PATH: str = os.getenv("MAXMIND_DB_PATH", "")
 
     # ── BOM Intelligence Engine ──────────────────────────────────────────
     BOM_ANALYZER_URL: str = os.getenv("BOM_ANALYZER_URL", "http://localhost:8001")
