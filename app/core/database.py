@@ -1,9 +1,5 @@
 """
-Database engine, session factory, and schema bootstrap.
-
-Production and non-production environments should use Alembic migrations for
-table creation and schema evolution. This module only ensures required schemas
-exist and provides SQLAlchemy engines/sessions.
+Database engine, session factory, and initialization.
 
 References: GAP-025 (Alembic), INFERRED-004, architecture.md CC-13
 """
@@ -53,7 +49,7 @@ SessionLocal = sessionmaker(
 _read_engine: Engine | None = None
 _ReadSessionLocal: sessionmaker[Session] | None = None
 
-if settings.READ_REPLICA_URL:
+if getattr(settings, "READ_REPLICA_URL", None):
     _read_engine = create_engine(
         settings.READ_REPLICA_URL,
         pool_pre_ping=True,
@@ -75,13 +71,9 @@ if settings.READ_REPLICA_URL:
 class Base(DeclarativeBase):
     pass
 
-def init_db() -> None:
-    ensure_schemas()
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database initialized; tables created from ORM metadata.")
-    
+
 def get_db() -> Generator[Session, None, None]:
-    """Yield a primary transactional database session."""
+    """Yield a transactional DB session."""
     db = SessionLocal()
     try:
         yield db
@@ -90,7 +82,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_read_replica_db() -> Generator[Session, None, None]:
-    """Yield a read session from the replica, falling back to primary."""
+    """Yield a read-only session from the replica, falling back to primary."""
     factory = _ReadSessionLocal or SessionLocal
     db = factory()
     try:
@@ -100,12 +92,7 @@ def get_read_replica_db() -> Generator[Session, None, None]:
 
 
 def ensure_schemas() -> None:
-    """
-    Ensure all application schemas exist.
-
-    This is safe to run before Alembic or seed commands. It does not create
-    tables and does not mutate table structure.
-    """
+    """Ensure all application schemas exist."""
     with engine.begin() as conn:
         for schema in SCHEMAS:
             conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
@@ -115,13 +102,15 @@ def ensure_schemas() -> None:
 
 def init_db() -> None:
     """
-    Initialize database prerequisites.
+    Bootstrap database for a fresh environment.
 
-    Important:
-    - This function only ensures schemas exist.
-    - Tables, columns, constraints, and schema evolution must be handled only
-      through Alembic migrations.
-    - Base.metadata.create_all() is intentionally not used to avoid schema drift.
+    Current mode:
+    - Ensures schemas exist
+    - Creates all ORM tables from metadata
+
+    This is intended for initial bootstrap on a fresh database so seeds can run.
+    Once bootstrap is complete, switch back to Alembic-only table management.
     """
     ensure_schemas()
-    logger.info("Database initialized; table creation is managed by Alembic only.")
+    Base.metadata.create_all(bind=engine)
+    logger.info("Bootstrap mode — created tables from ORM metadata.")
