@@ -75,7 +75,11 @@ if settings.READ_REPLICA_URL:
 class Base(DeclarativeBase):
     pass
 
-
+def init_db() -> None:
+    ensure_schemas()
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database initialized; tables created from ORM metadata.")
+    
 def get_db() -> Generator[Session, None, None]:
     """Yield a primary transactional database session."""
     db = SessionLocal()
