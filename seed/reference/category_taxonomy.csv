@@ -1,0 +1,9 @@
+commodity_group,data_source,hs_code_default,is_active,model_version,spec_schema_json,taxonomy_code,taxonomy_path,unit_of_measure_options,version
+Aluminum / Steel Machining,internal_seed,847989,True,phase1-seed-v1,"{""dimensions"": ""mm"", ""tolerance"": ""mm"", ""material"": ""string"", ""finish"": ""string""}",MACH-CNC-PRISMATIC,Mechanical > CNC Machined Parts > Prismatic,"[""pcs""]",1
+Steel / Aluminum Sheet,internal_seed,732690,True,phase1-seed-v1,"{""thickness"": ""mm"", ""material"": ""string"", ""finish"": ""string""}",FAB-SHEET-METAL,Mechanical > Sheet Metal > Fabricated Parts,"[""pcs""]",1
+Aluminum,internal_seed,761699,True,phase1-seed-v1,"{""weight"": ""kg"", ""material"": ""string"", ""finish"": ""string""}",CAST-DIE-AL,Mechanical > Castings > Aluminum Die Cast,"[""pcs""]",1
+Engineering Plastics,internal_seed,392690,True,phase1-seed-v1,"{""material"": ""string"", ""resin_grade"": ""string"", ""color"": ""string""}",MOLD-PLASTIC-INJ,Plastics > Injection Molded Parts,"[""pcs""]",1
+FR4 PCB Laminate,internal_seed,853400,True,phase1-seed-v1,"{""layers"": ""int"", ""thickness"": ""mm"", ""finish"": ""string""}",ELE-PCB-FAB,Electronics > PCB > Bare Board Fabrication,"[""pcs""]",1
+Electronics Assembly,internal_seed,847330,True,phase1-seed-v1,"{""sides"": ""int"", ""component_count"": ""int"", ""test"": ""string""}",ELE-PCBA-ASM,Electronics > PCB > Assembly,"[""pcs""]",1
+Wire & Cable,internal_seed,854449,True,phase1-seed-v1,"{""wire_gauge"": ""string"", ""connector_type"": ""string"", ""length"": ""mm""}",ELE-CABLE-HARNESS,Electrical > Cable Harnesses,"[""pcs"", ""m""]",1
+Steel Fasteners,internal_seed,731815,True,phase1-seed-v1,"{""thread"": ""string"", ""length"": ""mm"", ""material"": ""string""}",FAST-STANDARD,Hardware > Standard Fasteners,"[""pcs""]",1

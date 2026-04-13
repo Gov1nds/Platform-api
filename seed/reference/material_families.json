@@ -1,0 +1,97 @@
+[
+  {
+    "material_family": "Aluminum",
+    "examples": [
+      "Aluminum 6061",
+      "Aluminum 7075"
+    ]
+  },
+  {
+    "material_family": "Stainless Steel",
+    "examples": [
+      "304",
+      "316"
+    ]
+  },
+  {
+    "material_family": "Carbon Steel",
+    "examples": [
+      "A36",
+      "1018"
+    ]
+  },
+  {
+    "material_family": "Copper",
+    "examples": [
+      "C110",
+      "C101"
+    ]
+  },
+  {
+    "material_family": "Brass",
+    "examples": [
+      "C360"
+    ]
+  },
+  {
+    "material_family": "Titanium",
+    "examples": [
+      "Grade 5"
+    ]
+  },
+  {
+    "material_family": "ABS Plastic",
+    "examples": [
+      "ABS"
+    ]
+  },
+  {
+    "material_family": "Polypropylene",
+    "examples": [
+      "PP"
+    ]
+  },
+  {
+    "material_family": "Nylon",
+    "examples": [
+      "PA66"
+    ]
+  },
+  {
+    "material_family": "Polycarbonate",
+    "examples": [
+      "PC"
+    ]
+  },
+  {
+    "material_family": "FR4",
+    "examples": [
+      "FR4 PCB Laminate"
+    ]
+  },
+  {
+    "material_family": "Silicone",
+    "examples": [
+      "Silicone Rubber"
+    ]
+  },
+  {
+    "material_family": "Natural Rubber",
+    "examples": [
+      "NR"
+    ]
+  },
+  {
+    "material_family": "PCB Copper Clad",
+    "examples": [
+      "FR4 Cu Clad"
+    ]
+  },
+  {
+    "material_family": "Wire & Cable",
+    "examples": [
+      "PVC cable",
+      "XLPE cable"
+    ]
+  }
+]

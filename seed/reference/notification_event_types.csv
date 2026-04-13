@@ -1,0 +1,7 @@
+channels,event_type
+"[""email"", ""in_app""]",rfq_sent
+"[""email"", ""push"", ""in_app""]",quote_received
+"[""email"", ""sms"", ""push"", ""in_app""]",approval_requested
+"[""email"", ""sms"", ""in_app""]",po_sent
+"[""email"", ""push"", ""in_app""]",shipment_update
+"[""email"", ""sms"", ""in_app""]",stale_shipment_alert

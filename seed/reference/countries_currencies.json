@@ -1,0 +1,152 @@
+[
+  {
+    "country_code": "US",
+    "country_name": "United States",
+    "default_currency": "USD",
+    "region_group": "North America"
+  },
+  {
+    "country_code": "CA",
+    "country_name": "Canada",
+    "default_currency": "CAD",
+    "region_group": "North America"
+  },
+  {
+    "country_code": "MX",
+    "country_name": "Mexico",
+    "default_currency": "MXN",
+    "region_group": "North America"
+  },
+  {
+    "country_code": "CN",
+    "country_name": "China",
+    "default_currency": "CNY",
+    "region_group": "East Asia"
+  },
+  {
+    "country_code": "VN",
+    "country_name": "Vietnam",
+    "default_currency": "VND",
+    "region_group": "Southeast Asia"
+  },
+  {
+    "country_code": "TH",
+    "country_name": "Thailand",
+    "default_currency": "THB",
+    "region_group": "Southeast Asia"
+  },
+  {
+    "country_code": "MY",
+    "country_name": "Malaysia",
+    "default_currency": "MYR",
+    "region_group": "Southeast Asia"
+  },
+  {
+    "country_code": "ID",
+    "country_name": "Indonesia",
+    "default_currency": "IDR",
+    "region_group": "Southeast Asia"
+  },
+  {
+    "country_code": "IN",
+    "country_name": "India",
+    "default_currency": "INR",
+    "region_group": "South Asia"
+  },
+  {
+    "country_code": "PL",
+    "country_name": "Poland",
+    "default_currency": "PLN",
+    "region_group": "Eastern Europe"
+  },
+  {
+    "country_code": "CZ",
+    "country_name": "Czechia",
+    "default_currency": "CZK",
+    "region_group": "Eastern Europe"
+  },
+  {
+    "country_code": "RO",
+    "country_name": "Romania",
+    "default_currency": "RON",
+    "region_group": "Eastern Europe"
+  },
+  {
+    "country_code": "DE",
+    "country_name": "Germany",
+    "default_currency": "EUR",
+    "region_group": "Western Europe"
+  },
+  {
+    "country_code": "NL",
+    "country_name": "Netherlands",
+    "default_currency": "EUR",
+    "region_group": "Western Europe"
+  },
+  {
+    "country_code": "BE",
+    "country_name": "Belgium",
+    "default_currency": "EUR",
+    "region_group": "Western Europe"
+  },
+  {
+    "country_code": "KR",
+    "country_name": "South Korea",
+    "default_currency": "KRW",
+    "region_group": "East Asia"
+  },
+  {
+    "country_code": "TW",
+    "country_name": "Taiwan",
+    "default_currency": "TWD",
+    "region_group": "East Asia"
+  },
+  {
+    "country_code": "GB",
+    "country_name": "United Kingdom",
+    "default_currency": "GBP",
+    "region_group": "Europe"
+  },
+  {
+    "country_code": "JP",
+    "country_name": "Japan",
+    "default_currency": "JPY",
+    "region_group": "East Asia"
+  },
+  {
+    "country_code": "SG",
+    "country_name": "Singapore",
+    "default_currency": "SGD",
+    "region_group": "Southeast Asia"
+  },
+  {
+    "country_code": "AU",
+    "country_name": "Australia",
+    "default_currency": "AUD",
+    "region_group": "Oceania"
+  },
+  {
+    "country_code": "CH",
+    "country_name": "Switzerland",
+    "default_currency": "CHF",
+    "region_group": "Europe"
+  },
+  {
+    "country_code": "SE",
+    "country_name": "Sweden",
+    "default_currency": "SEK",
+    "region_group": "Europe"
+  },
+  {
+    "country_code": "NO",
+    "country_name": "Norway",
+    "default_currency": "NOK",
+    "region_group": "Europe"
+  },
+  {
+    "country_code": "BR",
+    "country_name": "Brazil",
+    "default_currency": "BRL",
+    "region_group": "South America"
+  }
+]

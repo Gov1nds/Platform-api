@@ -1,0 +1,10 @@
+aliases,display_name,unit_code
+"[""piece"", ""pieces"", ""ea"", ""each""]",Pieces,pcs
+"[""kilogram"", ""kilograms""]",Kilograms,kg
+"[""gram"", ""grams""]",Grams,g
+"[""meter"", ""metre"", ""meters"", ""metres""]",Meters,m
+"[""millimeter"", ""millimetre"", ""millimeters"", ""millimetres""]",Millimeters,mm
+"[""centimeter"", ""centimetre""]",Centimeters,cm
+"[""m2"", ""sq m""]",Square Meters,sqm
+"[""m3"", ""cubic meter""]",Cubic Meters,cbm
+"[""sets""]",Set,set

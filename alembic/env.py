@@ -1,25 +1,30 @@
 """
 Alembic environment configuration.
 
-Reads DATABASE_URL from app settings. Supports multi-schema migrations
-(auth, bom, projects, sourcing, pricing, ops, market, finance, logistics).
+Reads DATABASE_URL from app settings and supports multi-schema migrations
+for PGI domains.
 
 References: GAP-025, INFERRED-004
 """
+
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool, text
 
+# Make repo root importable so `app` resolves when Alembic runs directly.
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from app.core.config import settings
 from app.core.database import Base, SCHEMAS
 
-# Import ALL models so Alembic autogenerate can detect them.
-# Models are registered on Base.metadata at import time.
-from app.models import *  # noqa: F401, F403
+# Import all models so Base.metadata is fully populated for autogenerate.
+from app.models import *  # noqa: F401,F403
 
 config = context.config
 
@@ -28,13 +33,17 @@ if config.config_file_name is not None:
 
 logger = logging.getLogger("alembic.env")
 
-# Override sqlalchemy.url from application settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Normalize SQLAlchemy URL for Alembic.
+database_url = settings.DATABASE_URL
+if database_url.startswith("postgresql+psycopg2://"):
+    database_url = database_url.replace("postgresql+psycopg2://", "postgresql://", 1)
+
+config.set_main_option("sqlalchemy.url", database_url)
 
 target_metadata = Base.metadata
 
 
-def include_name(name, type_, parent_names):
+def include_name(name: str | None, type_: str, parent_names) -> bool:
     """Include only schemas that belong to PGI."""
     if type_ == "schema":
         return name in SCHEMAS or name == "public"
@@ -42,7 +51,7 @@ def include_name(name, type_, parent_names):
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode (emit SQL to stdout)."""
+    """Run migrations in offline mode."""
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -52,23 +61,29 @@ def run_migrations_offline() -> None:
         include_schemas=True,
         include_name=include_name,
         version_table_schema="public",
+        compare_type=True,
+        compare_server_default=True,
     )
+
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode (against a live database)."""
+    """Run migrations against a live database connection."""
+    section = config.get_section(config.config_ini_section, {})
+    section["sqlalchemy.url"] = config.get_main_option("sqlalchemy.url")
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        future=True,
     )
 
     with connectable.connect() as connection:
-        # Ensure all schemas exist before migrating
         for schema in SCHEMAS:
-            connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+            connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
         connection.commit()
 
         context.configure(
@@ -78,6 +93,7 @@ def run_migrations_online() -> None:
             include_name=include_name,
             version_table_schema="public",
             compare_type=True,
+            compare_server_default=True,
         )
 
         with context.begin_transaction():

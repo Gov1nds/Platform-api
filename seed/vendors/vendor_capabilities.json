@@ -1,0 +1,5362 @@
+[
+  {
+    "capability_id": "4b65973a-4cdb-50e7-9950-afb2d365c192",
+    "vendor_id": "ae87b37e-e860-5908-907d-32caefc1fef7",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "ab430dc3-0c81-5465-ab9a-da30f4ec6d24",
+    "vendor_id": "ae87b37e-e860-5908-907d-32caefc1fef7",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 7625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "9819a6db-9d12-51e8-8700-dc034f4bcbcf",
+    "vendor_id": "4fca0147-42d6-5d59-9cae-d131d641b279",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "60cd0a0d-3873-5858-aa0d-3d2d3a578794",
+    "vendor_id": "4fca0147-42d6-5d59-9cae-d131d641b279",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 7750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "0ae3679d-2a98-5fc6-8e30-e96ea9c50e71",
+    "vendor_id": "7adfb532-aa87-5e68-b988-cd40ab1bbf39",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "0ac04add-0651-57ac-b8a6-c9dc73bbf57c",
+    "vendor_id": "7adfb532-aa87-5e68-b988-cd40ab1bbf39",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 7875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "4dc1509f-e27c-5aa1-9884-06b633c2752a",
+    "vendor_id": "9b8ab2a1-f14f-5771-8542-b39dbff54429",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "033995c1-a3cb-5f68-87ec-bb9d6920d5f7",
+    "vendor_id": "9b8ab2a1-f14f-5771-8542-b39dbff54429",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 8000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "07410740-1e5e-50ef-a5b8-35e3a763189c",
+    "vendor_id": "ac87d151-c8c9-52ac-b6c0-9c335f0b7552",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding",
+      "extrusion"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "5dd38a4f-e0c2-51d8-b0d1-07e66b2f1c1e",
+    "vendor_id": "ac87d151-c8c9-52ac-b6c0-9c335f0b7552",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 8125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "3b475850-1408-585c-b77d-af8fce18eb16",
+    "vendor_id": "9ad53170-0117-518b-a5c5-a6aa45f79d96",
+    "taxonomy_code": "ELE-PCB-FAB",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication",
+      "pcba_assembly"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "ELE-PCB-FAB": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "719f15a8-fd01-5656-bf78-7f323871aacd",
+    "vendor_id": "9ad53170-0117-518b-a5c5-a6aa45f79d96",
+    "taxonomy_code": "ELE-PCBA-ASM",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "ELE-PCBA-ASM": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 8250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "28b197a8-7a03-5689-9947-d7f8fa45138b",
+    "vendor_id": "bba2a3b8-3b0d-51d5-a49e-3ae4a25f8702",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "82ecb42a-f662-5303-b224-689ca89831c2",
+    "vendor_id": "bba2a3b8-3b0d-51d5-a49e-3ae4a25f8702",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 8375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b4153df5-4016-5d90-948e-25500c82fda7",
+    "vendor_id": "b2c1ef01-c27e-5b68-8b94-475541ca5852",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6d9340b0-12b2-5845-9284-6a16e59f36d0",
+    "vendor_id": "b2c1ef01-c27e-5b68-8b94-475541ca5852",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 8500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "ea367195-e13d-5516-90eb-b9e56926dbc2",
+    "vendor_id": "9d47e34c-42b5-57f5-adee-54c14fd9317a",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "feb9c230-3574-51c5-926c-fa258e958ed2",
+    "vendor_id": "9d47e34c-42b5-57f5-adee-54c14fd9317a",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 8625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "f5dde6b0-f692-5fc3-a1fd-675316f59273",
+    "vendor_id": "e197bc75-dcfa-5fdd-ace6-245d0623a05f",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "adf98c7c-c73c-508e-8a03-77a23a2abe5c",
+    "vendor_id": "e197bc75-dcfa-5fdd-ace6-245d0623a05f",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 8750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "34a339bd-d60e-579d-abd9-5e6be9b20a60",
+    "vendor_id": "caf1b054-4410-5a50-8ceb-1ed10a99f1a7",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "e02a00e3-2bb6-54fc-ada6-7fea3ccce57c",
+    "vendor_id": "caf1b054-4410-5a50-8ceb-1ed10a99f1a7",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 8875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "7c21f465-2931-5a49-b5ed-9d26ee218772",
+    "vendor_id": "3413cdad-d197-581f-b6e5-29c28abaf31a",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding",
+      "extrusion"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "f2402c21-dedb-5fd6-b503-ff86599801cb",
+    "vendor_id": "3413cdad-d197-581f-b6e5-29c28abaf31a",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 9000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "7e431c54-b2f4-5e52-aeb9-deee64cc9ad9",
+    "vendor_id": "cc50df4d-3c88-5a2d-9bb2-abedb562dc49",
+    "taxonomy_code": "ELE-PCB-FAB",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication",
+      "pcba_assembly"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "ELE-PCB-FAB": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a7175be3-9adf-5a7f-95d5-2a262d96d52c",
+    "vendor_id": "cc50df4d-3c88-5a2d-9bb2-abedb562dc49",
+    "taxonomy_code": "ELE-PCBA-ASM",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "ELE-PCBA-ASM": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 9125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6bce1eb0-9629-5951-ac7f-4beb47d05e28",
+    "vendor_id": "a2d207b9-fced-5652-8d47-1f63eaab20b1",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "873f56a9-dd01-5d94-8d88-c63fc36bad54",
+    "vendor_id": "a2d207b9-fced-5652-8d47-1f63eaab20b1",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 9250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "7c14b900-b317-58aa-80c3-179e96792700",
+    "vendor_id": "66bd4be9-b731-5b75-aa20-338d0d951962",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "31912323-f36f-50d0-b5fa-fe79cabd6ac9",
+    "vendor_id": "66bd4be9-b731-5b75-aa20-338d0d951962",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 9375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6d2f8768-f1f5-51b6-8a32-9c429550d446",
+    "vendor_id": "31cf83b4-8fe1-5636-b5e2-51ce586677cd",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 19000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "aaf28fc9-4c4c-5cc5-a9f5-7e7ef5c9f44a",
+    "vendor_id": "31cf83b4-8fe1-5636-b5e2-51ce586677cd",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 9500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "4b0b9011-cd99-56d3-ae14-3cc6839c47c3",
+    "vendor_id": "f4ea4f75-3987-5908-9786-436ffa5d2d8b",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 19250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a4443efc-b5c5-52b8-852b-e176b4a9e0aa",
+    "vendor_id": "f4ea4f75-3987-5908-9786-436ffa5d2d8b",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 9625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "2b4b1cd4-5c35-55d3-b171-83955ba8d815",
+    "vendor_id": "685d90ee-7cc7-5dda-8164-e31188f5d875",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 19500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b8682048-c522-5658-9f07-c51ec9b823f0",
+    "vendor_id": "685d90ee-7cc7-5dda-8164-e31188f5d875",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 9750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a1d9fe53-8b0b-520f-a56c-0dc653ad8e8d",
+    "vendor_id": "62cd5a24-4101-5d5a-b8af-bfcd34e42804",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding",
+      "extrusion"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 19750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "ab192df7-57c2-5e73-b113-40025d56d45b",
+    "vendor_id": "62cd5a24-4101-5d5a-b8af-bfcd34e42804",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 9875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "f025bfe9-4266-59a3-9bab-e326f67f9a40",
+    "vendor_id": "d6578171-5b16-500c-acaf-872049372b82",
+    "taxonomy_code": "ELE-PCB-FAB",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication",
+      "pcba_assembly"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "ELE-PCB-FAB": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 20000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "e67a2b26-415f-5ca9-a9d5-41202f9097ae",
+    "vendor_id": "d6578171-5b16-500c-acaf-872049372b82",
+    "taxonomy_code": "ELE-PCBA-ASM",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "ELE-PCBA-ASM": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 10000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "09701ca9-cd0f-589a-a5c7-b57f52581f50",
+    "vendor_id": "3eb41ee7-3339-5a3a-a446-f3fba5fb3c5f",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 20250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "84c5a443-d9bc-5ec2-ad10-7edec62729d8",
+    "vendor_id": "3eb41ee7-3339-5a3a-a446-f3fba5fb3c5f",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 10125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "270baae5-330b-5dd2-9181-e4f09ce75242",
+    "vendor_id": "c2f9534f-b622-5e53-833e-c93051b59264",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 20500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "16534262-5cf2-56e6-b323-cec9f4b92316",
+    "vendor_id": "c2f9534f-b622-5e53-833e-c93051b59264",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 10250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "dd3d17f4-e0ca-59e5-8aad-a1961b1fba1e",
+    "vendor_id": "3036a681-5421-5f13-8bf1-55d9b7944c8e",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 20750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "bd2d6ffb-fd99-5662-bca4-0ac6079e0c6c",
+    "vendor_id": "3036a681-5421-5f13-8bf1-55d9b7944c8e",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 10375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d48b93d3-ea19-5112-b4a4-198985035eb0",
+    "vendor_id": "fda74f10-7bb7-5ab3-94d3-a327f2419731",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 21000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "9d62f3e4-dcb6-5028-92c6-24bc7fe28962",
+    "vendor_id": "fda74f10-7bb7-5ab3-94d3-a327f2419731",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 10500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "0a836d3a-7839-5b26-8a6d-4bfba3f54edb",
+    "vendor_id": "45817ab1-44af-53c3-826c-41f10021f546",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 21250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "cc568c3e-64a3-5c87-834a-6f6a53745157",
+    "vendor_id": "45817ab1-44af-53c3-826c-41f10021f546",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 10625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "38370bc2-60d4-56eb-a670-fe32eee2abf3",
+    "vendor_id": "5d79f85f-c427-5285-80a4-1417d564bbfd",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding",
+      "extrusion"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 21500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a368a6dd-012b-5c79-9936-8dea8bfd47df",
+    "vendor_id": "5d79f85f-c427-5285-80a4-1417d564bbfd",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 10750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "329f9597-cd62-5011-9a57-71b80e404861",
+    "vendor_id": "7a2c7bab-409d-5d75-94ff-71ebc31667f7",
+    "taxonomy_code": "ELE-PCB-FAB",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication",
+      "pcba_assembly"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "ELE-PCB-FAB": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 21750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6e048fdb-fdcd-54a7-bf35-14dc89ebe154",
+    "vendor_id": "7a2c7bab-409d-5d75-94ff-71ebc31667f7",
+    "taxonomy_code": "ELE-PCBA-ASM",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "ELE-PCBA-ASM": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 10875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "bea5140f-1047-5312-8034-7d50cbb8d8f4",
+    "vendor_id": "7df8c141-439d-5dec-bede-1520ca94b116",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 22000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "2bdb6a61-fb72-5a20-9642-bcc306433708",
+    "vendor_id": "7df8c141-439d-5dec-bede-1520ca94b116",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 11000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "1dce6d64-7fd3-599c-8725-f2009c16c39a",
+    "vendor_id": "322eb170-c8e1-563a-8f11-c44f04ed1092",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 22250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "346e8426-28fb-5c8f-855b-e969b8d79b10",
+    "vendor_id": "322eb170-c8e1-563a-8f11-c44f04ed1092",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 11125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "ff8f69c7-d1df-572a-aa6d-fcb2df5c3fe2",
+    "vendor_id": "78392a53-1e18-5843-a136-3e7f20f898cb",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 22500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "bf536f87-1d07-525e-8f30-cd336e28e8d2",
+    "vendor_id": "78392a53-1e18-5843-a136-3e7f20f898cb",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 11250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "68baa3dd-4835-5fb5-829d-28b4574df10a",
+    "vendor_id": "ba4ac6b4-36ea-5aab-a6b0-e0874f68ef1e",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 22750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "802ef6e7-88ae-5a49-adf6-ab54dc3e0b08",
+    "vendor_id": "ba4ac6b4-36ea-5aab-a6b0-e0874f68ef1e",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 11375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "2e0b235a-bb20-5ed4-b63c-bfddf488628e",
+    "vendor_id": "065ee69c-9a3c-534f-9c9b-e995c937121e",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 23000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "cf218cdf-a739-5209-a1ab-d0860e9d37d3",
+    "vendor_id": "065ee69c-9a3c-534f-9c9b-e995c937121e",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 11500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "66f0673a-6f03-5753-b756-4c530d4be643",
+    "vendor_id": "b9bb49d4-afa1-5227-9abb-2448dbffec59",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 23250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d9a9187c-2545-5f8f-8f54-e6264c330289",
+    "vendor_id": "b9bb49d4-afa1-5227-9abb-2448dbffec59",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 11625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "c991a962-3a03-5b07-b39e-77b1551a8f41",
+    "vendor_id": "e976fce5-e96f-5bc7-8d08-c53f282fca8b",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 23500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d7d6042c-bdc1-540d-834b-f6d55ab8c99e",
+    "vendor_id": "e976fce5-e96f-5bc7-8d08-c53f282fca8b",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 11750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "e18628e7-6759-5874-8613-fd0064412426",
+    "vendor_id": "b5deea7c-dd4d-5ce8-ada4-b64c2d6c4e00",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 23750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "c062a95f-efd1-54ab-b1f5-beb87ac5ea87",
+    "vendor_id": "b5deea7c-dd4d-5ce8-ada4-b64c2d6c4e00",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 11875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "495d2ee7-6c05-54c7-8578-3e016c621496",
+    "vendor_id": "4a7d7799-ce88-560f-b20f-c4b96a456e41",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 24000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "0b7ac720-21a3-585a-9f9b-854dc8efd53a",
+    "vendor_id": "4a7d7799-ce88-560f-b20f-c4b96a456e41",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 12000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b62f3940-aed0-5e7a-966c-c26950870bb8",
+    "vendor_id": "483f6ecb-2ecf-5ecf-9f6f-b0149f2b9f42",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding",
+      "extrusion"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 24250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "ce780eef-1e74-53db-ba07-cc6b52cd4d59",
+    "vendor_id": "483f6ecb-2ecf-5ecf-9f6f-b0149f2b9f42",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 12125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a6b7dd45-3a95-5a41-bb50-ebce075e451f",
+    "vendor_id": "882241c7-be55-5d7e-9f7f-52e072ff22a8",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 24500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "bc3b9098-1f62-5034-814b-dd266d240ba3",
+    "vendor_id": "882241c7-be55-5d7e-9f7f-52e072ff22a8",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 12250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "7726cf1b-5392-50aa-8f1e-f8186cf7ed93",
+    "vendor_id": "1857bed6-2ad4-5ded-8062-f14084c5e1a1",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 24750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a9f8c3f2-5c32-5041-97cb-8e3340de14ce",
+    "vendor_id": "1857bed6-2ad4-5ded-8062-f14084c5e1a1",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 12375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "3a5ff568-4b54-5364-9be8-960d7c0f20fb",
+    "vendor_id": "5cf1d94d-7812-5156-9840-35135251316c",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 25000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a8657142-c558-5e22-b0ee-b558a223db5d",
+    "vendor_id": "5cf1d94d-7812-5156-9840-35135251316c",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 12500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "5cc94e81-bd45-5e74-b68f-71bfbc095bea",
+    "vendor_id": "fee1871e-2f17-5071-9d2e-2f1882bbe7af",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 25250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "49dd3324-c157-5554-8a2a-bfee382ba083",
+    "vendor_id": "fee1871e-2f17-5071-9d2e-2f1882bbe7af",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 12625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "dc04cc34-cbfd-5c8b-83bc-a4e8b5714829",
+    "vendor_id": "f6f91457-b46e-52d9-b626-f9145e48c204",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 25500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d9f9b776-51c5-58ad-8df1-d6d16451c1e5",
+    "vendor_id": "f6f91457-b46e-52d9-b626-f9145e48c204",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 12750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "51ddbb3c-e0ca-5d30-a335-3a834c3dbec1",
+    "vendor_id": "9796bfd7-20ce-5780-ae4c-a611e8b3839a",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 25750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "796f792f-3873-54cc-aa85-926650e2bebb",
+    "vendor_id": "9796bfd7-20ce-5780-ae4c-a611e8b3839a",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 12875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "29b50b95-bcd4-5735-8294-ab8c874fab10",
+    "vendor_id": "d39a4084-8d6b-56a8-8cf1-d26c6b44b97c",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 26000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "55802ca0-4269-5b29-908d-e9b24407c31b",
+    "vendor_id": "d39a4084-8d6b-56a8-8cf1-d26c6b44b97c",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 13000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b83ced17-cc85-5147-9c9d-73d58cc04347",
+    "vendor_id": "e1795b61-9dfa-52fe-a3a7-9a28a0d46cb7",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 26250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a87174be-31ff-59d7-a15b-708daadaf7ac",
+    "vendor_id": "e1795b61-9dfa-52fe-a3a7-9a28a0d46cb7",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 13125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d36af384-94a6-5e5d-a80e-6046c248f458",
+    "vendor_id": "c8ab01d7-105d-5aa7-af89-3743bd46785e",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 26500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b10bb111-91d7-5ce6-a579-47695276480b",
+    "vendor_id": "c8ab01d7-105d-5aa7-af89-3743bd46785e",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 13250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "5e4ae57a-3544-53d9-adb2-4c59d71aa7be",
+    "vendor_id": "6f13a16c-e7a1-5ef9-8cfa-78c7d26448dd",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 26750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "ff5c0cce-d0ee-5957-a525-60a12cffa878",
+    "vendor_id": "6f13a16c-e7a1-5ef9-8cfa-78c7d26448dd",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 13375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "c8576148-6408-5fbb-b99d-77abe99f0123",
+    "vendor_id": "2f2b9763-ad47-5e4b-b389-73b85513031a",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 27000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "99e7b46a-e64f-5f55-aa34-d9ee2c152266",
+    "vendor_id": "2f2b9763-ad47-5e4b-b389-73b85513031a",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 13500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a10c8996-7943-5087-88bf-447b607eac28",
+    "vendor_id": "92691a45-67f7-565e-a549-5ea82f2b2b4f",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 27250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d1851e21-7ed2-5f7d-a402-1f3e4ca1683f",
+    "vendor_id": "92691a45-67f7-565e-a549-5ea82f2b2b4f",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 13625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "97e3e6b1-9cdc-5ff8-99b6-910473a8d03b",
+    "vendor_id": "c6cfc0bd-b2d4-546a-8b05-ab3ffcf00f09",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 27500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "03211ee7-ef76-5439-9256-59b5426af778",
+    "vendor_id": "c6cfc0bd-b2d4-546a-8b05-ab3ffcf00f09",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 13750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d3baf77e-9db9-512b-bebe-f63ed0d79b8c",
+    "vendor_id": "cd046761-9d1e-590e-b225-2e9ede409b4c",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 27750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "11938b6e-f9d8-59a6-a0df-77c3c581a3c6",
+    "vendor_id": "cd046761-9d1e-590e-b225-2e9ede409b4c",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 13875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "1f3b2882-b872-5a83-8a32-b0bbfac1917f",
+    "vendor_id": "d5394254-d9dc-593c-942f-50d8b025eb40",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding",
+      "extrusion"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 28000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "be198517-990c-59de-ba07-4f60b4e443ca",
+    "vendor_id": "d5394254-d9dc-593c-942f-50d8b025eb40",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 14000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d50d4664-97e0-5be0-b29b-355d56802e55",
+    "vendor_id": "b1602b9a-090a-501c-9478-cd01a010bae9",
+    "taxonomy_code": "ELE-PCB-FAB",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication",
+      "pcba_assembly"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "ELE-PCB-FAB": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 28250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "af933db7-c4ec-5c8d-a2e8-a868f5b12421",
+    "vendor_id": "b1602b9a-090a-501c-9478-cd01a010bae9",
+    "taxonomy_code": "ELE-PCBA-ASM",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "ELE-PCBA-ASM": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 14125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a88a03d5-fafc-58b7-8409-7d9e87060ba7",
+    "vendor_id": "eb320770-6ac1-5ab6-adfb-ebdd0b5daace",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 28500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b92211d2-f962-50e2-a59d-463333da789f",
+    "vendor_id": "eb320770-6ac1-5ab6-adfb-ebdd0b5daace",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 14250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "9cd150cd-864e-5301-a748-2e3939ccba75",
+    "vendor_id": "ad4a66ff-3778-573a-8596-3027e7c2f8a0",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 28750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "31f8c779-eeab-52a1-9de1-073acb920254",
+    "vendor_id": "ad4a66ff-3778-573a-8596-3027e7c2f8a0",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 14375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "11c2b1f0-d433-5a74-a1fa-676c7c8ca7d8",
+    "vendor_id": "db42804f-e54c-5aae-955b-f97bc4112270",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 29000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "713f6062-eb09-5804-873b-3c232e402cb4",
+    "vendor_id": "db42804f-e54c-5aae-955b-f97bc4112270",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 14500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "890255f8-a98e-549e-978f-56893e1ca951",
+    "vendor_id": "b565d6cc-9b8d-5776-a6a5-f91597f3693d",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 29250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "5358be8b-e4d7-526c-97f5-ea6cb6dc472e",
+    "vendor_id": "b565d6cc-9b8d-5776-a6a5-f91597f3693d",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 14625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "06905044-1684-5ae2-892f-fb256630d49f",
+    "vendor_id": "8757fb0d-dde6-5bed-b3ee-a86a0f02e657",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 29500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "2f793a86-05de-5b61-8654-3d29b2ed055a",
+    "vendor_id": "8757fb0d-dde6-5bed-b3ee-a86a0f02e657",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 14750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "9586439e-4c3c-5912-b9ed-5136c4c645ab",
+    "vendor_id": "da96ae95-f444-5104-901e-f76765fa5524",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding",
+      "extrusion"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 29750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "180b97ef-72ec-50b9-ab03-db8db627daea",
+    "vendor_id": "da96ae95-f444-5104-901e-f76765fa5524",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 14875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "c8600bbf-661a-5b64-88e8-63895b4de9bf",
+    "vendor_id": "f9183326-50f2-5dcd-b896-996c05c792c7",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 30000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "727a1468-a503-5c94-aabf-3f718bd1c67b",
+    "vendor_id": "f9183326-50f2-5dcd-b896-996c05c792c7",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "028d91c7-31d3-503b-a0b9-1d8314023530",
+    "vendor_id": "d47f38bb-3510-562d-8c04-8d25db48db62",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 30250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a47d308e-e375-59e4-84be-8eb9f37966d5",
+    "vendor_id": "d47f38bb-3510-562d-8c04-8d25db48db62",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d01d1a30-ccca-52c6-a859-ef0186f1a7f1",
+    "vendor_id": "3f48d821-eac4-5843-b8b4-8431cfd90d07",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 30500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "97558c04-406b-5538-9aa6-4bd7035c86d5",
+    "vendor_id": "3f48d821-eac4-5843-b8b4-8431cfd90d07",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "7140d465-5e04-56ee-b899-794172000c59",
+    "vendor_id": "a0f1a623-ca7a-5719-97f8-359e7bdf757e",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 30750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "200eb355-4b5d-5b25-befe-55b06901b0d1",
+    "vendor_id": "a0f1a623-ca7a-5719-97f8-359e7bdf757e",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "91a178ff-14e4-59fa-8d3c-558354489900",
+    "vendor_id": "3d00ea61-7e4b-5eab-ac71-0cdf984f4b54",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 31000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "94e2aca3-fb43-5c59-b27e-c72367499296",
+    "vendor_id": "3d00ea61-7e4b-5eab-ac71-0cdf984f4b54",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "cadf1d57-60e7-5e10-8973-93ec046368e0",
+    "vendor_id": "ac7d78dc-c5c1-50f4-8a85-8078bf3f4384",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 31250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "e167c3a7-3ea1-5844-aa79-9221eff9053f",
+    "vendor_id": "ac7d78dc-c5c1-50f4-8a85-8078bf3f4384",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "e014b6f6-6bfe-55a0-9480-f02013f5bac3",
+    "vendor_id": "a94293a0-d242-55c4-afeb-8538320d55f4",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 31500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "5d70ff39-976c-5610-b429-95171920fb80",
+    "vendor_id": "a94293a0-d242-55c4-afeb-8538320d55f4",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a360d3b7-3e6e-55ab-b6d2-a13878ef5652",
+    "vendor_id": "4be45d61-2045-5de8-8f4a-b67081085e37",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 31750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "8a9356df-72b1-5ab3-aa8e-0740174ba833",
+    "vendor_id": "4be45d61-2045-5de8-8f4a-b67081085e37",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 15875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "a7cb1924-257a-5e5e-9e15-37a73e4881c1",
+    "vendor_id": "d3852f8f-c7c2-5af8-be31-6e777c9cba3b",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 32000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "72836586-fe96-5a2f-a569-cf4f6b82ca8c",
+    "vendor_id": "d3852f8f-c7c2-5af8-be31-6e777c9cba3b",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "4b8762a4-3cce-54e4-be3c-38c9e34b23dc",
+    "vendor_id": "a4b9c53f-6570-5675-8d04-c99171410a83",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 32250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "510fc1d1-c39b-599a-ae50-a4abecb31583",
+    "vendor_id": "a4b9c53f-6570-5675-8d04-c99171410a83",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "dc6a4dda-cab2-5371-94d6-3332e9a475fd",
+    "vendor_id": "f3567b48-492d-57d5-938d-e8470a4d2fbb",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 32500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "5848ae51-48b6-5735-a6ea-e614e2617b0f",
+    "vendor_id": "f3567b48-492d-57d5-938d-e8470a4d2fbb",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "e62635ed-3638-59dd-9bd7-60e71494dab6",
+    "vendor_id": "a9dde342-0588-59be-b918-3734574f19c3",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 32750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "012a7616-bc34-55b3-9e1c-faf98ede20ee",
+    "vendor_id": "a9dde342-0588-59be-b918-3734574f19c3",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "f386ab0e-ce8b-56f0-927c-e9c0b492ef4e",
+    "vendor_id": "ce57bf44-71fd-50bf-afaa-428ff7a91656",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 33000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "4fd5f5bb-3bd1-58e2-8645-913d7e33db55",
+    "vendor_id": "ce57bf44-71fd-50bf-afaa-428ff7a91656",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "2c10bb6e-3570-5e0f-ae58-d8209d72df0f",
+    "vendor_id": "680add60-2d83-5672-9008-4652a3a9f6b6",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 33250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "8783ffa4-41bc-5189-a403-8f73f15ff0f4",
+    "vendor_id": "680add60-2d83-5672-9008-4652a3a9f6b6",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "9b61f3ae-a684-542b-9333-be3d92ba7763",
+    "vendor_id": "cd04a6c1-0361-5579-88ef-5d9e9018cf69",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding",
+      "extrusion"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 33500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "623fe0f1-a6d9-5591-adc7-051b9947c6e8",
+    "vendor_id": "cd04a6c1-0361-5579-88ef-5d9e9018cf69",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6b97287e-850c-5958-889b-f6a5ec98bd31",
+    "vendor_id": "c4cfaa8c-5f42-569a-a6dc-207a1f161ac4",
+    "taxonomy_code": "ELE-PCB-FAB",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication",
+      "pcba_assembly"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "ELE-PCB-FAB": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 33750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "80da5c8b-1a84-5e4e-934a-a66089492bde",
+    "vendor_id": "c4cfaa8c-5f42-569a-a6dc-207a1f161ac4",
+    "taxonomy_code": "ELE-PCBA-ASM",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "ELE-PCBA-ASM": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 16875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b62fc775-ee59-5fe2-a0c0-e2439059f081",
+    "vendor_id": "266685da-955e-5d35-9259-14f9f18a49da",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 34000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b40b9661-1be0-597d-a91f-6ad6ac6389fa",
+    "vendor_id": "266685da-955e-5d35-9259-14f9f18a49da",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "37bd285d-8ff1-5963-99f8-53fc3854d1f3",
+    "vendor_id": "0f35bffb-6f2d-5900-8c71-50518bc024a6",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 34250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "51c6ff21-f1c3-5615-b541-d6e1e30d22c7",
+    "vendor_id": "0f35bffb-6f2d-5900-8c71-50518bc024a6",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "814c65dc-da26-522c-8f61-78f5aee7366c",
+    "vendor_id": "ec019728-0d7b-53b8-85e3-4f4ef06466da",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 34500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b3fd3878-40b2-5186-bd92-2e81e3643d23",
+    "vendor_id": "ec019728-0d7b-53b8-85e3-4f4ef06466da",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "e08292e1-9664-507a-9f7f-e87f07c0ca34",
+    "vendor_id": "4d403289-d36d-5ae6-b699-04da8ac526de",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 34750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "c957e831-d513-526d-ba2a-021aff5bb38a",
+    "vendor_id": "4d403289-d36d-5ae6-b699-04da8ac526de",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "46247e38-1930-5df3-b4b8-ef086760ebfe",
+    "vendor_id": "6edab1e3-8397-58e2-8b98-48db307cc4ba",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 35000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "28de0d9d-1149-5dc6-981e-4c7c74fddd50",
+    "vendor_id": "6edab1e3-8397-58e2-8b98-48db307cc4ba",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "49da8ed1-146e-5dd0-b177-855dcec100e5",
+    "vendor_id": "e6a98e65-cdf9-5f2f-8b67-4abb3cdc0f95",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 35250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "ea1dde9f-cfdd-5776-9016-0c43b3edcf53",
+    "vendor_id": "e6a98e65-cdf9-5f2f-8b67-4abb3cdc0f95",
+    "taxonomy_code": "CAST-DIE-AL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "die_casting",
+      "investment_casting"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "CAST-DIE-AL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6e24a589-9002-529b-8da4-afcfa7281c1a",
+    "vendor_id": "d9c6504e-b492-55a8-a4af-0c60a915efe3",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding",
+      "extrusion"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 35500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "236a93c4-9c83-578a-a977-527cd2386faf",
+    "vendor_id": "d9c6504e-b492-55a8-a4af-0c60a915efe3",
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "plastic_injection_molding"
+    ],
+    "material_types": [
+      "ABS Plastic",
+      "Polypropylene",
+      "Nylon",
+      "Polycarbonate"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "MOLD-PLASTIC-INJ": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "f53b26a0-03fb-5f20-b866-8da24b1e557c",
+    "vendor_id": "e4b791d3-d1ae-5f48-9e5c-ac9f6bb5214c",
+    "taxonomy_code": "ELE-PCB-FAB",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication",
+      "pcba_assembly"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "ELE-PCB-FAB": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 35750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "3dc67937-416a-56eb-92f5-eb93d9922df8",
+    "vendor_id": "e4b791d3-d1ae-5f48-9e5c-ac9f6bb5214c",
+    "taxonomy_code": "ELE-PCBA-ASM",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "pcb_fabrication"
+    ],
+    "material_types": [
+      "FR4",
+      "PCB Copper Clad"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "ELE-PCBA-ASM": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 17875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "be863c98-164e-536a-8cd1-e283947cc60c",
+    "vendor_id": "4eb3b5ce-57fd-54c2-b5f3-c09ad27ab96b",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 36000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "b3508912-efe7-5fac-8da5-9a9c763057f1",
+    "vendor_id": "4eb3b5ce-57fd-54c2-b5f3-c09ad27ab96b",
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cable_harness_assembly"
+    ],
+    "material_types": [
+      "Wire & Cable",
+      "Natural Rubber",
+      "Silicone"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "ELE-CABLE-HARNESS": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "587c1c9b-b774-56a5-9b68-409a3ca76dcf",
+    "vendor_id": "23200b44-7d7b-54a8-839f-0a9afe566b7f",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 36250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d75c741b-2714-5774-b766-56ed2774f5c5",
+    "vendor_id": "23200b44-7d7b-54a8-839f-0a9afe566b7f",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "ae2e2e82-7777-5589-a496-fb2a6970b05e",
+    "vendor_id": "288dbb4d-d02c-51bc-bb6d-45c926f985c8",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 36500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "0158d1dc-2a01-54dc-b94c-54c08ac1757e",
+    "vendor_id": "288dbb4d-d02c-51bc-bb6d-45c926f985c8",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "4f9f58c7-deb8-5308-9dc4-56780df7d898",
+    "vendor_id": "5b74b390-ec00-5575-abff-9d38ba96bee1",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 36750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "17a9af76-4acd-5811-ae71-d16679469a3b",
+    "vendor_id": "5b74b390-ec00-5575-abff-9d38ba96bee1",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "265bfe62-b4b9-5983-8ebf-e1866af81cf1",
+    "vendor_id": "2ab2c340-7af7-5595-9c6a-1313b1e26523",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 37000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "560e5908-eed9-5fa7-b134-254813ffaa62",
+    "vendor_id": "2ab2c340-7af7-5595-9c6a-1313b1e26523",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "ae5daae8-040d-5534-8a48-70be011a6561",
+    "vendor_id": "04822ee1-bf17-5e8f-ac0a-9f789aaea03e",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 37250,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "2e54f194-40d9-5c45-8063-c6e340801ed2",
+    "vendor_id": "04822ee1-bf17-5e8f-ac0a-9f789aaea03e",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "450.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18625,
+      "utilization_rate": 0.59,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "91cb78b0-4ef5-510b-9939-d68e835cdc51",
+    "vendor_id": "95bcc7ff-264f-55c3-b691-318217e969cb",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 37500,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "81e538e7-7988-5b15-86ab-db95674d882d",
+    "vendor_id": "95bcc7ff-264f-55c3-b691-318217e969cb",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "600.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18750,
+      "utilization_rate": 0.63,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "c356d428-0eeb-570a-8dcb-11ac3c7194b1",
+    "vendor_id": "e584d8d0-1641-56b0-b9c3-2f5e2111a0f0",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 37750,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "48307a48-7871-58d4-9793-653ce9233811",
+    "vendor_id": "e584d8d0-1641-56b0-b9c3-2f5e2111a0f0",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "750.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 18875,
+      "utilization_rate": 0.67,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "d2a1178f-d954-5260-8c24-cd54685aa374",
+    "vendor_id": "0ea5ee85-b3f3-51e7-8a20-bb772f8e4bd8",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 38000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6b5ce3bb-9b01-56f4-a820-fc323c3a3aed",
+    "vendor_id": "0ea5ee85-b3f3-51e7-8a20-bb772f8e4bd8",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "900.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 19000,
+      "utilization_rate": 0.71,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6f4262e9-1811-5bbe-a0d7-5bd9f3bb3b25",
+    "vendor_id": "21d34c10-7e40-565e-ae5b-c597597f2e4c",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 38250,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 125
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "7a155888-1365-5c33-80c5-8a7345f0ee6a",
+    "vendor_id": "21d34c10-7e40-565e-ae5b-c597597f2e4c",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "1050.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 25
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 19125,
+      "utilization_rate": 0.75,
+      "preferred_batch_size": 150
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "73fe290e-a1f6-5072-b3db-aa116d33be0f",
+    "vendor_id": "3315310c-e71e-5338-b46a-7fb8ebd0c206",
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "MACH-CNC-PRISMATIC": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 38500,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 250
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6dab989f-b063-5711-9029-4200ddc3701a",
+    "vendor_id": "3315310c-e71e-5338-b46a-7fb8ebd0c206",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "cnc_machining"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1200.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 50
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 19250,
+      "utilization_rate": 0.79,
+      "preferred_batch_size": 300
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "6846e17b-0030-56b1-a5e3-08bf758f4e09",
+    "vendor_id": "9ff8178a-6f61-5a08-908c-daa710186daf",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly",
+      "surface_treatment"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 38750,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 500
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "3a98ea60-572d-5990-b76d-f203e1be1333",
+    "vendor_id": "9ff8178a-6f61-5a08-908c-daa710186daf",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "sheet_metal_fabrication",
+      "welding_assembly"
+    ],
+    "material_types": [
+      "Aluminum",
+      "Stainless Steel",
+      "Carbon Steel"
+    ],
+    "min_order_value": "1350.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 100
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 19375,
+      "utilization_rate": 0.83,
+      "preferred_batch_size": 600
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "5eb3e6ae-bb4b-58c8-b202-7642ecd45516",
+    "vendor_id": "8b84c448-cb12-51c1-ab62-3bef8ed3f12b",
+    "taxonomy_code": "FAST-STANDARD",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging",
+      "wire_forming"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAST-STANDARD": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 39000,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 50
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  },
+  {
+    "capability_id": "fb1c11d7-cdf4-5df6-bfcb-ae194ef4fb54",
+    "vendor_id": "8b84c448-cb12-51c1-ab62-3bef8ed3f12b",
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "part_master_id": null,
+    "manufacturing_processes": [
+      "metal_stamping",
+      "forging"
+    ],
+    "material_types": [
+      "Carbon Steel",
+      "Stainless Steel",
+      "Brass"
+    ],
+    "min_order_value": "300.00000000",
+    "moq_by_category": {
+      "FAB-SHEET-METAL": 10
+    },
+    "capacity_profile": {
+      "monthly_capacity_units": 19500,
+      "utilization_rate": 0.55,
+      "preferred_batch_size": 60
+    },
+    "confidence_source": "BENCHMARK_INFERRED",
+    "is_verified": false,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00"
+  }
+]

@@ -1,0 +1,2 @@
+converted_from_guest_session_id,created_at,deleted_at,email,email_verified,full_name,mfa_enabled,notification_preferences,organization_id,preferred_currency,preferred_language,role,seed_runtime_password_env,updated_at,user_id,vendor_id
+,2026-04-13T05:30:00+00:00,,admin@pgi-platform.internal,True,PGI Platform Admin,True,"{""email"": true, ""sms"": true, ""push"": true, ""in_app"": true}",00000000-0000-0000-0000-000000000001,USD,en,pgi_admin,SEED_ADMIN_PASSWORD,2026-04-13T05:30:00+00:00,00000000-0000-0000-0000-000000000010,

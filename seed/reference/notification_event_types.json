@@ -1,0 +1,50 @@
+[
+  {
+    "event_type": "rfq_sent",
+    "channels": [
+      "email",
+      "in_app"
+    ]
+  },
+  {
+    "event_type": "quote_received",
+    "channels": [
+      "email",
+      "push",
+      "in_app"
+    ]
+  },
+  {
+    "event_type": "approval_requested",
+    "channels": [
+      "email",
+      "sms",
+      "push",
+      "in_app"
+    ]
+  },
+  {
+    "event_type": "po_sent",
+    "channels": [
+      "email",
+      "sms",
+      "in_app"
+    ]
+  },
+  {
+    "event_type": "shipment_update",
+    "channels": [
+      "email",
+      "push",
+      "in_app"
+    ]
+  },
+  {
+    "event_type": "stale_shipment_alert",
+    "channels": [
+      "email",
+      "sms",
+      "in_app"
+    ]
+  }
+]

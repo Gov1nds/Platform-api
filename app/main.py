@@ -192,10 +192,11 @@ from app.routes import (  # noqa: E402
     vendor_portal,
     analytics,
     intake,
+    notifications,
 )
 
 prefix = settings.API_PREFIX
-for r in [auth, bom, projects, vendors, rfq, chat, orders, vendor_portal, analytics, intake]:
+for r in [auth, bom, projects, vendors, rfq, chat, orders, vendor_portal, analytics, intake, notifications]:
     app.include_router(r.router, prefix=prefix)
 
 

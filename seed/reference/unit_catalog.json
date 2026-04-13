@@ -1,0 +1,79 @@
+[
+  {
+    "unit_code": "pcs",
+    "display_name": "Pieces",
+    "aliases": [
+      "piece",
+      "pieces",
+      "ea",
+      "each"
+    ]
+  },
+  {
+    "unit_code": "kg",
+    "display_name": "Kilograms",
+    "aliases": [
+      "kilogram",
+      "kilograms"
+    ]
+  },
+  {
+    "unit_code": "g",
+    "display_name": "Grams",
+    "aliases": [
+      "gram",
+      "grams"
+    ]
+  },
+  {
+    "unit_code": "m",
+    "display_name": "Meters",
+    "aliases": [
+      "meter",
+      "metre",
+      "meters",
+      "metres"
+    ]
+  },
+  {
+    "unit_code": "mm",
+    "display_name": "Millimeters",
+    "aliases": [
+      "millimeter",
+      "millimetre",
+      "millimeters",
+      "millimetres"
+    ]
+  },
+  {
+    "unit_code": "cm",
+    "display_name": "Centimeters",
+    "aliases": [
+      "centimeter",
+      "centimetre"
+    ]
+  },
+  {
+    "unit_code": "sqm",
+    "display_name": "Square Meters",
+    "aliases": [
+      "m2",
+      "sq m"
+    ]
+  },
+  {
+    "unit_code": "cbm",
+    "display_name": "Cubic Meters",
+    "aliases": [
+      "m3",
+      "cubic meter"
+    ]
+  },
+  {
+    "unit_code": "set",
+    "display_name": "Set",
+    "aliases": [
+      "sets"
+    ]
+  }
+]

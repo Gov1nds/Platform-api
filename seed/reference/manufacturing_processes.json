@@ -1,0 +1,82 @@
+[
+  {
+    "process_code": "cnc_machining",
+    "display_name": "CNC Machining",
+    "process_family": "machining"
+  },
+  {
+    "process_code": "sheet_metal_fabrication",
+    "display_name": "Sheet Metal Fabrication",
+    "process_family": "fabrication"
+  },
+  {
+    "process_code": "metal_stamping",
+    "display_name": "Metal Stamping",
+    "process_family": "forming"
+  },
+  {
+    "process_code": "die_casting",
+    "display_name": "Die Casting",
+    "process_family": "casting"
+  },
+  {
+    "process_code": "investment_casting",
+    "display_name": "Investment Casting",
+    "process_family": "casting"
+  },
+  {
+    "process_code": "plastic_injection_molding",
+    "display_name": "Plastic Injection Molding",
+    "process_family": "molding"
+  },
+  {
+    "process_code": "rubber_molding",
+    "display_name": "Rubber / Silicone Molding",
+    "process_family": "molding"
+  },
+  {
+    "process_code": "extrusion",
+    "display_name": "Extrusion",
+    "process_family": "forming"
+  },
+  {
+    "process_code": "forging",
+    "display_name": "Forging",
+    "process_family": "forming"
+  },
+  {
+    "process_code": "pcb_fabrication",
+    "display_name": "PCB Fabrication",
+    "process_family": "electronics"
+  },
+  {
+    "process_code": "pcba_assembly",
+    "display_name": "PCBA Assembly",
+    "process_family": "electronics"
+  },
+  {
+    "process_code": "cable_harness_assembly",
+    "display_name": "Cable Harness Assembly",
+    "process_family": "electrical"
+  },
+  {
+    "process_code": "wire_forming",
+    "display_name": "Wire Forming",
+    "process_family": "forming"
+  },
+  {
+    "process_code": "surface_treatment",
+    "display_name": "Surface Treatment / Plating",
+    "process_family": "finishing"
+  },
+  {
+    "process_code": "welding_assembly",
+    "display_name": "Welding Assembly",
+    "process_family": "fabrication"
+  },
+  {
+    "process_code": "3d_printing",
+    "display_name": "3D Printing / Additive",
+    "process_family": "additive"
+  }
+]

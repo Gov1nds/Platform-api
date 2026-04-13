@@ -1,0 +1,29 @@
+[
+  {
+    "organization_id": "00000000-0000-0000-0000-000000000001",
+    "name": "PGI Platform",
+    "slug": "pgi-platform",
+    "type": "platform",
+    "plan_tier": "ENTERPRISE",
+    "country_code": "US",
+    "preferred_currency": "USD",
+    "billing_email": "billing@pgi-platform.internal",
+    "address": {
+      "line1": "1 Platform Way",
+      "line2": null,
+      "city": "Wilmington",
+      "state_region": "Delaware",
+      "postal_code": "19801",
+      "country_code": "US",
+      "lat": null,
+      "lng": null
+    },
+    "settings_json": {
+      "seed_version": "phase1-bootstrap-v1",
+      "last_seed_run": "2026-04-13T05:30:00+00:00"
+    },
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00",
+    "deleted_at": null
+  }
+]

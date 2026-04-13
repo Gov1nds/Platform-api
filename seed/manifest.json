@@ -1,0 +1,66 @@
+[
+  {
+    "asset": "platform/platform_org.json",
+    "category": "platform_bootstrap_seed_data"
+  },
+  {
+    "asset": "platform/platform_admin_user.json",
+    "category": "platform_bootstrap_seed_data"
+  },
+  {
+    "asset": "reference/countries_currencies.json",
+    "category": "reference_catalogs"
+  },
+  {
+    "asset": "reference/manufacturing_processes.json",
+    "category": "reference_catalogs"
+  },
+  {
+    "asset": "reference/material_families.json",
+    "category": "reference_catalogs"
+  },
+  {
+    "asset": "reference/category_taxonomy.json",
+    "category": "reference_catalogs"
+  },
+  {
+    "asset": "reference/unit_catalog.json",
+    "category": "reference_catalogs"
+  },
+  {
+    "asset": "reference/incoterms.json",
+    "category": "reference_catalogs"
+  },
+  {
+    "asset": "reference/shipping_modes.json",
+    "category": "reference_catalogs"
+  },
+  {
+    "asset": "reference/certification_types.json",
+    "category": "reference_catalogs"
+  },
+  {
+    "asset": "reference/notification_event_types.json",
+    "category": "reference_catalogs"
+  },
+  {
+    "asset": "vendors/vendor_catalog.json",
+    "category": "vendor_seed_dataset"
+  },
+  {
+    "asset": "vendors/vendor_capabilities.json",
+    "category": "vendor_capability_dataset"
+  },
+  {
+    "asset": "market/fx_rates_baseline.json",
+    "category": "fx_baseline_dataset"
+  },
+  {
+    "asset": "market/freight_rates_baseline.json",
+    "category": "freight_baseline_dataset"
+  },
+  {
+    "asset": "market/commodity_index_baseline.json",
+    "category": "commodity_baseline_dataset"
+  }
+]

@@ -1,0 +1,148 @@
+[
+  {
+    "taxonomy_code": "MACH-CNC-PRISMATIC",
+    "taxonomy_path": "Mechanical > CNC Machined Parts > Prismatic",
+    "commodity_group": "Aluminum / Steel Machining",
+    "hs_code_default": "847989",
+    "unit_of_measure_options": [
+      "pcs"
+    ],
+    "spec_schema_json": {
+      "dimensions": "mm",
+      "tolerance": "mm",
+      "material": "string",
+      "finish": "string"
+    },
+    "model_version": "phase1-seed-v1",
+    "data_source": "internal_seed",
+    "is_active": true,
+    "version": 1
+  },
+  {
+    "taxonomy_code": "FAB-SHEET-METAL",
+    "taxonomy_path": "Mechanical > Sheet Metal > Fabricated Parts",
+    "commodity_group": "Steel / Aluminum Sheet",
+    "hs_code_default": "732690",
+    "unit_of_measure_options": [
+      "pcs"
+    ],
+    "spec_schema_json": {
+      "thickness": "mm",
+      "material": "string",
+      "finish": "string"
+    },
+    "model_version": "phase1-seed-v1",
+    "data_source": "internal_seed",
+    "is_active": true,
+    "version": 1
+  },
+  {
+    "taxonomy_code": "CAST-DIE-AL",
+    "taxonomy_path": "Mechanical > Castings > Aluminum Die Cast",
+    "commodity_group": "Aluminum",
+    "hs_code_default": "761699",
+    "unit_of_measure_options": [
+      "pcs"
+    ],
+    "spec_schema_json": {
+      "weight": "kg",
+      "material": "string",
+      "finish": "string"
+    },
+    "model_version": "phase1-seed-v1",
+    "data_source": "internal_seed",
+    "is_active": true,
+    "version": 1
+  },
+  {
+    "taxonomy_code": "MOLD-PLASTIC-INJ",
+    "taxonomy_path": "Plastics > Injection Molded Parts",
+    "commodity_group": "Engineering Plastics",
+    "hs_code_default": "392690",
+    "unit_of_measure_options": [
+      "pcs"
+    ],
+    "spec_schema_json": {
+      "material": "string",
+      "resin_grade": "string",
+      "color": "string"
+    },
+    "model_version": "phase1-seed-v1",
+    "data_source": "internal_seed",
+    "is_active": true,
+    "version": 1
+  },
+  {
+    "taxonomy_code": "ELE-PCB-FAB",
+    "taxonomy_path": "Electronics > PCB > Bare Board Fabrication",
+    "commodity_group": "FR4 PCB Laminate",
+    "hs_code_default": "853400",
+    "unit_of_measure_options": [
+      "pcs"
+    ],
+    "spec_schema_json": {
+      "layers": "int",
+      "thickness": "mm",
+      "finish": "string"
+    },
+    "model_version": "phase1-seed-v1",
+    "data_source": "internal_seed",
+    "is_active": true,
+    "version": 1
+  },
+  {
+    "taxonomy_code": "ELE-PCBA-ASM",
+    "taxonomy_path": "Electronics > PCB > Assembly",
+    "commodity_group": "Electronics Assembly",
+    "hs_code_default": "847330",
+    "unit_of_measure_options": [
+      "pcs"
+    ],
+    "spec_schema_json": {
+      "sides": "int",
+      "component_count": "int",
+      "test": "string"
+    },
+    "model_version": "phase1-seed-v1",
+    "data_source": "internal_seed",
+    "is_active": true,
+    "version": 1
+  },
+  {
+    "taxonomy_code": "ELE-CABLE-HARNESS",
+    "taxonomy_path": "Electrical > Cable Harnesses",
+    "commodity_group": "Wire & Cable",
+    "hs_code_default": "854449",
+    "unit_of_measure_options": [
+      "pcs",
+      "m"
+    ],
+    "spec_schema_json": {
+      "wire_gauge": "string",
+      "connector_type": "string",
+      "length": "mm"
+    },
+    "model_version": "phase1-seed-v1",
+    "data_source": "internal_seed",
+    "is_active": true,
+    "version": 1
+  },
+  {
+    "taxonomy_code": "FAST-STANDARD",
+    "taxonomy_path": "Hardware > Standard Fasteners",
+    "commodity_group": "Steel Fasteners",
+    "hs_code_default": "731815",
+    "unit_of_measure_options": [
+      "pcs"
+    ],
+    "spec_schema_json": {
+      "thread": "string",
+      "length": "mm",
+      "material": "string"
+    },
+    "model_version": "phase1-seed-v1",
+    "data_source": "internal_seed",
+    "is_active": true,
+    "version": 1
+  }
+]

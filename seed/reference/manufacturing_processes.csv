@@ -1,0 +1,17 @@
+display_name,process_code,process_family
+CNC Machining,cnc_machining,machining
+Sheet Metal Fabrication,sheet_metal_fabrication,fabrication
+Metal Stamping,metal_stamping,forming
+Die Casting,die_casting,casting
+Investment Casting,investment_casting,casting
+Plastic Injection Molding,plastic_injection_molding,molding
+Rubber / Silicone Molding,rubber_molding,molding
+Extrusion,extrusion,forming
+Forging,forging,forming
+PCB Fabrication,pcb_fabrication,electronics
+PCBA Assembly,pcba_assembly,electronics
+Cable Harness Assembly,cable_harness_assembly,electrical
+Wire Forming,wire_forming,forming
+Surface Treatment / Plating,surface_treatment,finishing
+Welding Assembly,welding_assembly,fabrication
+3D Printing / Additive,3d_printing,additive

@@ -13,7 +13,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "001_baseline"
+revision = "0001_baseline"
 down_revision = None
 branch_labels = None
 depends_on = None

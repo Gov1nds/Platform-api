@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-04-13T05:30:00+00:00",
+  "asset_counts": {
+    "platform_records": 2,
+    "countries_currencies": 25,
+    "manufacturing_processes": 16,
+    "material_families": 15,
+    "category_taxonomy": 8,
+    "unit_catalog": 9,
+    "incoterms": 11,
+    "shipping_modes": 4,
+    "certification_types": 9,
+    "notification_event_types": 6,
+    "vendors": 96,
+    "vendor_capabilities": 192,
+    "fx_rates": 20,
+    "freight_rates": 19,
+    "commodity_indices": 15
+  }
+}

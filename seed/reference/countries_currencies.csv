@@ -1,0 +1,26 @@
+country_code,country_name,default_currency,region_group
+US,United States,USD,North America
+CA,Canada,CAD,North America
+MX,Mexico,MXN,North America
+CN,China,CNY,East Asia
+VN,Vietnam,VND,Southeast Asia
+TH,Thailand,THB,Southeast Asia
+MY,Malaysia,MYR,Southeast Asia
+ID,Indonesia,IDR,Southeast Asia
+IN,India,INR,South Asia
+PL,Poland,PLN,Eastern Europe
+CZ,Czechia,CZK,Eastern Europe
+RO,Romania,RON,Eastern Europe
+DE,Germany,EUR,Western Europe
+NL,Netherlands,EUR,Western Europe
+BE,Belgium,EUR,Western Europe
+KR,South Korea,KRW,East Asia
+TW,Taiwan,TWD,East Asia
+GB,United Kingdom,GBP,Europe
+JP,Japan,JPY,East Asia
+SG,Singapore,SGD,Southeast Asia
+AU,Australia,AUD,Oceania
+CH,Switzerland,CHF,Europe
+SE,Sweden,SEK,Europe
+NO,Norway,NOK,Europe
+BR,Brazil,BRL,South America

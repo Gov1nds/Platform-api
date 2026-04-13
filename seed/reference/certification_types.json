@@ -1,0 +1,56 @@
+[
+  {
+    "cert_type_code": "ISO9001",
+    "display_name": "ISO 9001",
+    "category": "quality",
+    "requires_expiry": true
+  },
+  {
+    "cert_type_code": "IATF16949",
+    "display_name": "IATF 16949",
+    "category": "automotive",
+    "requires_expiry": true
+  },
+  {
+    "cert_type_code": "AS9100",
+    "display_name": "AS9100",
+    "category": "aerospace",
+    "requires_expiry": true
+  },
+  {
+    "cert_type_code": "ISO13485",
+    "display_name": "ISO 13485",
+    "category": "medical",
+    "requires_expiry": true
+  },
+  {
+    "cert_type_code": "ISO14001",
+    "display_name": "ISO 14001",
+    "category": "environmental",
+    "requires_expiry": true
+  },
+  {
+    "cert_type_code": "ROHS",
+    "display_name": "RoHS",
+    "category": "compliance",
+    "requires_expiry": false
+  },
+  {
+    "cert_type_code": "REACH",
+    "display_name": "REACH",
+    "category": "compliance",
+    "requires_expiry": false
+  },
+  {
+    "cert_type_code": "UL",
+    "display_name": "UL",
+    "category": "safety",
+    "requires_expiry": true
+  },
+  {
+    "cert_type_code": "CE",
+    "display_name": "CE",
+    "category": "safety",
+    "requires_expiry": false
+  }
+]

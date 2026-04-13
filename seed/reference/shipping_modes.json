@@ -1,0 +1,18 @@
+[
+  {
+    "mode": "sea",
+    "description": "Ocean freight"
+  },
+  {
+    "mode": "air",
+    "description": "Air freight"
+  },
+  {
+    "mode": "express",
+    "description": "Courier / express air"
+  },
+  {
+    "mode": "road",
+    "description": "Road / truck freight"
+  }
+]

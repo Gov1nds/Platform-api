@@ -1,0 +1,10 @@
+category,cert_type_code,display_name,requires_expiry
+quality,ISO9001,ISO 9001,True
+automotive,IATF16949,IATF 16949,True
+aerospace,AS9100,AS9100,True
+medical,ISO13485,ISO 13485,True
+environmental,ISO14001,ISO 14001,True
+compliance,ROHS,RoHS,False
+compliance,REACH,REACH,False
+safety,UL,UL,True
+safety,CE,CE,False

@@ -1,0 +1,25 @@
+[
+  {
+    "user_id": "00000000-0000-0000-0000-000000000010",
+    "email": "admin@pgi-platform.internal",
+    "full_name": "PGI Platform Admin",
+    "role": "pgi_admin",
+    "organization_id": "00000000-0000-0000-0000-000000000001",
+    "vendor_id": null,
+    "email_verified": true,
+    "mfa_enabled": true,
+    "notification_preferences": {
+      "email": true,
+      "sms": true,
+      "push": true,
+      "in_app": true
+    },
+    "preferred_currency": "USD",
+    "preferred_language": "en",
+    "converted_from_guest_session_id": null,
+    "created_at": "2026-04-13T05:30:00+00:00",
+    "updated_at": "2026-04-13T05:30:00+00:00",
+    "deleted_at": null,
+    "seed_runtime_password_env": "SEED_ADMIN_PASSWORD"
+  }
+]

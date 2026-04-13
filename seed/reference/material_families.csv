@@ -1,0 +1,16 @@
+examples,material_family
+"[""Aluminum 6061"", ""Aluminum 7075""]",Aluminum
+"[""304"", ""316""]",Stainless Steel
+"[""A36"", ""1018""]",Carbon Steel
+"[""C110"", ""C101""]",Copper
+"[""C360""]",Brass
+"[""Grade 5""]",Titanium
+"[""ABS""]",ABS Plastic
+"[""PP""]",Polypropylene
+"[""PA66""]",Nylon
+"[""PC""]",Polycarbonate
+"[""FR4 PCB Laminate""]",FR4
+"[""Silicone Rubber""]",Silicone
+"[""NR""]",Natural Rubber
+"[""FR4 Cu Clad""]",PCB Copper Clad
+"[""PVC cable"", ""XLPE cable""]",Wire & Cable
