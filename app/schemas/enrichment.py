@@ -1,5 +1,5 @@
 """
-Phase 2A Batch 2 DTOs for enrichment connector abstractions.
+Phase 2A enrichment DTOs for connector and lookup abstractions.
 
 These DTOs are intentionally provider-neutral. They let platform-api own the
 workflow while keeping external provider logic abstract and swappable.
@@ -106,3 +106,104 @@ class ResolvedOfferPrice:
     currency: str
     price_type: str
     extended_price: Decimal | None = None
+
+
+@dataclass(slots=True)
+class HSResolutionDTO:
+    bom_part_id: str
+    resolution_status: str
+    resolved: bool
+    hs_code: str | None = None
+    hs_version: str | None = None
+    jurisdiction: str | None = None
+    confidence: Decimal = Decimal("0")
+    mapping_method: str | None = None
+    review_status: str | None = None
+    matched_on: str | None = None
+    source_system: str | None = None
+    source_record_id: str | None = None
+    source_metadata: dict[str, Any] = field(default_factory=dict)
+    uncertainty_reason: str | None = None
+    mapping_id: str | None = None
+
+
+@dataclass(slots=True)
+class TariffLookupDTO:
+    bom_part_id: str | None
+    resolved: bool
+    lookup_status: str
+    hs_code: str | None = None
+    hs6: str | None = None
+    destination_country: str | None = None
+    origin_country: str | None = None
+    lookup_date: datetime | None = None
+    tariff_schedule_id: str | None = None
+    duty_rate_pct: Decimal = Decimal("0")
+    additional_taxes_pct: Decimal = Decimal("0")
+    total_tariff_rate_pct: Decimal = Decimal("0")
+    confidence: Decimal = Decimal("0")
+    source: str | None = None
+    freshness_status: str | None = None
+    effective_from: datetime | None = None
+    effective_to: datetime | None = None
+    estimated_customs_value: Decimal | None = None
+    estimated_duty: Decimal | None = None
+    estimated_additional_taxes: Decimal | None = None
+    estimated_total_tariff: Decimal | None = None
+    uncertainty_reason: str | None = None
+    source_metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class LaneLookupContextDTO:
+    origin_country: str | None = None
+    origin_region: str | None = None
+    destination_country: str | None = None
+    destination_region: str | None = None
+    mode: str | None = "sea"
+    service_level: str | None = None
+    weight_kg: Decimal | None = None
+    volume_cbm: Decimal | None = None
+
+
+@dataclass(slots=True)
+class LaneRateLookupDTO:
+    bom_part_id: str | None
+    project_id: str | None
+    resolved: bool
+    lookup_status: str
+    origin_country: str | None = None
+    origin_region: str | None = None
+    destination_country: str | None = None
+    destination_region: str | None = None
+    mode: str | None = None
+    service_level: str | None = None
+    lookup_date: datetime | None = None
+    lane_rate_band_id: str | None = None
+    currency: str | None = None
+    rate_type: str | None = None
+    rate_value: Decimal | None = None
+    min_charge: Decimal | None = None
+    p50_freight_estimate: Decimal | None = None
+    p90_freight_estimate: Decimal | None = None
+    transit_days_min: int | None = None
+    transit_days_max: int | None = None
+    confidence: Decimal = Decimal("0")
+    freshness_status: str | None = None
+    effective_from: datetime | None = None
+    effective_to: datetime | None = None
+    uncertainty_reason: str | None = None
+    source_metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class Phase2AEvidenceBundleDTO:
+    bom_part_id: str
+    offer_evidence: dict[str, Any] = field(default_factory=dict)
+    availability_evidence: dict[str, Any] = field(default_factory=dict)
+    tariff_evidence: dict[str, Any] = field(default_factory=dict)
+    freight_evidence: dict[str, Any] = field(default_factory=dict)
+    freshness_summary: dict[str, Any] = field(default_factory=dict)
+    confidence_summary: dict[str, Any] = field(default_factory=dict)
+    uncertainty_flags: dict[str, bool] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)

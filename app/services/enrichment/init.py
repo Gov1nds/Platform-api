@@ -1,11 +1,17 @@
 """
-Phase 2A Batch 2 enrichment services.
+Phase 2A enrichment services.
 """
 from app.services.enrichment.part_mapping_service import PartMappingService, part_mapping_service
 from app.services.enrichment.offer_ingestion_service import OfferIngestionService, offer_ingestion_service
 from app.services.enrichment.availability_ingestion_service import (
     AvailabilityIngestionService,
     availability_ingestion_service,
+)
+from app.services.enrichment.hs_mapping_service import HSMappingService, hs_mapping_service
+from app.services.enrichment.tariff_lookup_service import TariffLookupService, tariff_lookup_service
+from app.services.enrichment.lane_rate_band_lookup_service import (
+    LaneRateBandLookupService,
+    lane_rate_band_lookup_service,
 )
 
 __all__ = [
@@ -15,4 +21,10 @@ __all__ = [
     "offer_ingestion_service",
     "AvailabilityIngestionService",
     "availability_ingestion_service",
+    "HSMappingService",
+    "hs_mapping_service",
+    "TariffLookupService",
+    "tariff_lookup_service",
+    "LaneRateBandLookupService",
+    "lane_rate_band_lookup_service",
 ]
