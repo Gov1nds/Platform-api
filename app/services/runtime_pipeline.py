@@ -48,6 +48,7 @@ from app.schemas.recommendation import (
     VendorRankingEntry,
 )
 from app.services.analyzer_service import call_normalize
+from app.services.enrichment.phase2a_evidence_service import phase2a_evidence_service
 from app.services.market_data.fx_service import fx_service
 from app.services.scoring.vendor_scorer import rank_vendors
 
@@ -151,6 +152,16 @@ class RuntimePipelineService:
         try:
             for part in parts:
                 normalized = self._normalize_part(part=part, trace_id=trace_id)
+                phase2a_bundle = self._ensure_phase2a_bundle(
+                    db=db,
+                    bom=bom,
+                    project=project,
+                    part=part,
+                    target_currency=target_currency,
+                    trace_id=trace_id,
+                )
+                if phase2a_bundle:
+                    normalized["phase2a_bundle"] = phase2a_bundle
                 normalized_lines.append(normalized)
                 analyzer_evidence.append(
                     {
@@ -158,6 +169,7 @@ class RuntimePipelineService:
                         "canonical_part_key": normalized.get("canonical_part_key"),
                         "classification_confidence": normalized.get("classification_confidence"),
                         "procurement_class": normalized.get("procurement_class"),
+                        "phase2a_used": bool(phase2a_bundle),
                     }
                 )
 
@@ -361,6 +373,43 @@ class RuntimePipelineService:
             .all()
         )
 
+    def _ensure_phase2a_bundle(
+        self,
+        *,
+        db: Session,
+        bom: BOM,
+        project: Project,
+        part: BOMPart,
+        target_currency: str,
+        trace_id: str | None,
+    ) -> dict[str, Any] | None:
+        existing = (part.enrichment_json or {}).get("phase2a")
+        if isinstance(existing, dict) and existing:
+            return existing
+        try:
+            bundle = phase2a_evidence_service.assemble_for_bom_part(
+                db,
+                bom_part=part,
+                bom=bom,
+                project=project,
+                target_currency=target_currency,
+                trace_id=trace_id,
+            )
+            return {
+                "bom_part_id": bundle.bom_part_id,
+                "offer_evidence": bundle.offer_evidence,
+                "availability_evidence": bundle.availability_evidence,
+                "tariff_evidence": bundle.tariff_evidence,
+                "freight_evidence": bundle.freight_evidence,
+                "freshness_summary": bundle.freshness_summary,
+                "confidence_summary": bundle.confidence_summary,
+                "uncertainty_flags": bundle.uncertainty_flags,
+                "notes": bundle.notes,
+            }
+        except Exception as exc:
+            logger.warning("Phase 2A bundle assembly failed for part %s: %s", part.id, exc)
+            return existing if isinstance(existing, dict) else None
+
     def _recommend_line(
         self,
         *,
@@ -378,6 +427,7 @@ class RuntimePipelineService:
         procurement_class = normalized.get("procurement_class") or "unknown"
         secondary_ops = normalized.get("secondary_ops") or []
         required_processes = [procurement_class] + [str(op) for op in secondary_ops if op]
+        phase2a_bundle = normalized.get("phase2a_bundle") if isinstance(normalized.get("phase2a_bundle"), dict) else {}
 
         candidate_vendor_dicts: list[dict[str, Any]] = []
         for vendor in vendors:
@@ -394,17 +444,25 @@ class RuntimePipelineService:
             if vendor_dict["eligibility"]["matched"]:
                 candidate_vendor_dicts.append(vendor_dict)
 
+        pricing_context = RecommendationPricingContext(
+            source_currency=target_currency,
+            target_currency=target_currency,
+            fx_rate=1.0,
+            fx_source=fx_context["fx_source"],
+            fx_timestamp=fx_context["fx_timestamp"],
+            freight_mode=freight_context["freight_mode"],
+            freight_currency=freight_context["freight_currency"],
+            freight_rate_per_kg=freight_context["freight_rate_per_kg"],
+            freight_min_charge=freight_context["freight_min_charge"],
+        )
+
         if not candidate_vendor_dicts:
-            pricing_context = RecommendationPricingContext(
-                source_currency=target_currency,
-                target_currency=target_currency,
-                fx_rate=1.0,
-                fx_source=fx_context["fx_source"],
-                fx_timestamp=fx_context["fx_timestamp"],
-                freight_mode=freight_context["freight_mode"],
-                freight_currency=freight_context["freight_currency"],
-                freight_rate_per_kg=freight_context["freight_rate_per_kg"],
-                freight_min_charge=freight_context["freight_min_charge"],
+            gate = self._phase2a_strategy_gate(phase2a_bundle=phase2a_bundle, has_recommendation=False)
+            confidence_score = self._evidence_weighted_confidence_score(
+                normalized_confidence=_as_float(normalized.get("classification_confidence"), 0.0),
+                freshness_status=fx_context["overall_status"],
+                has_full_match=False,
+                phase2a_bundle=phase2a_bundle,
             )
             return {
                 "bom_part_id": normalized["bom_part_id"],
@@ -414,13 +472,21 @@ class RuntimePipelineService:
                 "procurement_class": procurement_class,
                 "quantity": quantity,
                 "unit": normalized.get("unit"),
-                "confidence": round(max(_as_float(normalized.get("classification_confidence"), 0.0) * 0.7, 0.15), 4),
+                "confidence": round(confidence_score, 4),
                 "recommended_vendor_id": None,
                 "recommended_vendor_name": None,
                 "rationale": "No seeded vendor matched the normalized process/material requirements for this BOM line.",
                 "freshness_status": fx_context["overall_status"],
                 "pricing_context": pricing_context.model_dump(),
                 "candidate_rankings": [],
+                "strategy_gate": gate["strategy_gate"],
+                "strategy_reasons": gate["strategy_reasons"],
+                "evidence_summary": {
+                    "phase2a_used": bool(phase2a_bundle),
+                    "phase2a_confidence": (phase2a_bundle.get("confidence_summary") or {}).get("score"),
+                    "phase2a_freshness": (phase2a_bundle.get("freshness_summary") or {}).get("status"),
+                    "phase2a_uncertainty_flags": phase2a_bundle.get("uncertainty_flags") or {},
+                },
             }
 
         market_median = statistics.median(
@@ -440,6 +506,7 @@ class RuntimePipelineService:
             "freight_per_kg": freight_context["freight_rate_per_kg"],
             "data_age_days": fx_context["fx_age_days"],
             "market_median_price": market_median,
+            "phase2a": phase2a_bundle,
         }
 
         ranked = rank_vendors(
@@ -452,11 +519,14 @@ class RuntimePipelineService:
         candidate_rankings: list[VendorRankingEntry] = []
         for entry in ranked:
             candidate = next(v for v in candidate_vendor_dicts if v["id"] == entry["vendor_id"])
-            confidence = self._confidence_label(
+            freshness_status = entry.get("evidence_freshness") or entry.get("market_freshness", "fresh")
+            confidence_score = self._evidence_weighted_confidence_score(
                 normalized_confidence=_as_float(normalized.get("classification_confidence"), 0.0),
-                freshness_status=entry.get("market_freshness", "fresh"),
+                freshness_status=freshness_status,
                 has_full_match=candidate["eligibility"]["matched"],
+                phase2a_bundle=phase2a_bundle,
             )
+            confidence = self._confidence_label(confidence_score=confidence_score)
             candidate_rankings.append(
                 VendorRankingEntry(
                     vendor_id=entry["vendor_id"],
@@ -464,8 +534,9 @@ class RuntimePipelineService:
                     rank=entry["rank"],
                     score=round(_as_float(entry["total_score"]), 4),
                     confidence=confidence,
+                    confidence_score=round(confidence_score, 4),
                     rationale=entry["explanation"],
-                    freshness_status=entry.get("market_freshness", "fresh"),
+                    freshness_status=freshness_status,
                     source_currency=candidate["source_currency"],
                     target_currency=target_currency,
                     fx_rate=round(candidate["fx_rate"], 6),
@@ -481,11 +552,13 @@ class RuntimePipelineService:
                         "vendor_capabilities": candidate["capabilities"],
                         "eligibility": candidate["eligibility"],
                         "pricing": candidate["pricing"],
+                        "phase2a": phase2a_bundle,
                     },
                 )
             )
 
         top = candidate_rankings[0]
+        gate = self._phase2a_strategy_gate(phase2a_bundle=phase2a_bundle, has_recommendation=True)
         pricing_context = RecommendationPricingContext(
             source_currency=top.source_currency,
             target_currency=top.target_currency,
@@ -506,13 +579,21 @@ class RuntimePipelineService:
             "procurement_class": procurement_class,
             "quantity": quantity,
             "unit": normalized.get("unit"),
-            "confidence": round(_as_float(normalized.get("classification_confidence"), 0.0), 4),
+            "confidence": round(top.confidence_score or _as_float(normalized.get("classification_confidence"), 0.0), 4),
             "recommended_vendor_id": top.vendor_id,
             "recommended_vendor_name": top.vendor_name,
-            "rationale": f"{top.vendor_name} ranked first for this line based on capability fit, converted price, freight baseline, and data freshness.",
+            "rationale": f"{top.vendor_name} ranked first for this line based on capability fit, converted price, freight baseline, evidence quality, and data freshness.",
             "freshness_status": top.freshness_status,
             "pricing_context": pricing_context.model_dump(),
             "candidate_rankings": [c.model_dump() for c in candidate_rankings],
+            "strategy_gate": gate["strategy_gate"],
+            "strategy_reasons": gate["strategy_reasons"],
+            "evidence_summary": {
+                "phase2a_used": bool(phase2a_bundle),
+                "phase2a_confidence": (phase2a_bundle.get("confidence_summary") or {}).get("score"),
+                "phase2a_freshness": (phase2a_bundle.get("freshness_summary") or {}).get("status"),
+                "phase2a_uncertainty_flags": phase2a_bundle.get("uncertainty_flags") or {},
+            },
         }
 
     def _vendor_to_candidate_dict(
@@ -625,6 +706,7 @@ class RuntimePipelineService:
                     "vendor_id": vendor_id,
                     "vendor_name": candidate["vendor_name"],
                     "scores": [],
+                    "confidence_scores": [],
                     "project_total": 0.0,
                     "freight_total": 0.0,
                     "lead_times": [],
@@ -636,6 +718,8 @@ class RuntimePipelineService:
                 },
             )
             bucket["scores"].append(_as_float(candidate["score"]))
+            if candidate.get("confidence_score") is not None:
+                bucket["confidence_scores"].append(_as_float(candidate["confidence_score"]))
             bucket["project_total"] += _as_float(candidate.get("estimated_line_total"))
             bucket["freight_total"] += _as_float(candidate.get("estimated_freight_total"))
             if candidate.get("average_lead_time_days") is not None:
@@ -645,6 +729,8 @@ class RuntimePipelineService:
                     "bom_part_id": line_result["bom_part_id"],
                     "rank": candidate["rank"],
                     "score_breakdown": candidate.get("score_breakdown") or {},
+                    "strategy_gate": line_result.get("strategy_gate"),
+                    "strategy_reasons": line_result.get("strategy_reasons") or [],
                 }
             )
             bucket["freshness"].append(candidate.get("freshness_status", "fresh"))
@@ -656,15 +742,17 @@ class RuntimePipelineService:
         rows = []
         for vendor_id, payload in aggregate.items():
             avg_score = statistics.mean(payload["scores"]) if payload["scores"] else 0.0
+            avg_confidence_score = statistics.mean(payload["confidence_scores"]) if payload["confidence_scores"] else avg_score
             avg_lead = statistics.mean(payload["lead_times"]) if payload["lead_times"] else None
             freshness = self._collapse_status(payload["freshness"])
-            confidence = "HIGH" if avg_score >= 0.75 else "MEDIUM" if avg_score >= 0.45 else "LOW"
+            confidence = self._confidence_label(confidence_score=avg_confidence_score)
             rows.append(
                 {
                     "vendor_id": vendor_id,
                     "vendor_name": payload["vendor_name"],
                     "score": round(avg_score, 4),
                     "confidence": confidence,
+                    "confidence_score": round(avg_confidence_score, 4),
                     "freshness_status": freshness,
                     "source_currency": payload["source_currency"],
                     "target_currency": payload["target_currency"],
@@ -679,7 +767,7 @@ class RuntimePipelineService:
                 }
             )
 
-        rows.sort(key=lambda r: (-r["score"], r["estimated_project_total"]))
+        rows.sort(key=lambda row: (-row["score"], row["estimated_project_total"]))
         result: list[VendorRankingEntry] = []
         for idx, row in enumerate(rows, start=1):
             result.append(
@@ -689,7 +777,8 @@ class RuntimePipelineService:
                     rank=idx,
                     score=row["score"],
                     confidence=row["confidence"],
-                    rationale=f"{row['vendor_name']} ranked #{idx} by average line score and estimated converted project total.",
+                    confidence_score=row["confidence_score"],
+                    rationale=f"{row['vendor_name']} ranked #{idx} by average line score, evidence-aware confidence, and estimated converted project total.",
                     freshness_status=row["freshness_status"],
                     source_currency=row["source_currency"],
                     target_currency=row["target_currency"],
@@ -721,17 +810,23 @@ class RuntimePipelineService:
             for v in vendor_rankings
             if v.average_lead_time_days is not None
         ]
-        confidences = [v.confidence for v in vendor_rankings]
+        confidence_scores = [
+            _as_float(v.confidence_score)
+            for v in vendor_rankings
+            if v.confidence_score is not None
+        ]
+        strategy_gates = [line.get("strategy_gate", "verify-first") for line in line_outputs]
+        strategy_gate = "award-ready"
+        if any(gate == "rfq-first" for gate in strategy_gates):
+            strategy_gate = "rfq-first"
+        elif any(gate == "verify-first" for gate in strategy_gates):
+            strategy_gate = "verify-first"
 
-        overall_confidence = "HIGH"
-        if "LOW" in confidences:
-            overall_confidence = "MEDIUM"
-        if all(c == "LOW" for c in confidences) and confidences:
-            overall_confidence = "LOW"
+        avg_confidence = statistics.mean(confidence_scores) if confidence_scores else 0.0
+        overall_confidence = self._confidence_label(confidence_score=avg_confidence)
 
         rationale = (
-            f"{top_vendor.vendor_name} is the top Phase 1 recommendation based on seeded vendor fit, "
-            f"converted pricing, baseline freight, and explainable scoring."
+            f"{top_vendor.vendor_name} is the top Phase 2A recommendation based on seeded vendor fit, converted pricing, freight baseline, evidence-weighted confidence, and freshness-aware scoring."
             if top_vendor
             else "No vendor recommendation could be produced for the current BOM."
         )
@@ -741,7 +836,7 @@ class RuntimePipelineService:
             recommended_vendor_name=top_vendor.vendor_name if top_vendor else None,
             total_lines=len(line_outputs),
             ranked_vendor_count=len(vendor_rankings),
-            matched_vendor_count=sum(1 for l in line_outputs if l.get("recommended_vendor_id")),
+            matched_vendor_count=sum(1 for line in line_outputs if line.get("recommended_vendor_id")),
             target_currency=target_currency,
             estimated_project_total=round(_as_float(top_vendor.estimated_project_total), 6) if top_vendor and top_vendor.estimated_project_total is not None else None,
             cost_range_low=round(min(totals), 6) if totals else None,
@@ -749,6 +844,7 @@ class RuntimePipelineService:
             estimated_lead_time_days=round(statistics.mean(lead_times), 2) if lead_times else None,
             confidence=overall_confidence,
             rationale=rationale,
+            strategy_gate=strategy_gate,
         )
 
     def _build_freshness(
@@ -767,6 +863,9 @@ class RuntimePipelineService:
             notes.append("FX used fallback or stale persisted data.")
         if freight_context["overall_status"] != "fresh":
             notes.append("Freight used seeded baseline data.")
+        phase2a_gates = sorted({line.get("strategy_gate") for line in line_outputs if line.get("strategy_gate")})
+        if phase2a_gates:
+            notes.append(f"Phase 2A strategy gates present: {', '.join(phase2a_gates)}.")
         return RecommendationFreshness(
             overall_status=overall,
             fx_status=fx_context["overall_status"],
@@ -784,20 +883,35 @@ class RuntimePipelineService:
         fx_context: dict[str, Any],
         freight_context: dict[str, Any],
     ) -> RecommendationEvidence:
+        strategy_gates: dict[str, int] = {}
+        for line in line_outputs:
+            gate = line.get("strategy_gate") or "verify-first"
+            strategy_gates[gate] = strategy_gates.get(gate, 0) + 1
         return RecommendationEvidence(
             analyzer_runs=analyzer_evidence,
             scoring_inputs={
                 "line_count": len(line_outputs),
-                "matched_line_count": sum(1 for l in line_outputs if l.get("recommended_vendor_id")),
+                "matched_line_count": sum(1 for line in line_outputs if line.get("recommended_vendor_id")),
+                "phase2a_line_count": sum(1 for line in line_outputs if (line.get("evidence_summary") or {}).get("phase2a_used")),
             },
             vendor_match_summary={
                 "ranked_vendor_count": len(vendor_rankings),
                 "top_vendor_id": vendor_rankings[0].vendor_id if vendor_rankings else None,
+                "strategy_gates": strategy_gates,
             },
             fx_context=fx_context,
             freight_context=freight_context,
+            phase2a_summary={
+                "lines_with_phase2a": sum(1 for line in line_outputs if (line.get("evidence_summary") or {}).get("phase2a_used")),
+                "strategy_gates": strategy_gates,
+                "uncertain_line_count": sum(
+                    1
+                    for line in line_outputs
+                    if any(((line.get("evidence_summary") or {}).get("phase2a_uncertainty_flags") or {}).values())
+                ),
+            },
             notes=[
-                "Phase 1 recommendation is bounded to seeded vendors, live FX, and freight baseline.",
+                "Phase 2A recommendation remains additive to Phase 1 seeded-vendor scoring.",
                 "Analyzer remains stateless; persistence and recommendation ownership remain in platform-api.",
             ],
         )
@@ -820,10 +934,11 @@ class RuntimePipelineService:
         project.decision_summary = recommendation.summary.rationale
         project.analyzer_report = recommendation.model_dump(mode="json")
         project.strategy = {
-            "phase": "phase1",
+            "phase": "phase2a_batch4",
             "recommended_vendor_id": recommendation.summary.recommended_vendor_id,
             "recommended_vendor_name": recommendation.summary.recommended_vendor_name,
             "confidence": recommendation.summary.confidence,
+            "strategy_gate": recommendation.summary.strategy_gate,
             "freshness": recommendation.freshness.model_dump(),
         }
         project.total_parts = recommendation.summary.total_lines
@@ -846,8 +961,9 @@ class RuntimePipelineService:
         analysis.summary_json = recommendation.summary.model_dump()
         analysis.strategy_json = project.strategy
         analysis.scoring_json = {
-            "vendor_rankings": [v.model_dump() for v in recommendation.vendor_rankings],
+            "vendor_rankings": [vendor.model_dump() for vendor in recommendation.vendor_rankings],
             "freshness": recommendation.freshness.model_dump(),
+            "phase2a_summary": recommendation.evidence.phase2a_summary,
         }
 
         match_run = VendorMatchRun(
@@ -857,7 +973,8 @@ class RuntimePipelineService:
             weight_profile=weight_profile,
             filters_json={
                 "target_currency": recommendation.summary.target_currency,
-                "phase": "phase1",
+                "phase": "phase2a_batch4",
+                "strategy_gate": recommendation.summary.strategy_gate,
             },
             weights_json={},
             summary_json=recommendation.summary.model_dump(),
@@ -879,6 +996,7 @@ class RuntimePipelineService:
                     explanation=vendor_row.rationale,
                     explanation_json={
                         "confidence": vendor_row.confidence,
+                        "confidence_score": vendor_row.confidence_score,
                         "freshness_status": vendor_row.freshness_status,
                     },
                     shortlist_status="shortlisted" if vendor_row.rank <= 5 else "considered",
@@ -901,7 +1019,7 @@ class RuntimePipelineService:
                 generated_by="on_demand",
                 version=1,
                 filters_json={
-                    "phase": "phase1",
+                    "phase": "phase2a_batch4",
                     "target_currency": recommendation.summary.target_currency,
                 },
                 data_json=recommendation.model_dump(mode="json"),
@@ -911,7 +1029,7 @@ class RuntimePipelineService:
 
         db.add(
             EventAuditLog(
-                event_type="phase1_recommendation_generated",
+                event_type="phase2a_batch4_recommendation_generated",
                 entity_type="project",
                 entity_id=project.id,
                 actor_id=actor_id,
@@ -919,11 +1037,10 @@ class RuntimePipelineService:
                 from_state=str(ProjectStatus.ANALYSIS_IN_PROGRESS),
                 to_state=str(ProjectStatus.ANALYSIS_COMPLETE),
                 payload={
-                    "bom_id": bom.id,
                     "recommended_vendor_id": recommendation.summary.recommended_vendor_id,
                     "recommended_vendor_name": recommendation.summary.recommended_vendor_name,
                     "confidence": recommendation.summary.confidence,
-                    "freshness": recommendation.freshness.model_dump(),
+                    "strategy_gate": recommendation.summary.strategy_gate,
                 },
                 trace_id=trace_id,
                 organization_id=project.organization_id,
@@ -941,7 +1058,7 @@ class RuntimePipelineService:
     ) -> None:
         db.add(
             EventAuditLog(
-                event_type="phase1_recommendation_failed",
+                event_type="phase2a_batch4_recommendation_failed",
                 entity_type="project",
                 entity_id=project.id,
                 actor_id=actor_id,
@@ -1071,23 +1188,96 @@ class RuntimePipelineService:
             "overall_status": freshness,
         }
 
-    def _confidence_label(
+    def _evidence_weighted_confidence_score(
         self,
         *,
         normalized_confidence: float,
         freshness_status: str,
         has_full_match: bool,
-    ) -> str:
-        score = normalized_confidence
-        if freshness_status != "fresh":
-            score -= 0.15
-        if not has_full_match:
-            score -= 0.20
-        if score >= 0.80:
+        phase2a_bundle: dict[str, Any] | None = None,
+    ) -> float:
+        phase2a_bundle = phase2a_bundle or {}
+        confidence_summary = phase2a_bundle.get("confidence_summary") or {}
+        uncertainty_flags = phase2a_bundle.get("uncertainty_flags") or {}
+        phase2a_score = _as_float(confidence_summary.get("score"), normalized_confidence)
+        completeness = 1.0
+        if uncertainty_flags:
+            completeness = max(
+                0.0,
+                1.0 - (sum(1 for value in uncertainty_flags.values() if value) / max(len(uncertainty_flags), 1)),
+            )
+
+        freshness_factor = 1.0
+        lowered_freshness = str(freshness_status or "fresh").lower()
+        if lowered_freshness in {"recent", "mixed"}:
+            freshness_factor = 0.78
+        elif lowered_freshness in {"stale", "unknown", "uncertain"}:
+            freshness_factor = 0.58
+        elif lowered_freshness in {"expired", "missing"}:
+            freshness_factor = 0.35
+
+        score = (
+            (normalized_confidence * 0.35)
+            + (phase2a_score * 0.35)
+            + (completeness * 0.20)
+            + ((1.0 if has_full_match else 0.45) * 0.10)
+        ) * freshness_factor
+
+        critical_missing = sum(
+            1
+            for key in ("offer_missing", "availability_missing", "tariff_uncertain", "freight_uncertain", "hs_uncertain")
+            if uncertainty_flags.get(key)
+        )
+        score -= critical_missing * 0.04
+        return max(0.0, min(1.0, score))
+
+    def _confidence_label(self, *, confidence_score: float) -> str:
+        if confidence_score >= 0.80:
             return "HIGH"
-        if score >= 0.50:
+        if confidence_score >= 0.50:
             return "MEDIUM"
         return "LOW"
+
+    def _phase2a_strategy_gate(
+        self,
+        *,
+        phase2a_bundle: dict[str, Any] | None,
+        has_recommendation: bool,
+    ) -> dict[str, Any]:
+        bundle = phase2a_bundle or {}
+        uncertainty_flags = bundle.get("uncertainty_flags") or {}
+        freshness_summary = bundle.get("freshness_summary") or {}
+        reasons: list[str] = []
+
+        if not has_recommendation:
+            reasons.append("No matched seeded vendor was available for this BOM line.")
+
+        if uncertainty_flags.get("offer_missing"):
+            reasons.append("Offer evidence is missing.")
+        if uncertainty_flags.get("availability_missing"):
+            reasons.append("Availability evidence is missing or unknown.")
+        if uncertainty_flags.get("hs_uncertain"):
+            reasons.append("HS mapping is low-confidence or unresolved.")
+        if uncertainty_flags.get("tariff_uncertain"):
+            reasons.append("Tariff evidence is uncertain.")
+        if uncertainty_flags.get("freight_uncertain"):
+            reasons.append("Freight evidence is uncertain.")
+
+        freshness_status = str(freshness_summary.get("status") or "unknown").lower()
+        if freshness_status in {"stale", "mixed", "expired"}:
+            reasons.append(f"Phase 2A evidence freshness is {freshness_status}.")
+
+        if not has_recommendation or uncertainty_flags.get("offer_missing"):
+            gate = "rfq-first"
+        elif any(
+            uncertainty_flags.get(key)
+            for key in ("availability_missing", "hs_uncertain", "tariff_uncertain", "freight_uncertain")
+        ) or freshness_status in {"stale", "mixed", "expired"}:
+            gate = "verify-first"
+        else:
+            gate = "award-ready"
+
+        return {"strategy_gate": gate, "strategy_reasons": reasons}
 
     def _collapse_status(self, statuses: list[str]) -> str:
         lowered = [str(s).lower() for s in statuses if s]
@@ -1099,3 +1289,4 @@ class RuntimePipelineService:
 
 
 runtime_pipeline_service = RuntimePipelineService()
+

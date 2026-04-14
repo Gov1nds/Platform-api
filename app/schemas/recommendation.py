@@ -1,15 +1,15 @@
+
 """
-Recommendation response schemas for the Phase 1 runtime pipeline.
+Recommendation response schemas for the runtime procurement pipeline.
 
 These schemas represent the persisted procurement recommendation returned
 after BOM normalization, enrichment, scoring, and recommendation generation.
 
-Phase 1 scope only:
-- seeded vendors
-- live FX with seeded fallback
-- freight baseline
-- explainable scoring
-- freshness and confidence
+Phase 2A Batch 4 scope:
+- seeded vendor scoring remains authoritative
+- Phase 2A evidence is additive when present
+- evidence-weighted confidence and freshness-aware scoring
+- recommendation strategy gating
 """
 from __future__ import annotations
 
@@ -45,6 +45,7 @@ class VendorRankingEntry(BaseModel):
     rank: int
     score: float
     confidence: str
+    confidence_score: float | None = None
     rationale: str
     freshness_status: str
     source_currency: str = "USD"
@@ -74,6 +75,9 @@ class LineRecommendationEntry(BaseModel):
     freshness_status: str = "fresh"
     pricing_context: RecommendationPricingContext
     candidate_rankings: list[VendorRankingEntry] = Field(default_factory=list)
+    strategy_gate: str = "verify-first"
+    strategy_reasons: list[str] = Field(default_factory=list)
+    evidence_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class RecommendationSummary(BaseModel):
@@ -89,6 +93,7 @@ class RecommendationSummary(BaseModel):
     estimated_lead_time_days: float | None = None
     confidence: str = "MEDIUM"
     rationale: str = ""
+    strategy_gate: str = "verify-first"
 
 
 class RecommendationEvidence(BaseModel):
@@ -97,6 +102,7 @@ class RecommendationEvidence(BaseModel):
     vendor_match_summary: dict[str, Any] = Field(default_factory=dict)
     fx_context: dict[str, Any] = Field(default_factory=dict)
     freight_context: dict[str, Any] = Field(default_factory=dict)
+    phase2a_summary: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -112,3 +118,4 @@ class ProjectRecommendationResponse(BaseModel):
     evidence: RecommendationEvidence = Field(default_factory=RecommendationEvidence)
 
     model_config = {"from_attributes": True}
+
