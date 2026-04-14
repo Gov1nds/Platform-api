@@ -305,6 +305,13 @@ class OfferIngestionService:
             run_log.source_metadata = {"offer_count": len(offers)}
             run_log.completed_at = _now()
             run_log.duration_ms = int((run_log.completed_at - run_log.started_at).total_seconds() * 1000)
+            from app.services.enrichment.recompute_service import phase2a_recompute_service
+            for row in rows:
+                phase2a_recompute_service.trigger_for_sku_offer_change(
+                    db,
+                    sku_offer_id=row.id,
+                    reason="sku_offer_changed",
+                )
             return rows
         except Exception as exc:
             run_log.status = "failed"

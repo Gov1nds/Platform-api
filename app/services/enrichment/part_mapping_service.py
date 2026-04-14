@@ -1,3 +1,4 @@
+
 """
 Phase 2A Batch 2: part-to-SKU mapping pipeline.
 
@@ -344,6 +345,13 @@ class PartMappingService:
                 "candidate_count": len(candidates),
                 "trace_id": trace_id,
             }
+            from app.services.enrichment.recompute_service import phase2a_recompute_service
+            for row in rows:
+                phase2a_recompute_service.trigger_for_mapping_change(
+                    db,
+                    mapping_id=row.id,
+                    reason="part_mapping_changed",
+                )
             return rows
 
 

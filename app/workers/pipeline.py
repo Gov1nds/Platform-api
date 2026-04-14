@@ -230,6 +230,91 @@ if celery_app:
         finally:
             db.close()
 
+
+
+    @celery_app.task(bind=True, max_retries=2, default_retry_delay=15)
+    def task_recompute_bom_line_phase2a(
+        self,
+        bom_line_id: str,
+        trigger_reason: str | None = None,
+        dataset: str | None = None,
+        source_keys: dict | None = None,
+    ) -> dict:
+        """Recompute Phase 2A enrichment + scoring for one affected BOM line only."""
+        from app.services.enrichment.recompute_service import phase2a_recompute_service
+
+        db = _get_db_session()
+        try:
+            result = phase2a_recompute_service.recompute_bom_line(
+                db,
+                bom_line_id=bom_line_id,
+                trigger_reason=trigger_reason,
+                dataset=dataset,
+                source_keys=source_keys or {},
+            )
+            db.commit()
+            return result
+        except Exception as exc:
+            db.rollback()
+            logger.exception("phase2a recompute failed for line %s", bom_line_id)
+            raise self.retry(exc=exc)
+        finally:
+            db.close()
+
+    @celery_app.task(bind=True, max_retries=1, default_retry_delay=10)
+    def task_trigger_phase2a_recompute(
+        self,
+        trigger_type: str,
+        payload: dict | None = None,
+    ) -> dict:
+        """Resolve upstream dataset change into affected BOM lines and enqueue scoped recomputes."""
+        from app.services.enrichment.recompute_service import phase2a_recompute_service
+
+        payload = payload or {}
+        db = _get_db_session()
+        try:
+            if trigger_type == "sku_offer":
+                result = phase2a_recompute_service.trigger_for_sku_offer_change(
+                    db,
+                    sku_offer_id=payload["sku_offer_id"],
+                    reason=payload.get("reason") or "sku_offer_changed",
+                )
+            elif trigger_type == "sku_availability":
+                result = phase2a_recompute_service.trigger_for_availability_change(
+                    db,
+                    sku_offer_id=payload["sku_offer_id"],
+                    reason=payload.get("reason") or "sku_availability_changed",
+                )
+            elif trigger_type == "tariff_schedule":
+                result = phase2a_recompute_service.trigger_for_tariff_change(
+                    db,
+                    tariff_schedule_id=payload.get("tariff_schedule_id"),
+                    hs_code=payload.get("hs_code"),
+                    reason=payload.get("reason") or "tariff_schedule_changed",
+                )
+            elif trigger_type == "lane_rate_band":
+                result = phase2a_recompute_service.trigger_for_lane_rate_change(
+                    db,
+                    lane_key=payload["lane_key"],
+                    reason=payload.get("reason") or "lane_rate_band_changed",
+                )
+            elif trigger_type == "part_mapping":
+                result = phase2a_recompute_service.trigger_for_mapping_change(
+                    db,
+                    mapping_id=payload["mapping_id"],
+                    reason=payload.get("reason") or "part_mapping_changed",
+                )
+            else:
+                result = {"enqueued": 0, "skipped": 0, "error": f"unknown trigger_type={trigger_type}"}
+            db.commit()
+            return result
+        except Exception as exc:
+            db.rollback()
+            logger.exception("phase2a trigger failed for %s", trigger_type)
+            raise self.retry(exc=exc)
+        finally:
+            db.close()
+
     @celery_app.task(bind=True, max_retries=1)
     def task_batch_pipeline(self, project_id: str) -> dict:
         """Orchestrate full pipeline for all eligible RAW lines in a project."""

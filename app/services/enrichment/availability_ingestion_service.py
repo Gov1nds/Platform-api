@@ -306,6 +306,12 @@ class AvailabilityIngestionService:
             run_log.source_metadata = {"snapshot_count": len(rows)}
             run_log.completed_at = _now()
             run_log.duration_ms = int((run_log.completed_at - run_log.started_at).total_seconds() * 1000)
+            from app.services.enrichment.recompute_service import phase2a_recompute_service
+            phase2a_recompute_service.trigger_for_availability_change(
+                db,
+                sku_offer_id=sku_offer.id,
+                reason="sku_availability_changed",
+            )
             return rows
         except Exception as exc:
             run_log.status = "failed"

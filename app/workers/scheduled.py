@@ -66,6 +66,10 @@ if celery_app:
             "task": "app.workers.scheduled.task_weekly_digest",
             "schedule": crontab(hour=8, minute=0, day_of_week=1),
         },
+        "phase2a-refresh-scan": {
+            "task": "app.workers.scheduled.task_phase2a_refresh_scan",
+            "schedule": timedelta(minutes=10),
+        },
     }
 
     @celery_app.task
@@ -252,6 +256,25 @@ if celery_app:
         finally:
             db.close()
 
+
+
+    @celery_app.task
+    def task_phase2a_refresh_scan() -> dict:
+        """Mark active BOM lines whose Phase 2A evidence has expired and enqueue scoped recomputes."""
+        from app.services.enrichment.recompute_service import phase2a_recompute_service
+
+        db = _get_db()
+        try:
+            result = phase2a_recompute_service.mark_stale_active_lines_for_refresh(db)
+            db.commit()
+            return result
+        except Exception:
+            db.rollback()
+            logger.exception("Phase 2A refresh scan failed")
+            return {"error": "failed"}
+        finally:
+            db.close()
+
     @celery_app.task
     def task_rebuild_vendor_performance() -> dict:
         """Rebuild 90-day vendor performance snapshots."""
@@ -302,3 +325,4 @@ if celery_app:
         """Async report export (PDF/Excel)."""
         logger.info("Report export %s format=%s (stub)", job_id, fmt)
         return {"job_id": job_id, "status": "complete", "format": fmt}
+
