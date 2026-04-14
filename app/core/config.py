@@ -196,3 +196,21 @@ class Settings:
 settings = Settings()
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 settings.validate_production()
+
+ # ── Notification Providers (INT-006, GAP-007) ────────────────────────
+SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
+SENDGRID_FROM_EMAIL: str = os.getenv("SENDGRID_FROM_EMAIL", "")
+TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER: str = os.getenv("TWILIO_FROM_NUMBER", "")
+FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
+FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "")
+
+# ── Tracking / Logistics APIs ────────────────────────────────────────
+AFTERSHIP_API_KEY: str = os.getenv("AFTERSHIP_API_KEY", "")
+AFTERSHIP_WEBHOOK_SECRET: str = os.getenv("AFTERSHIP_WEBHOOK_SECRET", "")
+
+# ── Geolocation ──────────────────────────────────────────────────────
+MAXMIND_ACCOUNT_ID: str = os.getenv("MAXMIND_ACCOUNT_ID", "")
+MAXMIND_LICENSE_KEY: str = os.getenv("MAXMIND_LICENSE_KEY", "")
+MAXMIND_DB_PATH: str = os.getenv("MAXMIND_DB_PATH", "")
