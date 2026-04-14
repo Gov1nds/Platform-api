@@ -24,6 +24,10 @@ from app.models.chat import ChatThread, ChatMessage
 from app.models.market import (
     FXRate, FreightRate, TariffSchedule, CommodityIndex, IntegrationRunLog,
 )
+from app.models.enrichment import (
+    PartToSkuMapping, SKUOffer, SKUOfferPriceBreak, SKUAvailabilitySnapshot,
+    HSMapping, LaneRateBand, BOMLineDependencyIndex, EnrichmentRunLog,
+)
 from app.models.events import (
     PlatformEvent, ReportSnapshot, EventAuditLog, IdempotencyRecord,
 )
@@ -33,7 +37,7 @@ __all__ = [
     # auth
     "User", "GuestSession", "VendorUser", "Organization", "OrganizationMembership",
     # bom
-    "BOM", "BOMPart", "AnalysisResult",
+    "BOM", "BOMPart", "AnalysisResult", "BOMLineDependencyIndex",
     # project
     "Project", "ProjectACL", "ProjectEvent", "SearchSession", "SourcingCase",
     # vendor
@@ -50,7 +54,12 @@ __all__ = [
     "ChatThread", "ChatMessage",
     # market
     "FXRate", "FreightRate", "TariffSchedule", "CommodityIndex",
-    "IntegrationRunLog",
+    "IntegrationRunLog", "SKUAvailabilitySnapshot", "HSMapping",
+    "LaneRateBand",
+    # pricing enrichment
+    "PartToSkuMapping", "SKUOffer", "SKUOfferPriceBreak",
+    # ops
+    "EnrichmentRunLog",
     # events / ops
     "PlatformEvent", "ReportSnapshot", "EventAuditLog", "IdempotencyRecord",
     # notifications

@@ -1,10 +1,10 @@
 """Tests for model registration and basic model functionality."""
 import pytest
+import app.models  # noqa: F401
 
 
 def test_all_models_registered_with_metadata():
     from app.core.database import Base
-    from app.models import *  # noqa: F401, F403
 
     table_names = set(Base.metadata.tables.keys())
 
@@ -17,6 +17,7 @@ def test_all_models_registered_with_metadata():
         "bom.boms",
         "bom.bom_parts",
         "bom.analysis_results",
+        "bom.bom_line_dependency_index",
         "projects.projects",
         "projects.project_acl",
         "projects.project_events",
@@ -27,6 +28,9 @@ def test_all_models_registered_with_metadata():
         "pricing.vendor_match_runs",
         "pricing.vendor_matches",
         "pricing.vendor_performance_snapshots",
+        "pricing.part_to_sku_mapping",
+        "pricing.sku_offers",
+        "pricing.sku_offer_price_breaks",
         "sourcing.rfq_batches",
         "sourcing.rfq_items",
         "sourcing.rfq_vendor_invitations",
@@ -52,10 +56,14 @@ def test_all_models_registered_with_metadata():
         "ops.integration_run_logs",
         "ops.chat_threads",
         "ops.chat_messages",
+        "ops.enrichment_run_log",
         "market.fx_rates",
         "market.freight_rates",
         "market.tariff_schedules",
         "market.commodity_indices",
+        "market.sku_availability_snapshots",
+        "market.hs_mapping",
+        "market.lane_rate_bands",
     }
 
     for tbl in expected_tables:
