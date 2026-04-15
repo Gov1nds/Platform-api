@@ -53,6 +53,8 @@ from app.services.confidence_calibration_service import confidence_calibration_s
 from app.services.enrichment.evidence_operations_service import evidence_operations_service
 from app.services.enrichment.phase2a_evidence_service import phase2a_evidence_service
 from app.services.market_data.fx_service import fx_service
+from app.services.outcome_data_service import outcome_data_service
+from app.services.outcome_informed_scoring_service import outcome_informed_scoring_service
 from app.services.recommendation_stability_service import recommendation_stability_service
 from app.services.scoring.vendor_scorer import rank_vendors
 
@@ -535,12 +537,32 @@ class RuntimePipelineService:
             "required_certifications": [],
             "total_quantity": quantity,
         }
+        outcome_intelligence_by_vendor: dict[str, Any] = {}
+        for candidate in candidate_vendor_dicts:
+            anomaly_summary = self._build_anomaly_summary(
+                db=db,
+                bom_line_id=normalized["bom_part_id"],
+                vendor_id=candidate["id"],
+            )
+            adjustment = outcome_informed_scoring_service.build_adjustment(
+                db,
+                vendor_id=candidate["id"],
+                bom_line_id=normalized["bom_part_id"],
+                anomaly_summary=anomaly_summary,
+                adjusted_lead_time_days=candidate.get("avg_lead_time_days"),
+            )
+            outcome_intelligence_by_vendor[candidate["id"]] = {
+                **adjustment.to_dict(),
+                "anomaly_summary": anomaly_summary,
+            }
+
         market_ctx = {
             "fx_rate": fx_context["fx_rate"],
             "freight_per_kg": freight_context["freight_rate_per_kg"],
             "data_age_days": fx_context["fx_age_days"],
             "market_median_price": market_median,
             "phase2a": phase2a_bundle,
+            "outcome_intelligence_by_vendor": outcome_intelligence_by_vendor,
         }
 
         ranked = rank_vendors(
@@ -566,11 +588,18 @@ class RuntimePipelineService:
             )
             calibrated_confidence_score = _as_float(calibration.calibrated_confidence, raw_confidence_score)
             confidence = self._confidence_label(confidence_score=calibrated_confidence_score)
-            anomaly_summary = self._build_anomaly_summary(
+            outcome_adjustment = outcome_intelligence_by_vendor.get(entry["vendor_id"], {})
+            anomaly_summary = outcome_adjustment.get("anomaly_summary") or self._build_anomaly_summary(
                 db=db,
                 bom_line_id=normalized["bom_part_id"],
                 vendor_id=entry["vendor_id"],
             )
+            calibrated_confidence_score = max(0.0, min(1.0, calibrated_confidence_score + _as_float(outcome_adjustment.get("confidence_adjustment"), 0.0)))
+            confidence = self._confidence_label(confidence_score=calibrated_confidence_score)
+            explanation = entry["explanation"]
+            extra_fragments = outcome_adjustment.get("explanation_fragments") or []
+            if extra_fragments:
+                explanation = f"{explanation}; {'; '.join(extra_fragments)}"
             candidate_rankings.append(
                 VendorRankingEntry(
                     vendor_id=entry["vendor_id"],
@@ -581,7 +610,7 @@ class RuntimePipelineService:
                     confidence_score=round(calibrated_confidence_score, 4),
                     raw_confidence_score=round(raw_confidence_score, 4),
                     calibrated_confidence_score=round(calibrated_confidence_score, 4),
-                    rationale=entry["explanation"],
+                    rationale=explanation,
                     freshness_status=freshness_status,
                     source_currency=candidate["source_currency"],
                     target_currency=target_currency,
@@ -600,6 +629,7 @@ class RuntimePipelineService:
                         "pricing": candidate["pricing"],
                         "phase2a": phase2a_bundle,
                         "anomaly_summary": anomaly_summary,
+                        "outcome_adjustment": outcome_adjustment,
                         "confidence_calibration": {
                             "used_calibration": calibration.used_calibration,
                             "fallback_reason": calibration.fallback_reason,
@@ -618,6 +648,10 @@ class RuntimePipelineService:
         candidate_rankings = stability.candidate_rankings
         top = candidate_rankings[0]
         gate = self._phase2a_strategy_gate(phase2a_bundle=phase2a_bundle, has_recommendation=True)
+        top_outcome_adjustment = (top.evidence or {}).get("outcome_adjustment") or {}
+        if top_outcome_adjustment.get("strategy_gate_bias") == "rfq-first" and gate.get("strategy_gate") != "rfq-first":
+            gate["strategy_gate"] = "rfq-first"
+            gate.setdefault("strategy_reasons", []).append("Outcome anomalies require RFQ-first verification.")
         pricing_context = RecommendationPricingContext(
             source_currency=top.source_currency,
             target_currency=top.target_currency,
@@ -641,7 +675,7 @@ class RuntimePipelineService:
             "confidence": round(top.confidence_score or _as_float(normalized.get("classification_confidence"), 0.0), 4),
             "recommended_vendor_id": top.vendor_id,
             "recommended_vendor_name": top.vendor_name,
-            "rationale": f"{top.vendor_name} ranked first for this line based on capability fit, converted price, freight baseline, evidence quality, and data freshness.",
+            "rationale": f"{top.vendor_name} ranked first for this line based on capability fit, converted price, freight baseline, evidence quality, data freshness, and deterministic outcome-informed adjustments.",
             "freshness_status": top.freshness_status,
             "pricing_context": pricing_context.model_dump(),
             "candidate_rankings": [c.model_dump() for c in candidate_rankings],
@@ -657,6 +691,7 @@ class RuntimePipelineService:
                 "calibration_used": bool((top.evidence or {}).get("confidence_calibration", {}).get("used_calibration")),
                 "calibration_fallback_reason": (top.evidence or {}).get("confidence_calibration", {}).get("fallback_reason"),
                 "anomaly_summary": (top.evidence or {}).get("anomaly_summary") or {},
+                "outcome_adjustment": (top.evidence or {}).get("outcome_adjustment") or {},
             },
             "rank_changed": stability.rank_changed,
             "prior_rank": stability.prior_rank,
@@ -666,17 +701,36 @@ class RuntimePipelineService:
         }
 
     def _build_anomaly_summary(self, *, db: Session, bom_line_id: str, vendor_id: str) -> dict[str, Any]:
-        rows = db.query(AnomalyFlag).order_by(AnomalyFlag.detected_at.desc()).limit(200).all()
+        rows = db.query(AnomalyFlag).order_by(AnomalyFlag.detected_at.desc()).limit(400).all()
         matched = []
         for row in rows:
             context = row.source_context_json or {}
             if context.get("bom_line_id") == bom_line_id and context.get("vendor_id") == vendor_id:
                 matched.append(row)
+
+        def _metric_bucket(metric_names: tuple[str, ...], anomaly_types: tuple[str, ...]) -> dict[str, Any]:
+            bucket = [
+                row for row in matched
+                if (row.metric_name in metric_names) or (row.anomaly_type in anomaly_types)
+            ]
+            return {
+                "count": len(bucket),
+                "has_high_severity": any((row.severity or "").lower() == "high" for row in bucket),
+                "latest_detected_at": bucket[0].detected_at.isoformat() if bucket else None,
+                "latest_anomaly_type": bucket[0].anomaly_type if bucket else None,
+            }
+
+        price_bucket = _metric_bucket(("quoted_price", "accepted_price", "unit_price"), ("price_outlier",))
+        lead_bucket = _metric_bucket(("quoted_lead_time", "actual_lead_time", "lead_time_diff_days"), ("lead_time_outlier", "lead_time_diff_outlier"))
+        availability_bucket = _metric_bucket(("available_quantity", "stock_quantity", "availability_status"), ("availability_jump", "availability_contradiction", "invalid_stock_value"))
         return {
             "count": len(matched),
             "has_high_severity": any((row.severity or "").lower() == "high" for row in matched),
             "latest_detected_at": matched[0].detected_at.isoformat() if matched else None,
             "latest_anomaly_type": matched[0].anomaly_type if matched else None,
+            "price": price_bucket,
+            "lead_time": lead_bucket,
+            "availability": availability_bucket,
         }
 
     def _vendor_to_candidate_dict(
@@ -743,11 +797,23 @@ class RuntimePipelineService:
 
         estimated_line_total = (estimated_unit_price_target * quantity) + estimated_freight_total
 
+        adjusted_lead_time = None
+        try:
+            adjusted_lead_time = outcome_data_service.get_adjusted_lead_time(
+                db,
+                vendor_id=vendor.id,
+                bom_line_id=normalized["bom_part_id"],
+            )
+        except Exception:
+            adjusted_lead_time = None
+        quoted_lead_time_days = _as_float(vendor.avg_lead_time_days, 30.0)
+        effective_lead_time_days = _as_float(adjusted_lead_time, quoted_lead_time_days)
+
         return {
             "id": vendor.id,
             "name": vendor.name,
             "typical_unit_price": estimated_unit_price_target,
-            "avg_lead_time_days": _as_float(vendor.avg_lead_time_days, 30.0),
+            "avg_lead_time_days": effective_lead_time_days,
             "reliability_score": _as_float(vendor.reliability_score, 0.8),
             "regions_served": vendor.regions_served or [],
             "certifications": vendor.certifications or [],

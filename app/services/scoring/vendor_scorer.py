@@ -23,6 +23,12 @@ PHASE2A_EXTRA_WEIGHTS = {
     "evidence_confidence": 0.07,
     "freshness_adjustment": 0.06,
 }
+OUTCOME_EXTRA_WEIGHTS = {
+    "vendor_performance": 0.05,
+    "lead_time_trust": 0.04,
+    "override_resilience": 0.02,
+    "anomaly_resilience": 0.04,
+}
 LABELS = {
     "capability_match": "Capability Match",
     "price_competitiveness": "Price",
@@ -35,6 +41,10 @@ LABELS = {
     "evidence_completeness": "Evidence Completeness",
     "evidence_confidence": "Evidence Confidence",
     "freshness_adjustment": "Evidence Freshness",
+    "vendor_performance": "Vendor Performance",
+    "lead_time_trust": "Lead-time Trust",
+    "override_resilience": "Override Stability",
+    "anomaly_resilience": "Anomaly Resilience",
 }
 
 
@@ -102,22 +112,39 @@ def score_vendor(vendor: dict, requirements: dict, market_ctx: dict, weights: di
     age = market_ctx.get("data_age_days")
     base_breakdown["freshness"] = 1.0 if age is None else max(0.0, 1.0 - (age / 90))
 
+    outcome_adjustment = _outcome_adjustment(market_ctx=market_ctx, vendor=vendor)
+    price_damping = outcome_adjustment["price_damping_factor"]
+    lead_time_damping = outcome_adjustment["lead_time_damping_factor"]
+    if price_damping < 1.0:
+        base_breakdown["price_competitiveness"] = round(base_breakdown["price_competitiveness"] * price_damping, 4)
+    if lead_time_damping < 1.0:
+        base_breakdown["lead_time"] = round(base_breakdown["lead_time"] * lead_time_damping, 4)
+
     total_weight = sum(w.get(k, 0.0) for k in base_breakdown)
     total_score = sum(w.get(k, 0.0) * v for k, v in base_breakdown.items())
 
     phase2a_breakdown = _phase2a_breakdown(phase2a=phase2a, vendor=vendor)
     if phase2a_breakdown:
-        total_weight += sum(PHASE2A_EXTRA_WEIGHTS.values())
+        total_weight += sum(PHASE2A_EXTRA_WEIGHTS[k] for k in phase2a_breakdown)
         total_score += sum(
             PHASE2A_EXTRA_WEIGHTS[k] * phase2a_breakdown[k]
             for k in phase2a_breakdown
         )
 
+    outcome_breakdown = outcome_adjustment["breakdown"]
+    if outcome_breakdown:
+        total_weight += sum(OUTCOME_EXTRA_WEIGHTS[k] for k in outcome_breakdown)
+        total_score += sum(
+            OUTCOME_EXTRA_WEIGHTS[k] * outcome_breakdown[k]
+            for k in outcome_breakdown
+        )
+
     normalized_total = round((total_score / total_weight), 4) if total_weight else 0.0
-    breakdown = {**base_breakdown, **phase2a_breakdown}
+    normalized_total = round(max(0.0, min(1.0, normalized_total + outcome_adjustment["score_adjustment"])), 4)
+    breakdown = {**base_breakdown, **phase2a_breakdown, **outcome_breakdown}
 
     expl_parts = []
-    all_weights = {**w, **PHASE2A_EXTRA_WEIGHTS}
+    all_weights = {**w, **PHASE2A_EXTRA_WEIGHTS, **OUTCOME_EXTRA_WEIGHTS}
     for feature, score in sorted(
         breakdown.items(),
         key=lambda item: all_weights.get(item[0], 0.0) * item[1],
@@ -133,7 +160,11 @@ def score_vendor(vendor: dict, requirements: dict, market_ctx: dict, weights: di
     return {
         "total_score": normalized_total,
         "breakdown": {k: round(v, 4) for k, v in breakdown.items()},
-        "weights": {**w, **({k: PHASE2A_EXTRA_WEIGHTS[k] for k in phase2a_breakdown} if phase2a_breakdown else {})},
+        "weights": {
+            **w,
+            **({k: PHASE2A_EXTRA_WEIGHTS[k] for k in phase2a_breakdown} if phase2a_breakdown else {}),
+            **({k: OUTCOME_EXTRA_WEIGHTS[k] for k in outcome_breakdown} if outcome_breakdown else {}),
+        },
         "explanation": "; ".join(expl_parts),
         "explanation_json": {
             k: {
@@ -146,6 +177,8 @@ def score_vendor(vendor: dict, requirements: dict, market_ctx: dict, weights: di
         "market_freshness": market_freshness,
         "evidence_freshness": evidence_freshness,
         "phase2a_used": bool(phase2a_breakdown),
+        "outcome_intelligence_used": bool(outcome_breakdown or outcome_adjustment["score_adjustment"] or outcome_adjustment["confidence_adjustment"]),
+        "outcome_adjustment": outcome_adjustment,
         "canonical_snapshot_used": (
             (phase2a.get("offer_evidence") or {}).get("primary_source") == "canonical_snapshot"
             or (phase2a.get("availability_evidence") or {}).get("primary_source") == "canonical_snapshot"
@@ -345,3 +378,39 @@ def _capac(profile, total_quantity):
     if ratio >= 1.0:
         return 0.2
     return max(0.2, 1.0 - ((ratio - 0.25) / 0.75) * 0.8)
+
+def _outcome_adjustment(market_ctx: dict[str, Any], vendor: dict[str, Any]) -> dict[str, Any]:
+    intelligence_map = market_ctx.get("outcome_intelligence_by_vendor") or {}
+    adjustment = intelligence_map.get(vendor.get("id")) or {}
+    performance = adjustment.get("performance_adjustment") or {}
+    override_meta = adjustment.get("override_adjustment") or {}
+    anomaly = adjustment.get("anomaly_adjustment") or {}
+
+    breakdown: dict[str, float] = {}
+    if performance.get("available") and performance.get("sample_size", 0) >= 2:
+        on_time = float(performance.get("on_time_rate") or 0.0)
+        win_rate = float(performance.get("po_win_rate") or 0.0)
+        issue_rate = float(performance.get("issue_rate") or 0.0)
+        vendor_performance = 0.5 + ((on_time - 0.5) * 0.35) + ((win_rate - 0.5) * 0.15) - (issue_rate * 0.20)
+        breakdown["vendor_performance"] = round(max(0.0, min(1.0, vendor_performance)), 4)
+
+        lead_var = float(performance.get("lead_time_variance") or 0.0)
+        lead_trust = 0.5 + ((on_time - 0.5) * 0.45) - min(0.20, lead_var / 100.0)
+        breakdown["lead_time_trust"] = round(max(0.0, min(1.0, lead_trust)), 4)
+
+    if override_meta.get("sample_size", 0) >= 3:
+        rate = float(override_meta.get("override_rate") or 0.0)
+        breakdown["override_resilience"] = round(max(0.0, min(1.0, 1.0 - rate)), 4)
+
+    anomaly_total = int(anomaly.get("price_count") or 0) + int(anomaly.get("lead_time_count") or 0) + int(anomaly.get("availability_count") or 0)
+    if anomaly_total:
+        breakdown["anomaly_resilience"] = round(max(0.0, min(1.0, 1.0 - min(0.6, anomaly_total * 0.15))), 4)
+
+    return {
+        "breakdown": breakdown,
+        "score_adjustment": float(adjustment.get("score_adjustment") or 0.0),
+        "confidence_adjustment": float(adjustment.get("confidence_adjustment") or 0.0),
+        "price_damping_factor": max(0.75, 1.0 - float(anomaly.get("price_penalty") or 0.0)),
+        "lead_time_damping_factor": max(0.70, 1.0 - float(anomaly.get("lead_time_penalty") or 0.0)),
+        "explanation_fragments": list(adjustment.get("explanation_fragments") or []),
+    }
