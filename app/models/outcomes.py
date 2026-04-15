@@ -3,7 +3,17 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Index, Numeric, String, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -102,6 +112,45 @@ class OverrideEvent(Base):
     chosen_vendor = relationship("Vendor", foreign_keys=[chosen_vendor_id])
 
 
+class LeadTimeHistory(Base):
+    """Append-only completed-order lead time observations derived from quote outcomes."""
+
+    __tablename__ = "lead_time_history"
+    __table_args__ = (
+        UniqueConstraint("quote_outcome_id", name="uq_lead_time_history_quote_outcome"),
+        Index("ix_lead_time_history_vendor_recorded", "vendor_id", "recorded_at"),
+        Index("ix_lead_time_history_vendor_bom", "vendor_id", "bom_line_id"),
+        {"schema": "pricing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    quote_outcome_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("pricing.quote_outcomes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    vendor_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("pricing.vendors.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    bom_line_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("bom.bom_parts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    quoted_lead_time = Column(Numeric(12, 2), nullable=True)
+    actual_lead_time = Column(Numeric(12, 2), nullable=False)
+    lead_time_diff_days = Column(Numeric(12, 2), nullable=True)
+    recorded_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    source_metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+
+    quote_outcome = relationship("QuoteOutcome")
+    vendor = relationship("Vendor")
+    bom_line = relationship("BOMPart")
+
+
 class VendorPerformance(Base):
     """Aggregated vendor scorecard foundation rows for a reporting period."""
 
@@ -122,6 +171,7 @@ class VendorPerformance(Base):
     period_end = Column(Date, nullable=False)
     on_time_rate = Column(Numeric(12, 6), nullable=True)
     avg_lead_time = Column(Numeric(12, 2), nullable=True)
+    lead_time_variance = Column(Numeric(12, 4), nullable=True)
     price_variance = Column(Numeric(20, 8), nullable=True)
     po_win_rate = Column(Numeric(12, 6), nullable=True)
     source_metadata = Column(JSONB, nullable=False, default=dict)

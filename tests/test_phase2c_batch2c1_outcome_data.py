@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 
 from app.models.bom import BOM, BOMPart
-from app.models.outcomes import OverrideEvent, QuoteOutcome, VendorPerformance
+from app.models.outcomes import LeadTimeHistory, OverrideEvent, QuoteOutcome, VendorPerformance
 from app.models.vendor import Vendor
 from app.services.outcome_data_service import outcome_data_service
 
@@ -118,7 +118,7 @@ def test_override_event_capture_is_append_only(db_session, test_org, test_user):
 
 
 
-def test_vendor_performance_aggregation_computes_basic_metrics(db_session, test_org):
+def test_vendor_performance_aggregation_computes_batch2c2_metrics(db_session, test_org):
     bom = _make_bom(db_session, test_org)
     part = _make_part(db_session, test_org, bom)
     vendor_a = _make_vendor(db_session, "Vendor A")
@@ -165,14 +165,19 @@ def test_vendor_performance_aggregation_computes_basic_metrics(db_session, test_
     assert len(rows) == 2
     vendor_a_perf = next(row for row in rows if row.vendor_id == vendor_a.id)
     assert vendor_a_perf.po_win_rate == Decimal("0.5")
-    assert vendor_a_perf.avg_lead_time == Decimal("8")
+    assert vendor_a_perf.avg_lead_time == Decimal("6")
     assert vendor_a_perf.on_time_rate == Decimal("1")
-    assert vendor_a_perf.price_variance == Decimal("-0.50000000")
+    assert vendor_a_perf.lead_time_variance == Decimal("0.0000")
+    assert vendor_a_perf.price_variance == Decimal("0E-8")
 
     vendor_b_perf = next(row for row in rows if row.vendor_id == vendor_b.id)
     assert vendor_b_perf.po_win_rate == Decimal("0")
-    assert vendor_b_perf.avg_lead_time == Decimal("15")
+    assert vendor_b_perf.avg_lead_time is None
     assert vendor_b_perf.on_time_rate is None
+    assert vendor_b_perf.lead_time_variance is None
+
+    persisted_histories = db_session.query(LeadTimeHistory).all()
+    assert len(persisted_histories) == 1
 
     persisted = db_session.query(VendorPerformance).all()
     assert len(persisted) == 2

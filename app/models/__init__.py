@@ -38,7 +38,7 @@ from app.models.events import (
     PlatformEvent, ReportSnapshot, EventAuditLog, IdempotencyRecord,
 )
 from app.models.notification import Notification, NotificationPreference
-from app.models.outcomes import QuoteOutcome, OverrideEvent, VendorPerformance
+from app.models.outcomes import QuoteOutcome, OverrideEvent, LeadTimeHistory, VendorPerformance
 
 __all__ = [
     # auth
@@ -73,7 +73,7 @@ __all__ = [
     # events / ops
     "PlatformEvent", "ReportSnapshot", "EventAuditLog", "IdempotencyRecord",
     # outcomes
-    "QuoteOutcome", "OverrideEvent", "VendorPerformance",
+    "QuoteOutcome", "OverrideEvent", "LeadTimeHistory", "VendorPerformance",
     # notifications
     "Notification", "NotificationPreference",
 ]
