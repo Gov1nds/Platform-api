@@ -1,3 +1,4 @@
+
 """
 Phase 2A enrichment and lookup data-layer models.
 
@@ -326,13 +327,53 @@ class HSMapping(Base):
     bom_part = relationship("BOMPart")
 
 
+class LaneScopeRegistry(Base):
+    """
+    Registry of lane coverage, activity, and refresh priority.
+
+    Batch 3 adds a lightweight control-plane table so platform-api can track
+    which lanes are covered, which need faster refresh, and which were derived
+    from real usage without redesigning the freight architecture.
+    """
+    __tablename__ = "lane_scope_registry"
+    __table_args__ = (
+        UniqueConstraint("lane_key", name="uq_lane_scope_registry_lane_key"),
+        Index("ix_lane_scope_registry_lane_key", "lane_key"),
+        Index("ix_lane_scope_registry_priority", "priority_tier", "last_used_at"),
+        Index("ix_lane_scope_registry_refresh", "refresh_cadence", "last_refreshed_at"),
+        {"schema": "market"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    lane_key = Column(String(255), nullable=False)
+    origin_country = Column(String(3), nullable=False)
+    origin_region = Column(Text, nullable=True)
+    destination_country = Column(String(3), nullable=False)
+    destination_region = Column(Text, nullable=True)
+    mode = Column(String(20), nullable=False, default="sea")
+    service_level = Column(String(40), nullable=True)
+
+    scope_status = Column(String(40), nullable=False, default="active")
+    priority_tier = Column(String(20), nullable=False, default="standard")
+    refresh_cadence = Column(String(40), nullable=True)
+    activity_score = Column(Numeric(20, 8), nullable=False, default=0)
+    usage_count = Column(Integer, nullable=False, default=0)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    last_refreshed_at = Column(DateTime(timezone=True), nullable=True)
+
+    source = Column(Text, nullable=True)
+    source_metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 class LaneRateBand(Base):
     """
     Indexed freight/route rate band by lane and shipment band.
 
     Idempotency strategy:
     - unique source_record_hash
-    - unique lane + mode + band + effective_from + source_system
+    - unique lane + mode + service level + band + effective_from + source_system
     """
     __tablename__ = "lane_rate_bands"
     __table_args__ = (
@@ -340,6 +381,7 @@ class LaneRateBand(Base):
             "origin_country",
             "destination_country",
             "mode",
+            "service_level",
             "min_weight_kg",
             "max_weight_kg",
             "effective_from",
@@ -350,6 +392,7 @@ class LaneRateBand(Base):
         Index("ix_lane_rate_bands_route", "origin_country", "destination_country", "mode"),
         Index("ix_lane_rate_bands_effective", "effective_from", "effective_to"),
         Index("ix_lane_rate_bands_regions", "origin_region", "destination_region"),
+        Index("ix_lane_rate_bands_service_level", "service_level"),
         {"schema": "market"},
     )
 
@@ -360,6 +403,7 @@ class LaneRateBand(Base):
     destination_country = Column(String(3), nullable=False)
     destination_region = Column(Text, nullable=True)
     mode = Column(String(20), nullable=False, default="sea")
+    service_level = Column(String(40), nullable=True)
 
     min_weight_kg = Column(Numeric(20, 8), nullable=True)
     max_weight_kg = Column(Numeric(20, 8), nullable=True)

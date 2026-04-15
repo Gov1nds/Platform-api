@@ -26,7 +26,7 @@ from app.models.market import (
 )
 from app.models.enrichment import (
     PartToSkuMapping, SKUOffer, SKUOfferPriceBreak, SKUAvailabilitySnapshot,
-    HSMapping, LaneRateBand, BOMLineDependencyIndex, EnrichmentRunLog,
+    HSMapping, LaneScopeRegistry, LaneRateBand, BOMLineDependencyIndex, EnrichmentRunLog,
 )
 from app.models.canonical import (
     CanonicalSKU, SourceSKULink, ConnectorHealthMetrics,
@@ -61,7 +61,7 @@ __all__ = [
     "IntegrationRunLog", "SKUAvailabilitySnapshot", "HSMapping",
     "LaneRateBand", "CanonicalAvailabilitySnapshot",
     # pricing enrichment
-    "PartToSkuMapping", "SKUOffer", "SKUOfferPriceBreak",
+    "PartToSkuMapping", "SKUOffer", "SKUOfferPriceBreak", "LaneScopeRegistry",
     "CanonicalSKU", "SourceSKULink", "CanonicalOfferSnapshot",
     # ops
     "EnrichmentRunLog", "ConnectorHealthMetrics",

@@ -544,6 +544,7 @@ class Phase2AEvidenceService:
         )
 
         freight_evidence = {
+            "lane_key": lane_result.lane_key,
             "lane_rate_band_id": lane_result.lane_rate_band_id,
             "origin_country": lane_result.origin_country,
             "origin_region": lane_result.origin_region,
@@ -557,6 +558,10 @@ class Phase2AEvidenceService:
             "transit_days_min": lane_result.transit_days_min,
             "transit_days_max": lane_result.transit_days_max,
             "freshness_status": lane_result.freshness_status,
+            "coverage_status": lane_result.coverage_status,
+            "priority_tier": lane_result.priority_tier,
+            "refresh_cadence": lane_result.refresh_cadence,
+            "last_refreshed_at": lane_result.last_refreshed_at.isoformat() if lane_result.last_refreshed_at else None,
             "confidence": str(lane_result.confidence),
             "resolved": lane_result.resolved,
             "uncertain": not lane_result.resolved,
@@ -634,7 +639,12 @@ class Phase2AEvidenceService:
         if uncertainty_flags["tariff_uncertain"]:
             notes.append("Tariff evidence unresolved or low confidence; no tariff value was invented.")
         if uncertainty_flags["freight_uncertain"]:
-            notes.append("Freight lane evidence unresolved; Phase 1 freight baseline remains fallback.")
+            if lane_result.coverage_status == "out_of_scope":
+                notes.append("Freight lane is currently out of covered scope; fallback freight remains authoritative.")
+            elif lane_result.coverage_status == "missing":
+                notes.append("Freight lane is known but missing current coverage; no zero freight assumption was made.")
+            else:
+                notes.append("Freight lane evidence unresolved; Phase 1 freight baseline remains fallback.")
 
         bundle = Phase2AEvidenceBundleDTO(
             bom_part_id=bom_part.id,

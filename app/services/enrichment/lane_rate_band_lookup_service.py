@@ -1,11 +1,12 @@
 """
-Phase 2A Batch 3 - Part 3: lane rate band lookup service.
+Phase 2A Batch 3 / Phase 2B Batch 3: lane rate band lookup service.
 
 Behavior:
 - looks up market.lane_rate_bands using normalized lane context
-- supports destination/project context and optional shipment context
+- supports broader lane, mode, and service-level coverage
+- derives/registers lane scope from real system activity
 - preserves effective-date correctness
-- returns explicit freight uncertainty when lane data is missing
+- returns explicit in-scope / missing / out-of-scope freight coverage states
 - does not assume freight = 0 when no band exists
 """
 from __future__ import annotations
@@ -25,6 +26,7 @@ from app.models.enrichment import EnrichmentRunLog, LaneRateBand
 from app.models.logistics import Shipment
 from app.models.project import Project
 from app.schemas.enrichment import LaneLookupContextDTO, LaneRateLookupDTO
+from app.services.enrichment.lane_scope_service import lane_scope_service
 
 
 def _now() -> datetime:
@@ -142,39 +144,39 @@ class LaneRateBandLookupService:
 
         origin_country = _normalize_country(
             (context.origin_country if context else None)
-            or _meta_get(shipment_meta, "origin_country", "ship_from_country")
-            or _meta_get(project_meta, "origin_country", "ship_from_country")
+            or _meta_get(shipment_meta, "origin_country", "ship_from_country", "vendor_ship_from_country")
+            or _meta_get(project_meta, "origin_country", "ship_from_country", "vendor_ship_from_country")
         )
         destination_country = _normalize_country(
             (context.destination_country if context else None)
-            or _meta_get(shipment_meta, "destination_country", "ship_to_country")
-            or _meta_get(project_meta, "destination_country", "ship_to_country")
+            or _meta_get(shipment_meta, "destination_country", "ship_to_country", "buyer_destination_country")
+            or _meta_get(project_meta, "destination_country", "ship_to_country", "buyer_destination_country")
         )
 
         origin_region = _normalize_text(
             (context.origin_region if context else None)
-            or _meta_get(shipment_meta, "origin_region", "ship_from_region")
-            or _meta_get(project_meta, "origin_region", "ship_from_region")
+            or _meta_get(shipment_meta, "origin_region", "ship_from_region", "vendor_ship_from_region")
+            or _meta_get(project_meta, "origin_region", "ship_from_region", "vendor_ship_from_region")
             or (shipment.origin if shipment else None)
         )
         destination_region = _normalize_text(
             (context.destination_region if context else None)
-            or _meta_get(shipment_meta, "destination_region", "ship_to_region")
-            or _meta_get(project_meta, "destination_region", "ship_to_region")
+            or _meta_get(shipment_meta, "destination_region", "ship_to_region", "buyer_destination_region")
+            or _meta_get(project_meta, "destination_region", "ship_to_region", "buyer_destination_region")
             or (shipment.destination if shipment else None)
             or (bom.delivery_location if bom else None)
         )
 
-        mode = _normalize_text(
+        mode = lane_scope_service.normalize_mode(
             (context.mode if context else None)
             or _meta_get(shipment_meta, "mode", "shipping_mode")
             or _meta_get(project_meta, "mode", "shipping_mode")
             or "sea"
         )
-        service_level = _normalize_text(
+        service_level = lane_scope_service.normalize_service_level(
             (context.service_level if context else None)
-            or _meta_get(shipment_meta, "service_level")
-            or _meta_get(project_meta, "service_level")
+            or _meta_get(shipment_meta, "service_level", "shipping_service_level")
+            or _meta_get(project_meta, "service_level", "shipping_service_level")
         )
 
         weight_kg = (
@@ -228,6 +230,16 @@ class LaneRateBandLookupService:
     def _row_specificity_score(self, row: LaneRateBand, ctx: LaneLookupContextDTO) -> int:
         score = 0
 
+        row_service = lane_scope_service.normalize_service_level(row.service_level)
+        ctx_service = lane_scope_service.normalize_service_level(ctx.service_level)
+        if ctx_service:
+            if row_service and row_service == ctx_service:
+                score += 5
+            elif row_service:
+                score -= 3
+        elif row_service is None:
+            score += 1
+
         if ctx.origin_region:
             if row.origin_region and _ci_equal(row.origin_region, ctx.origin_region):
                 score += 4
@@ -260,10 +272,17 @@ class LaneRateBandLookupService:
         filters = [
             LaneRateBand.origin_country == ctx.origin_country,
             LaneRateBand.destination_country == ctx.destination_country,
-            LaneRateBand.mode == (ctx.mode or "sea"),
+            LaneRateBand.mode == lane_scope_service.normalize_mode(ctx.mode),
             LaneRateBand.effective_from <= as_of,
             or_(LaneRateBand.effective_to.is_(None), LaneRateBand.effective_to > as_of),
         ]
+        if ctx.service_level:
+            filters.append(
+                or_(
+                    LaneRateBand.service_level == lane_scope_service.normalize_service_level(ctx.service_level),
+                    LaneRateBand.service_level.is_(None),
+                )
+            )
         return (
             db.query(LaneRateBand)
             .filter(and_(*filters))
@@ -292,12 +311,8 @@ class LaneRateBandLookupService:
             estimate = rate_value * volume_cbm
         elif rate_type in {"flat", "fixed"}:
             estimate = rate_value
-        elif rate_type == "per_kg":
-            estimate = None
-        elif rate_type == "per_cbm":
-            estimate = None
-        else:
-            estimate = None
+        elif rate_type == "per_shipment":
+            estimate = rate_value
 
         if estimate is not None and min_charge is not None and estimate < min_charge:
             estimate = min_charge
@@ -311,7 +326,10 @@ class LaneRateBandLookupService:
         ctx: LaneLookupContextDTO,
         lookup_date: datetime,
         reason: str,
+        coverage_status: str,
+        scope_row,
     ) -> LaneRateLookupDTO:
+        lane_key = lane_scope_service.build_lane_key(context=ctx)
         return LaneRateLookupDTO(
             bom_part_id=bom_part_id,
             project_id=project_id,
@@ -324,9 +342,17 @@ class LaneRateBandLookupService:
             mode=ctx.mode,
             service_level=ctx.service_level,
             lookup_date=lookup_date,
+            lane_key=lane_key,
+            coverage_status=coverage_status,
+            priority_tier=scope_row.priority_tier if scope_row else None,
+            refresh_cadence=scope_row.refresh_cadence if scope_row else None,
+            last_refreshed_at=scope_row.last_refreshed_at if scope_row else None,
             confidence=Decimal("0"),
             uncertainty_reason=reason,
-            source_metadata={},
+            source_metadata={
+                "scope_status": scope_row.scope_status if scope_row else None,
+                "lane_key": lane_key,
+            },
         )
 
     def lookup_lane_rate(
@@ -343,6 +369,7 @@ class LaneRateBandLookupService:
     ) -> LaneRateLookupDTO:
         ctx = self.normalize_context(context=context, project=project, shipment=shipment, bom=bom)
         as_of = _to_utc_datetime(lookup_date)
+        lane_key = lane_scope_service.build_lane_key(context=ctx)
 
         request_hash = _hash_payload(
             {
@@ -369,6 +396,20 @@ class LaneRateBandLookupService:
             idempotency_key=idempotency_key,
             request_hash=request_hash,
         ) as run_log:
+            scope_row = None
+            if lane_key:
+                scope_row = lane_scope_service.register_lane_activity(
+                    db,
+                    context=ctx,
+                    source="platform-api",
+                    source_metadata={
+                        "trace_id": trace_id,
+                        "project_id": project.id if project else None,
+                        "bom_part_id": bom_part.id if bom_part else None,
+                    },
+                    touched_at=as_of,
+                )
+
             if not ctx.origin_country or not ctx.destination_country:
                 result = self._missing_result(
                     bom_part_id=bom_part.id if bom_part else None,
@@ -376,6 +417,8 @@ class LaneRateBandLookupService:
                     ctx=ctx,
                     lookup_date=as_of,
                     reason="lane_context_incomplete",
+                    coverage_status="unknown",
+                    scope_row=scope_row,
                 )
                 run_log.records_skipped = 1
                 run_log.source_metadata = {
@@ -387,18 +430,24 @@ class LaneRateBandLookupService:
 
             rows = self._candidate_rows(db, ctx=ctx, as_of=as_of)
             if not rows:
+                scope_status = str(scope_row.scope_status or "").lower() if scope_row is not None else ""
+                coverage_status = "missing" if scope_status in {"covered", "active"} else "out_of_scope"
+                reason = "missing_lane_coverage" if coverage_status == "missing" else "lane_out_of_scope"
                 result = self._missing_result(
                     bom_part_id=bom_part.id if bom_part else None,
                     project_id=project.id if project else None,
                     ctx=ctx,
                     lookup_date=as_of,
-                    reason="no_lane_rate_band_found",
+                    reason=reason,
+                    coverage_status=coverage_status,
+                    scope_row=scope_row,
                 )
                 run_log.records_skipped = 1
                 run_log.source_metadata = {
                     "trace_id": trace_id,
                     "lookup_status": result.lookup_status,
                     "uncertainty_reason": result.uncertainty_reason,
+                    "coverage_status": result.coverage_status,
                 }
                 return result
 
@@ -419,10 +468,14 @@ class LaneRateBandLookupService:
                 volume_cbm=ctx.volume_cbm,
             )
 
-            # Repo model stores a single band value only. Preserve that constraint and
-            # expose p90 as an explicit proxy from the same lane band instead of inventing
-            # a separate percentile table/model.
             p90_estimate = p50_estimate
+            if scope_row is not None:
+                lane_scope_service.mark_lane_refreshed(
+                    db,
+                    lane_key=scope_row.lane_key,
+                    source_metadata={"last_resolved_lane_rate_band_id": selected.id},
+                )
+                scope_row = lane_scope_service.get_scope_row(db, lane_key=scope_row.lane_key)
 
             result = LaneRateLookupDTO(
                 bom_part_id=bom_part.id if bom_part else None,
@@ -434,8 +487,9 @@ class LaneRateBandLookupService:
                 destination_country=selected.destination_country,
                 destination_region=selected.destination_region,
                 mode=selected.mode,
-                service_level=ctx.service_level,
+                service_level=selected.service_level or ctx.service_level,
                 lookup_date=as_of,
+                lane_key=lane_key,
                 lane_rate_band_id=selected.id,
                 currency=selected.currency,
                 rate_type=selected.rate_type,
@@ -445,10 +499,14 @@ class LaneRateBandLookupService:
                 p90_freight_estimate=p90_estimate,
                 transit_days_min=selected.transit_days_min,
                 transit_days_max=selected.transit_days_max,
-                confidence=Decimal("1"),
+                confidence=Decimal("1") if str(selected.freshness_status or "").upper() == "FRESH" else Decimal("0.8"),
                 freshness_status=selected.freshness_status,
                 effective_from=selected.effective_from,
                 effective_to=selected.effective_to,
+                coverage_status="in_scope",
+                priority_tier=scope_row.priority_tier if scope_row else None,
+                refresh_cadence=scope_row.refresh_cadence if scope_row else None,
+                last_refreshed_at=scope_row.last_refreshed_at if scope_row else None,
                 uncertainty_reason=None,
                 source_metadata={
                     "trace_id": trace_id,
@@ -456,6 +514,7 @@ class LaneRateBandLookupService:
                     "p90_estimate_method": "single_band_proxy",
                     "weight_kg": str(ctx.weight_kg) if ctx.weight_kg is not None else None,
                     "volume_cbm": str(ctx.volume_cbm) if ctx.volume_cbm is not None else None,
+                    "scope_status": scope_row.scope_status if scope_row else None,
                 },
             )
             run_log.records_written = 1
@@ -464,6 +523,8 @@ class LaneRateBandLookupService:
                 "trace_id": trace_id,
                 "lookup_status": result.lookup_status,
                 "lane_rate_band_id": selected.id,
+                "lane_key": lane_key,
+                "coverage_status": result.coverage_status,
             }
             return result
 

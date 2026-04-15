@@ -186,6 +186,7 @@ class LaneRateLookupDTO:
     mode: str | None = None
     service_level: str | None = None
     lookup_date: datetime | None = None
+    lane_key: str | None = None
     lane_rate_band_id: str | None = None
     currency: str | None = None
     rate_type: str | None = None
@@ -199,6 +200,10 @@ class LaneRateLookupDTO:
     freshness_status: str | None = None
     effective_from: datetime | None = None
     effective_to: datetime | None = None
+    coverage_status: str | None = None
+    priority_tier: str | None = None
+    refresh_cadence: str | None = None
+    last_refreshed_at: datetime | None = None
     uncertainty_reason: str | None = None
     source_metadata: dict[str, Any] = field(default_factory=dict)
 
