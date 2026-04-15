@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     UniqueConstraint,
@@ -212,3 +213,25 @@ class AnomalyFlag(Base):
     source_context_json = Column(JSONB, nullable=False, default=dict)
     dedupe_window_key = Column(String(180), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+
+
+class ConfidenceCalibrationData(Base):
+    """Append-only deterministic calibration bands for recommendation confidence."""
+
+    __tablename__ = "confidence_calibration_data"
+    __table_args__ = (
+        Index("ix_confidence_calibration_calculated", "calculated_at"),
+        Index("ix_confidence_calibration_range", "score_range_min", "score_range_max"),
+        {"schema": "pricing"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    calibration_id = Column(String(128), nullable=False, default=lambda: f"calibration-{uuid.uuid4().hex}")
+    score_range_min = Column(Numeric(12, 6), nullable=False)
+    score_range_max = Column(Numeric(12, 6), nullable=False)
+    sample_size = Column(Integer, nullable=False, default=0)
+    historical_success_rate = Column(Numeric(12, 6), nullable=True)
+    calibrated_probability = Column(Numeric(12, 6), nullable=True)
+    calculated_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+
+

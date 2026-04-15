@@ -36,6 +36,7 @@ from app.enums import BOMLineStatus, ProjectStatus
 from app.models.bom import AnalysisResult, BOM, BOMPart
 from app.models.events import EventAuditLog, ReportSnapshot
 from app.models.market import FXRate, FreightRate
+from app.models.outcomes import AnomalyFlag
 from app.models.project import Project
 from app.models.vendor import Vendor, VendorMatch, VendorMatchRun
 from app.schemas.recommendation import (
@@ -48,9 +49,11 @@ from app.schemas.recommendation import (
     VendorRankingEntry,
 )
 from app.services.analyzer_service import call_normalize
+from app.services.confidence_calibration_service import confidence_calibration_service
 from app.services.enrichment.evidence_operations_service import evidence_operations_service
 from app.services.enrichment.phase2a_evidence_service import phase2a_evidence_service
 from app.services.market_data.fx_service import fx_service
+from app.services.recommendation_stability_service import recommendation_stability_service
 from app.services.scoring.vendor_scorer import rank_vendors
 
 logger = logging.getLogger(__name__)
@@ -149,6 +152,11 @@ class RuntimePipelineService:
 
         normalized_lines: list[dict[str, Any]] = []
         analyzer_evidence: list[dict[str, Any]] = []
+        prior_recommendation = self.get_latest_recommendation(db, project_id=project.id)
+        prior_line_map = {
+            row.bom_part_id: row.model_dump() if hasattr(row, "model_dump") else row
+            for row in (prior_recommendation.line_recommendations if prior_recommendation else [])
+        }
 
         try:
             for part in parts:
@@ -198,6 +206,7 @@ class RuntimePipelineService:
                     weight_profile=weight_profile,
                     fx_context=fx_context,
                     freight_context=freight_context,
+                    previous_line=prior_line_map.get(normalized["bom_part_id"]),
                 )
                 line_outputs.append(line_result)
                 self._accumulate_vendor_rollup(aggregate, line_result)
@@ -443,6 +452,7 @@ class RuntimePipelineService:
         weight_profile: str,
         fx_context: dict[str, Any],
         freight_context: dict[str, Any],
+        previous_line: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         quantity = max(_as_float(normalized.get("quantity"), 0.0), 1.0)
         material = normalized.get("material")
@@ -544,13 +554,23 @@ class RuntimePipelineService:
         for entry in ranked:
             candidate = next(v for v in candidate_vendor_dicts if v["id"] == entry["vendor_id"])
             freshness_status = entry.get("evidence_freshness") or entry.get("market_freshness", "fresh")
-            confidence_score = self._evidence_weighted_confidence_score(
+            raw_confidence_score = self._evidence_weighted_confidence_score(
                 normalized_confidence=_as_float(normalized.get("classification_confidence"), 0.0),
                 freshness_status=freshness_status,
                 has_full_match=candidate["eligibility"]["matched"],
                 phase2a_bundle=phase2a_bundle,
             )
-            confidence = self._confidence_label(confidence_score=confidence_score)
+            calibration = confidence_calibration_service.map_confidence(
+                db,
+                raw_confidence=raw_confidence_score,
+            )
+            calibrated_confidence_score = _as_float(calibration.calibrated_confidence, raw_confidence_score)
+            confidence = self._confidence_label(confidence_score=calibrated_confidence_score)
+            anomaly_summary = self._build_anomaly_summary(
+                db=db,
+                bom_line_id=normalized["bom_part_id"],
+                vendor_id=entry["vendor_id"],
+            )
             candidate_rankings.append(
                 VendorRankingEntry(
                     vendor_id=entry["vendor_id"],
@@ -558,7 +578,9 @@ class RuntimePipelineService:
                     rank=entry["rank"],
                     score=round(_as_float(entry["total_score"]), 4),
                     confidence=confidence,
-                    confidence_score=round(confidence_score, 4),
+                    confidence_score=round(calibrated_confidence_score, 4),
+                    raw_confidence_score=round(raw_confidence_score, 4),
+                    calibrated_confidence_score=round(calibrated_confidence_score, 4),
                     rationale=entry["explanation"],
                     freshness_status=freshness_status,
                     source_currency=candidate["source_currency"],
@@ -577,10 +599,23 @@ class RuntimePipelineService:
                         "eligibility": candidate["eligibility"],
                         "pricing": candidate["pricing"],
                         "phase2a": phase2a_bundle,
+                        "anomaly_summary": anomaly_summary,
+                        "confidence_calibration": {
+                            "used_calibration": calibration.used_calibration,
+                            "fallback_reason": calibration.fallback_reason,
+                            "band_sample_size": calibration.band_sample_size,
+                            "score_range_min": str(calibration.score_range_min) if calibration.score_range_min is not None else None,
+                            "score_range_max": str(calibration.score_range_max) if calibration.score_range_max is not None else None,
+                        },
                     },
                 )
             )
 
+        stability = recommendation_stability_service.apply(
+            candidate_rankings=candidate_rankings,
+            previous_line=previous_line,
+        )
+        candidate_rankings = stability.candidate_rankings
         top = candidate_rankings[0]
         gate = self._phase2a_strategy_gate(phase2a_bundle=phase2a_bundle, has_recommendation=True)
         pricing_context = RecommendationPricingContext(
@@ -619,7 +654,29 @@ class RuntimePipelineService:
                 "phase2a_uncertainty_flags": phase2a_bundle.get("uncertainty_flags") or {},
                 "missing_critical_evidence_categories": [],
                 "evidence_completeness_score": None,
+                "calibration_used": bool((top.evidence or {}).get("confidence_calibration", {}).get("used_calibration")),
+                "calibration_fallback_reason": (top.evidence or {}).get("confidence_calibration", {}).get("fallback_reason"),
+                "anomaly_summary": (top.evidence or {}).get("anomaly_summary") or {},
             },
+            "rank_changed": stability.rank_changed,
+            "prior_rank": stability.prior_rank,
+            "score_delta": round(stability.score_delta, 4) if stability.score_delta is not None else None,
+            "material_change_flag": stability.material_change_flag,
+            "stability_reason": stability.stability_reason,
+        }
+
+    def _build_anomaly_summary(self, *, db: Session, bom_line_id: str, vendor_id: str) -> dict[str, Any]:
+        rows = db.query(AnomalyFlag).order_by(AnomalyFlag.detected_at.desc()).limit(200).all()
+        matched = []
+        for row in rows:
+            context = row.source_context_json or {}
+            if context.get("bom_line_id") == bom_line_id and context.get("vendor_id") == vendor_id:
+                matched.append(row)
+        return {
+            "count": len(matched),
+            "has_high_severity": any((row.severity or "").lower() == "high" for row in matched),
+            "latest_detected_at": matched[0].detected_at.isoformat() if matched else None,
+            "latest_anomaly_type": matched[0].anomaly_type if matched else None,
         }
 
     def _vendor_to_candidate_dict(

@@ -46,6 +46,8 @@ class VendorRankingEntry(BaseModel):
     score: float
     confidence: str
     confidence_score: float | None = None
+    raw_confidence_score: float | None = None
+    calibrated_confidence_score: float | None = None
     rationale: str
     freshness_status: str
     source_currency: str = "USD"
@@ -78,6 +80,11 @@ class LineRecommendationEntry(BaseModel):
     strategy_gate: str = "verify-first"
     strategy_reasons: list[str] = Field(default_factory=list)
     evidence_summary: dict[str, Any] = Field(default_factory=dict)
+    rank_changed: bool = False
+    prior_rank: int | None = None
+    score_delta: float | None = None
+    material_change_flag: bool = False
+    stability_reason: str = "not_evaluated"
 
 
 class RecommendationSummary(BaseModel):
@@ -118,4 +125,3 @@ class ProjectRecommendationResponse(BaseModel):
     evidence: RecommendationEvidence = Field(default_factory=RecommendationEvidence)
 
     model_config = {"from_attributes": True}
-
