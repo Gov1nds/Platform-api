@@ -1,4 +1,3 @@
-
 """
 Phase 2A enrichment and lookup data-layer models.
 
@@ -486,6 +485,123 @@ class BOMLineDependencyIndex(Base):
     bom = relationship("BOM")
     parent_bom_part = relationship("BOMPart", foreign_keys=[parent_bom_part_id])
     child_bom_part = relationship("BOMPart", foreign_keys=[child_bom_part_id])
+
+
+class BOMLineEvidenceCoverageFact(Base):
+    """
+    Periodic evidence-coverage snapshot for BOM lines.
+
+    Batch 5 uses this as a compact operational fact table so coverage can be
+    trended over time by tenant, project, and taxonomy code without changing
+    recommendation semantics.
+    """
+    __tablename__ = "bom_line_evidence_coverage_facts"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_date",
+            "tenant_id",
+            "project_id",
+            "taxonomy_code",
+            name="uq_bom_line_evidence_coverage_fact_dim",
+        ),
+        Index("ix_blecf_snapshot_date", "snapshot_date"),
+        Index("ix_blecf_tenant_project", "tenant_id", "project_id"),
+        Index("ix_blecf_taxonomy_code", "taxonomy_code"),
+        {"schema": "ops"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    snapshot_date = Column(DateTime(timezone=True), nullable=False, default=_now)
+    tenant_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("auth.organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("projects.projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    taxonomy_code = Column(Text, nullable=False, default="unclassified")
+
+    lines_total = Column(Integer, nullable=False, default=0)
+    lines_with_sku_mapping = Column(Integer, nullable=False, default=0)
+    lines_with_fresh_offer = Column(Integer, nullable=False, default=0)
+    lines_with_fresh_availability = Column(Integer, nullable=False, default=0)
+    lines_with_hs6 = Column(Integer, nullable=False, default=0)
+    lines_with_tariff_row = Column(Integer, nullable=False, default=0)
+    lines_with_lane_band = Column(Integer, nullable=False, default=0)
+    lines_award_ready = Column(Integer, nullable=False, default=0)
+    lines_rfq_first = Column(Integer, nullable=False, default=0)
+
+    source_metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    tenant = relationship("Organization")
+    project = relationship("Project")
+
+
+class EvidenceGapBacklogItem(Base):
+    """
+    Persistent routing record for missing or weak evidence on a BOM line.
+
+    The unique fingerprint keeps recurring evaluations from flooding backlog
+    tables while still allowing reopened items to preserve audit history.
+    """
+    __tablename__ = "evidence_gap_backlog_items"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_evidence_gap_backlog_dedupe_key"),
+        Index("ix_egbi_tenant_status", "tenant_id", "status"),
+        Index("ix_egbi_project_category", "project_id", "category"),
+        Index("ix_egbi_bom_part", "bom_part_id"),
+        Index("ix_egbi_priority", "priority_score", "last_seen_at"),
+        {"schema": "ops"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("auth.organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("projects.projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    bom_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("bom.boms.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    bom_part_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("bom.bom_parts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    category = Column(String(60), nullable=False)
+    dedupe_key = Column(String(128), nullable=False)
+    taxonomy_code = Column(Text, nullable=True)
+    status = Column(String(40), nullable=False, default="open")
+    severity = Column(String(20), nullable=False, default="medium")
+    priority_score = Column(Numeric(12, 4), nullable=False, default=0)
+    request_count = Column(Integer, nullable=False, default=1)
+
+    detail_json = Column(JSONB, nullable=False, default=dict)
+    source_metadata = Column(JSONB, nullable=False, default=dict)
+
+    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    tenant = relationship("Organization")
+    project = relationship("Project")
+    bom = relationship("BOM")
+    bom_part = relationship("BOMPart")
 
 
 class EnrichmentRunLog(Base):

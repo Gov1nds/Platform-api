@@ -48,6 +48,7 @@ from app.schemas.recommendation import (
     VendorRankingEntry,
 )
 from app.services.analyzer_service import call_normalize
+from app.services.enrichment.evidence_operations_service import evidence_operations_service
 from app.services.enrichment.phase2a_evidence_service import phase2a_evidence_service
 from app.services.market_data.fx_service import fx_service
 from app.services.scoring.vendor_scorer import rank_vendors
@@ -200,6 +201,27 @@ class RuntimePipelineService:
                 )
                 line_outputs.append(line_result)
                 self._accumulate_vendor_rollup(aggregate, line_result)
+
+            part_index = {part.id: part for part in parts}
+            for line_result in line_outputs:
+                part = part_index.get(line_result.get("bom_part_id"))
+                if not part:
+                    continue
+                evidence_operations_service.route_backlog_for_line(
+                    db,
+                    bom_part=part,
+                    project=project,
+                    recommendation=line_result,
+                    observed_at=_now(),
+                )
+                part.score_cache_json = line_result
+            if bom.organization_id:
+                evidence_operations_service.snapshot_coverage_facts(
+                    db,
+                    tenant_id=bom.organization_id,
+                    project_id=project.id,
+                    snapshot_at=_now(),
+                )
 
             vendor_rankings = self._build_project_vendor_rankings(aggregate)
             summary = self._build_summary(
@@ -486,6 +508,8 @@ class RuntimePipelineService:
                     "phase2a_confidence": (phase2a_bundle.get("confidence_summary") or {}).get("score"),
                     "phase2a_freshness": (phase2a_bundle.get("freshness_summary") or {}).get("status"),
                     "phase2a_uncertainty_flags": phase2a_bundle.get("uncertainty_flags") or {},
+                    "missing_critical_evidence_categories": [],
+                    "evidence_completeness_score": None,
                 },
             }
 
@@ -593,6 +617,8 @@ class RuntimePipelineService:
                 "phase2a_confidence": (phase2a_bundle.get("confidence_summary") or {}).get("score"),
                 "phase2a_freshness": (phase2a_bundle.get("freshness_summary") or {}).get("status"),
                 "phase2a_uncertainty_flags": phase2a_bundle.get("uncertainty_flags") or {},
+                "missing_critical_evidence_categories": [],
+                "evidence_completeness_score": None,
             },
         }
 
@@ -1289,4 +1315,3 @@ class RuntimePipelineService:
 
 
 runtime_pipeline_service = RuntimePipelineService()
-

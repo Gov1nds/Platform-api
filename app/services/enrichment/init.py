@@ -40,7 +40,12 @@ __all__ = [
     "tariff_lookup_service",
     "LaneRateBandLookupService",
     "lane_rate_band_lookup_service",
+    "EvidenceOperationsService",
+    "evidence_operations_service",
 ]
 
 from app.services.enrichment.vendor_resolution_service import VendorResolutionService, vendor_resolution_service
 from app.services.enrichment.vendor_import_service import VendorImportService, vendor_import_service
+from app.services.enrichment.evidence_operations_service import (
+    EvidenceOperationsService, evidence_operations_service,
+)

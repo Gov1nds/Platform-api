@@ -20,6 +20,7 @@ from app.models.enrichment import (
 )
 from app.models.market import TariffSchedule
 from app.models.project import Project
+from app.services.enrichment.evidence_operations_service import evidence_operations_service
 from app.services.enrichment.phase2a_evidence_service import phase2a_evidence_service
 from app.services.runtime_pipeline import runtime_pipeline_service
 
@@ -43,6 +44,7 @@ class Phase2ARecomputeService:
     EXECUTE_STAGE = "phase2a_recompute_execute"
     COALESCE_WINDOW_SECONDS = 45
     MAX_RECOMPUTES_PER_MINUTE = 120
+    TENANT_MAX_RECOMPUTES_PER_MINUTE = 40
     TERMINAL_LINE_STATUSES = {
         BOMLineStatus.DELIVERED,
         BOMLineStatus.CLOSED,
@@ -340,6 +342,7 @@ class Phase2ARecomputeService:
             db.query(EnrichmentRunLog)
             .filter(
                 EnrichmentRunLog.stage == self.ENQUEUE_STAGE,
+                EnrichmentRunLog.run_scope == "bom_line",
                 EnrichmentRunLog.started_at >= window_start,
                 EnrichmentRunLog.status.in_(["queued", "dispatched"]),
             )
@@ -357,6 +360,76 @@ class Phase2ARecomputeService:
         merged["reasons"] = sorted(reasons)
         merged["datasets"] = sorted(datasets)
         return merged
+    def _tenant_id_for_line(self, db: Session, *, bom_line_id: str) -> str | None:
+        row = (
+            db.query(BOM.organization_id)
+            .join(BOMPart, BOMPart.bom_id == BOM.id)
+            .filter(BOMPart.id == bom_line_id)
+            .first()
+        )
+        return row[0] if row and row[0] else None
+
+    def _project_for_line(self, db: Session, *, bom_line_id: str) -> Project | None:
+        return (
+            db.query(Project)
+            .join(BOM, BOM.project_id == Project.id)
+            .join(BOMPart, BOMPart.bom_id == BOM.id)
+            .filter(BOMPart.id == bom_line_id, Project.deleted_at.is_(None))
+            .first()
+        )
+
+    def _recent_recompute_count_for_tenant(self, db: Session, *, tenant_id: str, now: datetime) -> int:
+        window_start = now - timedelta(minutes=1)
+        return (
+            db.query(EnrichmentRunLog)
+            .join(BOMPart, BOMPart.id == EnrichmentRunLog.bom_part_id)
+            .join(BOM, BOM.id == BOMPart.bom_id)
+            .filter(
+                EnrichmentRunLog.stage == self.ENQUEUE_STAGE,
+                EnrichmentRunLog.run_scope == "bom_line",
+                EnrichmentRunLog.started_at >= window_start,
+                EnrichmentRunLog.status.in_(["queued", "dispatched"]),
+                BOM.organization_id == tenant_id,
+            )
+            .count()
+        )
+
+    def _scope_bucket_key(self, *, scope_type: str, scope_value: str, bucket: str) -> str:
+        return f"{self.ENQUEUE_STAGE}:scope:{scope_type}:{scope_value}:{bucket}"
+
+    def _coalescing_keys_for_line(self, bom_part: BOMPart) -> dict[str, str]:
+        phase2a = ((bom_part.enrichment_json or {}).get("phase2a") or {})
+        tariff = phase2a.get("tariff_evidence") or {}
+        freight = phase2a.get("freight_evidence") or {}
+        keys: dict[str, str] = {}
+        if bom_part.canonical_part_key:
+            keys["canonical_sku"] = str(bom_part.canonical_part_key)
+        hs6 = str(tariff.get("hs_code") or "")[:6]
+        if hs6:
+            keys["tariff_scope"] = hs6
+        lane_key = freight.get("lane_key")
+        if lane_key:
+            keys["lane"] = str(lane_key)
+        return keys
+
+    def _prioritize_bom_line_ids(self, db: Session, *, bom_line_ids: Iterable[str]) -> list[str]:
+        ranked: list[tuple[float, str]] = []
+        for bom_line_id in sorted(set(str(v) for v in bom_line_ids if v)):
+            part = db.query(BOMPart).filter(BOMPart.id == bom_line_id).first()
+            if not part:
+                continue
+            project = self._project_for_line(db, bom_line_id=bom_line_id)
+            categories = (part.score_cache_json or {}).get("evidence_summary", {}).get("missing_critical_evidence_categories") or []
+            priority = evidence_operations_service.priority_score_for_line(
+                db,
+                bom_part=part,
+                project=project,
+                categories=categories,
+            )
+            ranked.append((float(priority), bom_line_id))
+        ranked.sort(key=lambda item: (-item[0], item[1]))
+        return [bom_line_id for _, bom_line_id in ranked]
+
 
     def enqueue_recompute_for_bom_lines(
         self,
@@ -378,13 +451,56 @@ class Phase2ARecomputeService:
         current_rate = self._recent_recompute_count(db, now=now)
         enqueued = 0
         skipped = 0
+        throttled_by_tenant = 0
+        prioritized_ids = self._prioritize_bom_line_ids(db, bom_line_ids=ids)
 
         from app.workers.pipeline import task_recompute_bom_line_phase2a
 
-        for bom_line_id in sorted(set(ids)):
+        for bom_line_id in prioritized_ids:
             if current_rate >= self.MAX_RECOMPUTES_PER_MINUTE:
                 skipped += 1
                 continue
+
+            tenant_id = self._tenant_id_for_line(db, bom_line_id=bom_line_id)
+            if tenant_id:
+                tenant_rate = self._recent_recompute_count_for_tenant(db, tenant_id=tenant_id, now=now)
+                if tenant_rate >= self.TENANT_MAX_RECOMPUTES_PER_MINUTE:
+                    throttled_by_tenant += 1
+                    skipped += 1
+                    continue
+            else:
+                tenant_rate = None
+
+            part = db.query(BOMPart).filter(BOMPart.id == bom_line_id).first()
+            scope_keys = self._coalescing_keys_for_line(part) if part else {}
+            scope_window_hits: dict[str, str] = {}
+            for scope_type, scope_value in scope_keys.items():
+                scope_idempotency = self._scope_bucket_key(scope_type=scope_type, scope_value=scope_value, bucket=bucket)
+                existing_scope = db.query(EnrichmentRunLog).filter(EnrichmentRunLog.idempotency_key == scope_idempotency).first()
+                if existing_scope:
+                    scope_window_hits[scope_type] = scope_value
+                else:
+                    db.add(
+                        EnrichmentRunLog(
+                            bom_part_id=bom_line_id,
+                            run_scope="coalesce_scope",
+                            stage=self.ENQUEUE_STAGE,
+                            provider="phase2a-recompute",
+                            status="queued",
+                            idempotency_key=scope_idempotency,
+                            attempt_count=1,
+                            source_system="platform-api",
+                            source_metadata={
+                                "bucket": bucket,
+                                "scope_type": scope_type,
+                                "scope_value": scope_value,
+                                "tenant_id": tenant_id,
+                                "countdown_seconds": countdown,
+                            },
+                            started_at=now,
+                        )
+                    )
+                    db.flush()
 
             idempotency_key = f"{self.ENQUEUE_STAGE}:{bom_line_id}:{bucket}"
             existing = (
@@ -396,6 +512,8 @@ class Phase2ARecomputeService:
                 existing.source_metadata = self._merge_reasons(existing.source_metadata or {}, reason, dataset)
                 extra = dict(existing.source_metadata or {})
                 extra["source_keys"] = source_keys or {}
+                extra["tenant_id"] = tenant_id
+                extra["scope_window_hits"] = scope_window_hits
                 existing.source_metadata = extra
                 existing.updated_at = now
                 skipped += 1
@@ -412,10 +530,13 @@ class Phase2ARecomputeService:
                 source_system="platform-api",
                 source_metadata={
                     "bucket": bucket,
+                    "tenant_id": tenant_id,
                     "reasons": [reason],
                     "datasets": [dataset],
                     "source_keys": source_keys or {},
+                    "scope_window_hits": scope_window_hits,
                     "countdown_seconds": countdown,
+                    "tenant_recent_queue_depth": tenant_rate,
                 },
                 started_at=now,
             )
@@ -436,7 +557,13 @@ class Phase2ARecomputeService:
             enqueued += 1
 
         db.flush()
-        return {"enqueued": enqueued, "skipped": skipped, "reason": reason, "dataset": dataset}
+        return {
+            "enqueued": enqueued,
+            "skipped": skipped,
+            "reason": reason,
+            "dataset": dataset,
+            "throttled_by_tenant": throttled_by_tenant,
+        }
 
     def trigger_for_sku_offer_change(self, db: Session, *, sku_offer_id: str, reason: str = "sku_offer_changed") -> dict[str, Any]:
         offer = db.query(SKUOffer).filter(SKUOffer.id == sku_offer_id).first()
@@ -766,6 +893,21 @@ class Phase2ARecomputeService:
         freshness_json["phase2a_refresh_reasons"] = []
         freshness_json["phase2a_last_recomputed_at"] = self._now().isoformat()
         part.data_freshness_json = freshness_json
+
+        evidence_operations_service.route_backlog_for_line(
+            db,
+            bom_part=part,
+            project=project,
+            recommendation=recommendation,
+            observed_at=self._now(),
+        )
+        if bom and bom.organization_id:
+            evidence_operations_service.snapshot_coverage_facts(
+                db,
+                tenant_id=bom.organization_id,
+                project_id=project.id if project else bom.project_id,
+                snapshot_at=self._now(),
+            )
 
         execution_log.status = "completed"
         execution_log.records_written = 1
