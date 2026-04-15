@@ -12,6 +12,7 @@ from app.services.enrichment.availability_reconciliation_service import (
     availability_reconciliation_service,
 )
 from app.services.enrichment.hs_mapping_service import HSMappingService, hs_mapping_service
+from app.services.enrichment.tariff_ingestion_service import TariffIngestionService, tariff_ingestion_service
 from app.services.enrichment.tariff_lookup_service import TariffLookupService, tariff_lookup_service
 from app.services.enrichment.lane_rate_band_lookup_service import (
     LaneRateBandLookupService,
@@ -29,6 +30,8 @@ __all__ = [
     "availability_reconciliation_service",
     "HSMappingService",
     "hs_mapping_service",
+    "TariffIngestionService",
+    "tariff_ingestion_service",
     "TariffLookupService",
     "tariff_lookup_service",
     "LaneRateBandLookupService",

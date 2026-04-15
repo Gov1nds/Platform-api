@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, Text, DateTime, Numeric, Integer, Index,
+    Column, String, Text, DateTime, Numeric, Integer, Index, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
@@ -82,17 +82,54 @@ class FreightRate(Base):
     created_at = Column(DateTime(timezone=True), default=_now)
 
 
+class TariffScopeRegistry(Base):
+    __tablename__ = "tariff_scope_registry"
+    __table_args__ = (
+        UniqueConstraint("import_country", name="uq_tariff_scope_registry_import_country"),
+        Index("ix_tariff_scope_registry_import_country", "import_country"),
+        Index("ix_tariff_scope_registry_coverage_level", "coverage_level"),
+        {"schema": "market"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    import_country = Column(String(3), nullable=False)
+    coverage_level = Column(String(40), nullable=False, default="unknown")
+    update_cadence = Column(String(40), nullable=True)
+    last_ingested_at = Column(DateTime(timezone=True), nullable=True)
+    coverage_notes = Column(Text, nullable=True)
+    source = Column(Text, nullable=True)
+    source_metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 class TariffSchedule(Base):
     __tablename__ = "tariff_schedules"
     __table_args__ = (
         Index("ix_tariff_hs", "hs_code"),
+        Index("ix_tariff_hs6_destination", "hs6", "destination_country"),
+        Index("ix_tariff_effective_window", "effective_from", "effective_to"),
+        UniqueConstraint(
+            "destination_country",
+            "origin_country",
+            "hs_code",
+            "effective_from",
+            "source_record_hash",
+            name="uq_tariff_schedule_version_hash",
+        ),
         {"schema": "market"},
     )
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     hs_code = Column(String(20), nullable=False)
+    hs6 = Column(String(6), nullable=True)
+    hs_version = Column(String(20), nullable=True)
+    national_extension_code = Column(String(20), nullable=True)
+    tariff_code_type = Column(String(20), nullable=False, default="HS6")
+    import_country = Column(String(3), nullable=True)
     origin_country = Column(String(3), nullable=False)
     destination_country = Column(String(3), nullable=False)
+    coverage_level = Column(String(40), nullable=True)
     duty_rate_pct = Column(Numeric(8, 4), nullable=False, default=0)
     additional_taxes_pct = Column(Numeric(8, 4), nullable=False, default=0)
     source = Column(Text, nullable=True)
@@ -106,8 +143,12 @@ class TariffSchedule(Base):
     fetched_at = Column(DateTime(timezone=True), nullable=True)
     provider_id = Column(String(80), nullable=True)
     data_source = Column(String(120), nullable=True)
+    source_record_id = Column(String(160), nullable=True)
+    source_record_hash = Column(String(128), nullable=True)
+    source_metadata = Column(JSONB, nullable=False, default=dict)
 
     created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
 class CommodityIndex(Base):

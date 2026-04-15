@@ -134,7 +134,11 @@ class TariffLookupDTO:
     lookup_status: str
     hs_code: str | None = None
     hs6: str | None = None
+    hs_version: str | None = None
+    national_extension_code: str | None = None
+    tariff_code_type: str | None = None
     destination_country: str | None = None
+    import_country: str | None = None
     origin_country: str | None = None
     lookup_date: datetime | None = None
     tariff_schedule_id: str | None = None
@@ -146,6 +150,9 @@ class TariffLookupDTO:
     freshness_status: str | None = None
     effective_from: datetime | None = None
     effective_to: datetime | None = None
+    coverage_level: str | None = None
+    coverage_status: str | None = None
+    last_ingested_at: datetime | None = None
     estimated_customs_value: Decimal | None = None
     estimated_duty: Decimal | None = None
     estimated_additional_taxes: Decimal | None = None

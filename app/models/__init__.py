@@ -22,7 +22,7 @@ from app.models.rfq import (
 from app.models.logistics import Shipment, ShipmentMilestone
 from app.models.chat import ChatThread, ChatMessage
 from app.models.market import (
-    FXRate, FreightRate, TariffSchedule, CommodityIndex, IntegrationRunLog,
+    FXRate, FreightRate, TariffScopeRegistry, TariffSchedule, CommodityIndex, IntegrationRunLog,
 )
 from app.models.enrichment import (
     PartToSkuMapping, SKUOffer, SKUOfferPriceBreak, SKUAvailabilitySnapshot,
@@ -57,7 +57,7 @@ __all__ = [
     # chat
     "ChatThread", "ChatMessage",
     # market
-    "FXRate", "FreightRate", "TariffSchedule", "CommodityIndex",
+    "FXRate", "FreightRate", "TariffScopeRegistry", "TariffSchedule", "CommodityIndex",
     "IntegrationRunLog", "SKUAvailabilitySnapshot", "HSMapping",
     "LaneRateBand", "CanonicalAvailabilitySnapshot",
     # pricing enrichment
