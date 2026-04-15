@@ -70,6 +70,10 @@ if celery_app:
             "task": "app.workers.scheduled.task_phase2a_refresh_scan",
             "schedule": timedelta(minutes=10),
         },
+        "phase2c-vendor-performance-foundation": {
+            "task": "app.workers.scheduled.task_phase2c_vendor_performance_foundation",
+            "schedule": crontab(hour=3, minute=15),
+        },
     }
 
     @celery_app.task
@@ -309,6 +313,33 @@ if celery_app:
             db.close()
 
     @celery_app.task
+    def task_phase2c_vendor_performance_foundation() -> dict:
+        """Compute Phase 2C vendor scorecard foundation rows from quote outcomes."""
+        from datetime import timedelta
+        from app.services.outcome_data_service import outcome_data_service
+
+        db = _get_db()
+        try:
+            today = datetime.now(timezone.utc).date()
+            period_end = today
+            period_start = today - timedelta(days=90)
+            rows = outcome_data_service.rebuild_vendor_performance(
+                db,
+                period_start=period_start,
+                period_end=period_end,
+                replace_existing=True,
+            )
+            db.commit()
+            return {"vendor_rows": len(rows), "period_start": str(period_start), "period_end": str(period_end)}
+        except Exception:
+            db.rollback()
+            logger.exception("Phase 2C vendor performance foundation rebuild failed")
+            return {"error": "failed"}
+        finally:
+            db.close()
+
+
+    @celery_app.task
     def task_report_snapshot_aggregation() -> dict:
         """Nightly report snapshot computation."""
         logger.info("Report snapshot aggregation triggered (stub)")
@@ -325,4 +356,3 @@ if celery_app:
         """Async report export (PDF/Excel)."""
         logger.info("Report export %s format=%s (stub)", job_id, fmt)
         return {"job_id": job_id, "status": "complete", "format": fmt}
-
