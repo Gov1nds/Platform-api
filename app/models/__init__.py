@@ -11,7 +11,8 @@ from app.models.project import (
 )
 from app.models.vendor import (
     Vendor, VendorCapability, VendorMatchRun, VendorMatch,
-    VendorPerformanceSnapshot,
+    VendorPerformanceSnapshot, VendorImportBatch, VendorImportRow,
+    VendorIdentityAlias, VendorEvidenceAttachment,
 )
 from app.models.rfq import (
     RFQBatch, RFQItem, RFQVendorInvitation, InvitationStatusEvent,
@@ -46,7 +47,8 @@ __all__ = [
     "Project", "ProjectACL", "ProjectEvent", "SearchSession", "SourcingCase",
     # vendor
     "Vendor", "VendorCapability", "VendorMatchRun", "VendorMatch",
-    "VendorPerformanceSnapshot",
+    "VendorPerformanceSnapshot", "VendorImportBatch", "VendorImportRow",
+    "VendorIdentityAlias", "VendorEvidenceAttachment",
     # rfq / quote / po / invoice / payment / gr / approval
     "RFQBatch", "RFQItem", "RFQVendorInvitation", "InvitationStatusEvent",
     "RFQQuoteHeader", "RFQQuoteLine", "PurchaseOrder", "POLineItem",

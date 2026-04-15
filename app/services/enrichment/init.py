@@ -20,6 +20,10 @@ from app.services.enrichment.lane_rate_band_lookup_service import (
 )
 
 __all__ = [
+    "VendorResolutionService",
+    "vendor_resolution_service",
+    "VendorImportService",
+    "vendor_import_service",
     "PartMappingService",
     "part_mapping_service",
     "OfferIngestionService",
@@ -37,3 +41,6 @@ __all__ = [
     "LaneRateBandLookupService",
     "lane_rate_band_lookup_service",
 ]
+
+from app.services.enrichment.vendor_resolution_service import VendorResolutionService, vendor_resolution_service
+from app.services.enrichment.vendor_import_service import VendorImportService, vendor_import_service
