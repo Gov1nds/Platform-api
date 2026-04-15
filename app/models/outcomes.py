@@ -179,3 +179,36 @@ class VendorPerformance(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
 
     vendor = relationship("Vendor")
+
+class AnomalyFlag(Base):
+    """
+    Append-only deterministic anomaly flags for pricing, lead-time, and
+    availability signals.
+
+    Rows do not mutate source data. Duplicate spam is controlled through a
+    deterministic dedupe window key.
+    """
+
+    __tablename__ = "anomaly_flags"
+    __table_args__ = (
+        UniqueConstraint("anomaly_id", name="uq_anomaly_flags_anomaly_id"),
+        UniqueConstraint("dedupe_window_key", name="uq_anomaly_flags_dedupe_window_key"),
+        Index("ix_anomaly_flags_entity", "entity_type", "entity_id"),
+        Index("ix_anomaly_flags_metric_detected", "metric_name", "detected_at"),
+        Index("ix_anomaly_flags_severity_detected", "severity", "detected_at"),
+        {"schema": "ops"},
+    )
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    anomaly_id = Column(String(128), nullable=False, default=lambda: f"anomaly-{uuid.uuid4().hex}")
+    entity_type = Column(String(80), nullable=False)
+    entity_id = Column(String(128), nullable=False)
+    metric_name = Column(String(80), nullable=False)
+    observed_value = Column(Numeric(20, 8), nullable=True)
+    threshold_value = Column(Numeric(20, 8), nullable=True)
+    anomaly_type = Column(String(80), nullable=False)
+    severity = Column(String(20), nullable=False, default="medium")
+    detected_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    source_context_json = Column(JSONB, nullable=False, default=dict)
+    dedupe_window_key = Column(String(180), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
