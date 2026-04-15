@@ -31,6 +31,9 @@ def test_all_models_registered_with_metadata():
         "pricing.part_to_sku_mapping",
         "pricing.sku_offers",
         "pricing.sku_offer_price_breaks",
+        "pricing.canonical_sku",
+        "pricing.source_sku_link",
+        "pricing.canonical_offer_snapshot",
         "sourcing.rfq_batches",
         "sourcing.rfq_items",
         "sourcing.rfq_vendor_invitations",
@@ -57,6 +60,7 @@ def test_all_models_registered_with_metadata():
         "ops.chat_threads",
         "ops.chat_messages",
         "ops.enrichment_run_log",
+        "ops.connector_health_metrics",
         "market.fx_rates",
         "market.freight_rates",
         "market.tariff_schedules",
@@ -64,6 +68,7 @@ def test_all_models_registered_with_metadata():
         "market.sku_availability_snapshots",
         "market.hs_mapping",
         "market.lane_rate_bands",
+        "market.canonical_availability_snapshot",
     }
 
     for tbl in expected_tables:

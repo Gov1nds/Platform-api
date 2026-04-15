@@ -28,6 +28,10 @@ from app.models.enrichment import (
     PartToSkuMapping, SKUOffer, SKUOfferPriceBreak, SKUAvailabilitySnapshot,
     HSMapping, LaneRateBand, BOMLineDependencyIndex, EnrichmentRunLog,
 )
+from app.models.canonical import (
+    CanonicalSKU, SourceSKULink, ConnectorHealthMetrics,
+    CanonicalOfferSnapshot, CanonicalAvailabilitySnapshot,
+)
 from app.models.events import (
     PlatformEvent, ReportSnapshot, EventAuditLog, IdempotencyRecord,
 )
@@ -55,11 +59,12 @@ __all__ = [
     # market
     "FXRate", "FreightRate", "TariffSchedule", "CommodityIndex",
     "IntegrationRunLog", "SKUAvailabilitySnapshot", "HSMapping",
-    "LaneRateBand",
+    "LaneRateBand", "CanonicalAvailabilitySnapshot",
     # pricing enrichment
     "PartToSkuMapping", "SKUOffer", "SKUOfferPriceBreak",
+    "CanonicalSKU", "SourceSKULink", "CanonicalOfferSnapshot",
     # ops
-    "EnrichmentRunLog",
+    "EnrichmentRunLog", "ConnectorHealthMetrics",
     # events / ops
     "PlatformEvent", "ReportSnapshot", "EventAuditLog", "IdempotencyRecord",
     # notifications

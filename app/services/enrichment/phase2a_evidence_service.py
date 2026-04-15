@@ -1,12 +1,13 @@
 """
-Phase 2A Batch 3 - Part 4: enrichment evidence assembly.
+Phase 2A / Phase 2B evidence assembly.
 
 Behavior:
-- assembles additive Phase 2A evidence bundles for a BOM line
-- uses persisted Batch 2 offers/availability plus Batch 3 HS/tariff/freight lookups
-- emits explicit uncertainty markers instead of inventing values
-- stores the assembled Phase 2A bundle under bom_part.enrichment_json["phase2a"]
-- preserves Phase 1 fallback behavior by leaving existing enrichment_json content intact
+- assembles additive evidence bundles for a BOM line
+- prefers consolidated canonical snapshots when they exist
+- falls back to persisted Phase 2A raw offers / availability when canonical
+  snapshots are absent
+- preserves Phase 1 fallback behavior by leaving existing enrichment_json
+  content intact
 """
 from __future__ import annotations
 
@@ -24,6 +25,17 @@ from app.services.enrichment.hs_mapping_service import hs_mapping_service
 from app.services.enrichment.lane_rate_band_lookup_service import lane_rate_band_lookup_service
 from app.services.enrichment.offer_ingestion_service import offer_ingestion_service
 from app.services.enrichment.tariff_lookup_service import tariff_lookup_service
+
+try:
+    from app.models.canonical import (
+        CanonicalAvailabilitySnapshot,
+        CanonicalOfferSnapshot,
+        CanonicalSKU,
+    )
+except Exception:  # pragma: no cover - repo may not yet include earlier batch files
+    CanonicalSKU = None  # type: ignore[assignment]
+    CanonicalOfferSnapshot = None  # type: ignore[assignment]
+    CanonicalAvailabilitySnapshot = None  # type: ignore[assignment]
 
 
 def _now() -> datetime:
@@ -47,6 +59,14 @@ def _as_decimal(value: Any, default: str = "0") -> Decimal:
         return Decimal(str(value))
     except Exception:
         return Decimal(default)
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in (None, "", 0, "0", "false", "False", "FALSE"):
+        return False
+    return True
 
 
 class Phase2AEvidenceService:
@@ -105,7 +125,7 @@ class Phase2AEvidenceService:
         normalized = [str(s or "unknown").lower() for s in statuses if s]
         if not normalized:
             return "missing"
-        if any(s in {"stale", "expired", "uncertain", "unknown", "missing"} for s in normalized):
+        if any(s in {"stale", "expired", "uncertain", "unknown", "missing", "mixed"} for s in normalized):
             return "mixed"
         return "fresh"
 
@@ -128,6 +148,150 @@ class Phase2AEvidenceService:
             "component_count": len(clean),
         }
 
+    def _find_canonical_sku(self, db: Session, *, canonical_part_key: str | None):
+        if CanonicalSKU is None or not canonical_part_key:
+            return None
+        return (
+            db.query(CanonicalSKU)
+            .filter(CanonicalSKU.canonical_part_key == canonical_part_key)
+            .order_by(CanonicalSKU.updated_at.desc(), CanonicalSKU.created_at.desc())
+            .first()
+        )
+
+    def _latest_canonical_offer_snapshot(self, db: Session, *, canonical_sku_id: str | None):
+        if CanonicalOfferSnapshot is None or not canonical_sku_id:
+            return None
+        return (
+            db.query(CanonicalOfferSnapshot)
+            .filter(CanonicalOfferSnapshot.canonical_sku_id == canonical_sku_id)
+            .order_by(CanonicalOfferSnapshot.updated_at.desc(), CanonicalOfferSnapshot.created_at.desc())
+            .first()
+        )
+
+    def _latest_canonical_availability_snapshot(self, db: Session, *, canonical_sku_id: str | None):
+        if CanonicalAvailabilitySnapshot is None or not canonical_sku_id:
+            return None
+        return (
+            db.query(CanonicalAvailabilitySnapshot)
+            .filter(CanonicalAvailabilitySnapshot.canonical_sku_id == canonical_sku_id)
+            .order_by(CanonicalAvailabilitySnapshot.updated_at.desc(), CanonicalAvailabilitySnapshot.created_at.desc())
+            .first()
+        )
+
+    def _canonical_offer_payload(
+        self,
+        *,
+        snapshot,
+    ) -> tuple[dict[str, Any], str, Decimal | None, str | None, str | None]:
+        metadata = dict(snapshot.evidence_metadata or {})
+        best_price = metadata.get("best_price")
+        best_currency = metadata.get("best_currency") or snapshot.currency
+        best_source_system = metadata.get("best_source_system") or snapshot.source_metadata.get("source_system") if isinstance(snapshot.source_metadata, dict) else None
+        best_external_offer_id = metadata.get("best_external_offer_id")
+        freshness_status = str(snapshot.freshness_status or ("STALE" if _as_bool(metadata.get("is_stale")) else "FRESH")).lower()
+        conflict_detected = _as_bool(metadata.get("has_conflict")) or (
+            _as_decimal(metadata.get("price_spread"), "1") > Decimal("1.5")
+            if metadata.get("price_spread") not in (None, "")
+            else False
+        )
+
+        confidence = _as_decimal(getattr(snapshot, "confidence", None), "0.88")
+        if conflict_detected:
+            confidence = max(Decimal("0"), confidence - Decimal("0.20"))
+        if freshness_status in {"stale", "mixed", "expired"}:
+            confidence = max(Decimal("0"), confidence - Decimal("0.12"))
+
+        offer_evidence = {
+            "primary_source": "canonical_snapshot",
+            "canonical_sku_id": snapshot.canonical_sku_id,
+            "canonical_offer_snapshot_id": snapshot.id,
+            "selected_offer_id": metadata.get("best_sku_offer_id") or snapshot.source_offer_id,
+            "selected_mapping_id": None,
+            "vendor_id": snapshot.vendor_id,
+            "currency": best_currency,
+            "target_currency": best_currency,
+            "uom": metadata.get("normalized_uom") or snapshot.source_metadata.get("normalized_uom") if isinstance(snapshot.source_metadata, dict) else None,
+            "selected_price_break": {
+                "break_qty": metadata.get("break_qty"),
+                "unit_price": str(best_price) if best_price is not None else (str(snapshot.unit_price) if snapshot.unit_price is not None else None),
+                "currency": best_currency,
+                "price_type": "unit",
+                "extended_price": None,
+            },
+            "best_source_system": best_source_system,
+            "best_external_offer_id": best_external_offer_id,
+            "price_spread": metadata.get("price_spread"),
+            "offer_count": metadata.get("offer_count"),
+            "valid_from": snapshot.valid_from.isoformat() if snapshot.valid_from else None,
+            "valid_to": snapshot.valid_to.isoformat() if snapshot.valid_to else None,
+            "valid_through": metadata.get("valid_through") or (snapshot.valid_to.isoformat() if snapshot.valid_to else None),
+            "freshness_status": freshness_status.upper(),
+            "source_system": best_source_system,
+            "source_metadata": {
+                **(snapshot.source_metadata or {}),
+                **metadata,
+            },
+            "conflict_detected": conflict_detected,
+            "uncertain": False,
+            "uncertainty_reason": None,
+        }
+        return (
+            offer_evidence,
+            freshness_status,
+            confidence,
+            snapshot.source_metadata.get("origin_country") if isinstance(snapshot.source_metadata, dict) else None,
+            snapshot.source_metadata.get("origin_region") if isinstance(snapshot.source_metadata, dict) else None,
+        )
+
+    def _canonical_availability_payload(
+        self,
+        *,
+        snapshot,
+    ) -> tuple[dict[str, Any], str, Decimal | None]:
+        metadata = dict(snapshot.evidence_metadata or {})
+        source_systems = metadata.get("source_systems") or []
+        freshness_minutes = metadata.get("freshness_minutes")
+        has_conflict = _as_bool(metadata.get("has_conflict"))
+        freshness_status = str(snapshot.freshness_status or ("STALE" if freshness_minutes not in (None, "", 0) else "FRESH")).lower()
+        confidence = _as_decimal(getattr(snapshot, "confidence", None), "0.84")
+        if has_conflict:
+            confidence = max(Decimal("0"), confidence - Decimal("0.18"))
+        if freshness_status in {"stale", "mixed", "expired"}:
+            confidence = max(Decimal("0"), confidence - Decimal("0.10"))
+
+        availability_evidence = {
+            "primary_source": "canonical_snapshot",
+            "canonical_sku_id": snapshot.canonical_sku_id,
+            "canonical_availability_snapshot_id": snapshot.id,
+            "snapshot_id": snapshot.source_availability_snapshot_id or snapshot.id,
+            "selected_offer_id": snapshot.source_offer_id,
+            "availability_status": snapshot.availability_status,
+            "available_qty": str(snapshot.available_qty) if snapshot.available_qty is not None else None,
+            "on_order_qty": str(snapshot.on_order_qty) if snapshot.on_order_qty is not None else None,
+            "allocated_qty": str(snapshot.allocated_qty) if snapshot.allocated_qty is not None else None,
+            "backorder_qty": str(snapshot.backorder_qty) if snapshot.backorder_qty is not None else None,
+            "factory_lead_time_days": (
+                str(metadata.get("lead_time_days"))
+                if metadata.get("lead_time_days") not in (None, "")
+                else (str(snapshot.factory_lead_time_days) if snapshot.factory_lead_time_days is not None else None)
+            ),
+            "inventory_location": snapshot.inventory_location,
+            "snapshot_at": snapshot.snapshot_at.isoformat() if snapshot.snapshot_at else None,
+            "freshness_status": freshness_status.upper(),
+            "source_system": source_systems[0] if source_systems else None,
+            "source_systems": source_systems,
+            "freshness_minutes": freshness_minutes,
+            "has_conflict": has_conflict,
+            "source_metadata": {
+                **(snapshot.source_metadata or {}),
+                **metadata,
+            },
+            "feasible": str(snapshot.availability_status or "").upper() in {"IN_STOCK", "LIMITED_STOCK"},
+            "uncertain": False,
+            "uncertainty_reason": None,
+        }
+        return availability_evidence, freshness_status, confidence
+
     def assemble_for_bom_part(
         self,
         db: Session,
@@ -149,6 +313,19 @@ class Phase2AEvidenceService:
             as_of=as_of,
         )
 
+        canonical_sku = self._find_canonical_sku(
+            db,
+            canonical_part_key=bom_part.canonical_part_key,
+        )
+        canonical_offer_snapshot = self._latest_canonical_offer_snapshot(
+            db,
+            canonical_sku_id=getattr(canonical_sku, "id", None),
+        )
+        canonical_availability_snapshot = self._latest_canonical_availability_snapshot(
+            db,
+            canonical_sku_id=getattr(canonical_sku, "id", None),
+        )
+
         selected_price_break = None
         offer_status = "missing"
         offer_confidence = _as_decimal(selected_mapping.confidence) if selected_mapping else None
@@ -156,6 +333,7 @@ class Phase2AEvidenceService:
         origin_region = None
 
         offer_evidence: dict[str, Any] = {
+            "primary_source": "phase2a_raw",
             "selected_mapping_id": selected_mapping.id if selected_mapping else None,
             "selected_offer_id": selected_offer.id if selected_offer else None,
             "uncertain": selected_offer is None,
@@ -173,6 +351,7 @@ class Phase2AEvidenceService:
             origin_region = selected_offer.factory_region
 
             offer_evidence = {
+                "primary_source": "phase2a_raw",
                 "selected_mapping_id": selected_mapping.id if selected_mapping else None,
                 "selected_offer_id": selected_offer.id,
                 "offer_name": selected_offer.offer_name,
@@ -200,6 +379,7 @@ class Phase2AEvidenceService:
                         else None
                     ),
                 } if selected_price_break else None,
+                "conflict_detected": False,
                 "uncertain": selected_price_break is None,
                 "uncertainty_reason": None if selected_price_break else "price_break_missing",
             }
@@ -209,6 +389,7 @@ class Phase2AEvidenceService:
         availability_confidence = None
 
         availability_evidence: dict[str, Any] = {
+            "primary_source": "phase2a_raw",
             "selected_offer_id": selected_offer.id if selected_offer else None,
             "uncertain": latest_snapshot is None,
             "uncertainty_reason": None if latest_snapshot else "availability_missing",
@@ -220,6 +401,7 @@ class Phase2AEvidenceService:
             availability_confidence = Decimal("1") if feasibility_tag in {"feasible_now", "feasible_by_date"} else Decimal("0.5")
 
             availability_evidence = {
+                "primary_source": "phase2a_raw",
                 "snapshot_id": latest_snapshot.id,
                 "selected_offer_id": selected_offer.id if selected_offer else None,
                 "availability_status": latest_snapshot.availability_status,
@@ -227,36 +409,67 @@ class Phase2AEvidenceService:
                 "on_order_qty": str(latest_snapshot.on_order_qty) if latest_snapshot.on_order_qty is not None else None,
                 "allocated_qty": str(latest_snapshot.allocated_qty) if latest_snapshot.allocated_qty is not None else None,
                 "backorder_qty": str(latest_snapshot.backorder_qty) if latest_snapshot.backorder_qty is not None else None,
-                "factory_lead_time_days": str(latest_snapshot.factory_lead_time_days) if latest_snapshot.factory_lead_time_days is not None else None,
+                "factory_lead_time_days": (
+                    str(latest_snapshot.factory_lead_time_days)
+                    if latest_snapshot.factory_lead_time_days is not None
+                    else None
+                ),
                 "inventory_location": latest_snapshot.inventory_location,
                 "snapshot_at": latest_snapshot.snapshot_at.isoformat() if latest_snapshot.snapshot_at else None,
                 "freshness_status": latest_snapshot.freshness_status,
-                "feasibility_tag": feasibility_tag,
-                "feasible": feasibility_tag in {"feasible_now", "feasible_by_date"},
                 "source_system": latest_snapshot.source_system,
                 "source_metadata": latest_snapshot.source_metadata or {},
+                "feasible": feasibility_tag in {"feasible_now", "feasible_by_date"},
+                "has_conflict": False,
                 "uncertain": False,
                 "uncertainty_reason": None,
             }
 
-        hs_resolution = hs_mapping_service.resolve_for_bom_part(
+        canonical_offer_conflict = False
+        canonical_availability_conflict = False
+        canonical_offer_stale = False
+        canonical_availability_stale = False
+
+        if canonical_offer_snapshot is not None:
+            (
+                offer_evidence,
+                offer_status,
+                offer_confidence,
+                canonical_origin_country,
+                canonical_origin_region,
+            ) = self._canonical_offer_payload(snapshot=canonical_offer_snapshot)
+            canonical_offer_conflict = _as_bool(offer_evidence.get("conflict_detected"))
+            canonical_offer_stale = str(offer_status).lower() in {"stale", "mixed", "expired"}
+            origin_country = canonical_origin_country or origin_country
+            origin_region = canonical_origin_region or origin_region
+
+        if canonical_availability_snapshot is not None:
+            (
+                availability_evidence,
+                availability_status,
+                availability_confidence,
+            ) = self._canonical_availability_payload(snapshot=canonical_availability_snapshot)
+            canonical_availability_conflict = _as_bool(availability_evidence.get("has_conflict"))
+            canonical_availability_stale = str(availability_status).lower() in {"stale", "mixed", "expired"}
+
+        destination_country = None
+        if project and isinstance(project.project_metadata, dict):
+            destination_country = project.project_metadata.get("destination_country")
+        if not destination_country and bom and isinstance(bom.bom_metadata, dict):
+            destination_country = bom.bom_metadata.get("destination_country")
+
+        hs_resolution = hs_mapping_service.resolve_hs_for_bom_part(
             db,
             bom_part=bom_part,
             trace_id=trace_id,
         )
 
         customs_value = None
-        if selected_price_break is not None:
-            customs_value = selected_price_break.unit_price * quantity
+        if offer_evidence.get("selected_price_break") and offer_evidence["selected_price_break"].get("unit_price") is not None:
+            unit_price = _as_decimal(offer_evidence["selected_price_break"]["unit_price"])
+            customs_value = unit_price * quantity
 
-        destination_country = None
-        if project and isinstance(project.project_metadata, dict):
-            destination_country = project.project_metadata.get("destination_country")
-        if destination_country is None and bom and isinstance(bom.parse_summary, dict):
-            destination_country = bom.parse_summary.get("destination_country")
-        destination_country = destination_country or "USA"
-
-        tariff_result = tariff_lookup_service.lookup_for_hs_resolution(
+        tariff_result = tariff_lookup_service.lookup_tariff(
             db,
             hs_resolution=hs_resolution,
             destination_country=destination_country,
@@ -366,6 +579,8 @@ class Phase2AEvidenceService:
             "availability_status": availability_status,
             "tariff_status": tariff_status,
             "freight_status": freight_status,
+            "offer_source_type": offer_evidence.get("primary_source") or "phase2a_raw",
+            "availability_source_type": availability_evidence.get("primary_source") or "phase2a_raw",
         }
 
         confidence_summary = self._confidence_summary(
@@ -379,18 +594,43 @@ class Phase2AEvidenceService:
         )
 
         uncertainty_flags = {
-            "offer_missing": selected_offer is None,
-            "availability_missing": latest_snapshot is None,
+            "offer_missing": offer_evidence.get("selected_price_break") is None,
+            "availability_missing": availability_evidence.get("availability_status") in (None, "", "UNKNOWN"),
             "tariff_uncertain": not tariff_result.resolved,
             "freight_uncertain": not lane_result.resolved,
             "hs_uncertain": not hs_resolution.resolved,
+            "canonical_offer_conflict": canonical_offer_conflict,
+            "canonical_availability_conflict": canonical_availability_conflict,
+            "canonical_offer_stale": canonical_offer_stale,
+            "canonical_availability_stale": canonical_availability_stale,
         }
 
+        if uncertainty_flags["canonical_offer_conflict"] or uncertainty_flags["canonical_availability_conflict"]:
+            lowered = max(0.0, float(confidence_summary["score"]) - 0.12)
+            confidence_summary["score"] = round(lowered, 4)
+            confidence_summary["status"] = (
+                "high" if lowered >= 0.8 else "medium" if lowered >= 0.5 else "low"
+            )
+
         notes: list[str] = []
-        if uncertainty_flags["offer_missing"]:
+        if offer_evidence.get("primary_source") == "canonical_snapshot":
+            notes.append("Canonical offer snapshot used as primary pricing evidence.")
+        elif uncertainty_flags["offer_missing"]:
             notes.append("Phase 2A offer evidence missing; Phase 1 fallback pricing remains authoritative.")
-        if uncertainty_flags["availability_missing"]:
+
+        if availability_evidence.get("primary_source") == "canonical_snapshot":
+            notes.append("Canonical availability snapshot used as primary availability evidence.")
+        elif uncertainty_flags["availability_missing"]:
             notes.append("Phase 2A availability evidence missing; feasibility remains uncertain.")
+
+        if uncertainty_flags["canonical_offer_conflict"]:
+            notes.append("Canonical pricing evidence is conflicted across sources; confidence was reduced.")
+        if uncertainty_flags["canonical_availability_conflict"]:
+            notes.append("Canonical availability evidence has conflicting source signals; confidence was reduced.")
+        if uncertainty_flags["canonical_offer_stale"]:
+            notes.append("Canonical pricing evidence is stale; freshness propagated into scoring.")
+        if uncertainty_flags["canonical_availability_stale"]:
+            notes.append("Canonical availability evidence is stale; freshness propagated into scoring.")
         if uncertainty_flags["tariff_uncertain"]:
             notes.append("Tariff evidence unresolved or low confidence; no tariff value was invented.")
         if uncertainty_flags["freight_uncertain"]:

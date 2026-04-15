@@ -1,5 +1,4 @@
-
-"""Multi-factor vendor scoring with market data integration and Phase 2A evidence awareness."""
+"""Multi-factor vendor scoring with market data integration and Phase 2A / canonical evidence awareness."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -70,6 +69,9 @@ def load_market_context(db: Session, delivery_region: str, currency: str) -> dic
 
 def score_vendor(vendor: dict, requirements: dict, market_ctx: dict, weights: dict | None = None) -> dict:
     w = weights or DEFAULT_WEIGHTS
+    phase2a = market_ctx.get("phase2a") or {}
+    reference_market_price = _canonical_reference_price(phase2a) or market_ctx.get("market_median_price")
+
     base_breakdown: dict[str, float] = {}
     base_breakdown["capability_match"] = _cap(
         vendor.get("capabilities", []),
@@ -78,7 +80,7 @@ def score_vendor(vendor: dict, requirements: dict, market_ctx: dict, weights: di
     )
     base_breakdown["price_competitiveness"] = _price(
         vendor.get("typical_unit_price"),
-        market_ctx.get("market_median_price"),
+        reference_market_price,
     )
     base_breakdown["lead_time"] = _lt(
         vendor.get("avg_lead_time_days"),
@@ -103,7 +105,6 @@ def score_vendor(vendor: dict, requirements: dict, market_ctx: dict, weights: di
     total_weight = sum(w.get(k, 0.0) for k in base_breakdown)
     total_score = sum(w.get(k, 0.0) * v for k, v in base_breakdown.items())
 
-    phase2a = market_ctx.get("phase2a") or {}
     phase2a_breakdown = _phase2a_breakdown(phase2a=phase2a, vendor=vendor)
     if phase2a_breakdown:
         total_weight += sum(PHASE2A_EXTRA_WEIGHTS.values())
@@ -145,6 +146,10 @@ def score_vendor(vendor: dict, requirements: dict, market_ctx: dict, weights: di
         "market_freshness": market_freshness,
         "evidence_freshness": evidence_freshness,
         "phase2a_used": bool(phase2a_breakdown),
+        "canonical_snapshot_used": (
+            (phase2a.get("offer_evidence") or {}).get("primary_source") == "canonical_snapshot"
+            or (phase2a.get("availability_evidence") or {}).get("primary_source") == "canonical_snapshot"
+        ),
     }
 
 
@@ -159,6 +164,25 @@ def rank_vendors(vendors: list, requirements: dict, market_ctx: dict, weights: d
     for idx, row in enumerate(scored, start=1):
         row["rank"] = idx
     return scored
+
+
+def _canonical_reference_price(phase2a: dict[str, Any]) -> float | None:
+    offer_evidence = phase2a.get("offer_evidence") or {}
+    if offer_evidence.get("primary_source") != "canonical_snapshot":
+        return None
+
+    selected_price_break = offer_evidence.get("selected_price_break") or {}
+    for probe in (
+        selected_price_break.get("unit_price"),
+        offer_evidence.get("best_price"),
+        (offer_evidence.get("source_metadata") or {}).get("best_price"),
+    ):
+        try:
+            if probe not in (None, ""):
+                return float(probe)
+        except Exception:
+            continue
+    return None
 
 
 def _phase2a_breakdown(phase2a: dict[str, Any], vendor: dict[str, Any]) -> dict[str, float]:
@@ -188,6 +212,15 @@ def _phase2a_breakdown(phase2a: dict[str, Any], vendor: dict[str, Any]) -> dict[
     elif offer_evidence.get("vendor_id") and offer_evidence.get("vendor_id") != vendor.get("id"):
         evidence_confidence = max(0.0, evidence_confidence - 0.05)
 
+    if uncertainty_flags.get("canonical_offer_conflict"):
+        evidence_confidence = max(0.0, evidence_confidence - 0.12)
+    if uncertainty_flags.get("canonical_availability_conflict"):
+        evidence_confidence = max(0.0, evidence_confidence - 0.10)
+    if uncertainty_flags.get("canonical_offer_stale"):
+        evidence_confidence = max(0.0, evidence_confidence - 0.06)
+    if uncertainty_flags.get("canonical_availability_stale"):
+        evidence_confidence = max(0.0, evidence_confidence - 0.05)
+
     freshness_adjustment = _freshness_score(freshness_summary)
     if _phase2a_status(offer_evidence.get("freshness_status")) in {"stale", "expired"}:
         freshness_adjustment = max(0.0, freshness_adjustment - 0.10)
@@ -197,6 +230,11 @@ def _phase2a_breakdown(phase2a: dict[str, Any], vendor: dict[str, Any]) -> dict[
         freshness_adjustment = max(0.0, freshness_adjustment - 0.08)
     if availability_evidence.get("feasible") is False:
         freshness_adjustment = max(0.0, freshness_adjustment - 0.15)
+
+    if offer_evidence.get("primary_source") == "canonical_snapshot" and offer_evidence.get("conflict_detected"):
+        freshness_adjustment = max(0.0, freshness_adjustment - 0.10)
+    if availability_evidence.get("primary_source") == "canonical_snapshot" and availability_evidence.get("has_conflict"):
+        freshness_adjustment = max(0.0, freshness_adjustment - 0.10)
 
     return {
         "evidence_completeness": round(completeness, 4),
@@ -261,40 +299,49 @@ def _price(vendor_price, market_median):
     return max(0.0, 1.0 - (ratio - 0.8) / 0.7)
 
 
-def _lt(vendor_lead_time, target_lead_time):
-    if not vendor_lead_time or not target_lead_time:
+def _lt(vendor_lead_time, target_lead_time_days):
+    if not vendor_lead_time or not target_lead_time_days:
         return 0.5
-    ratio = float(vendor_lead_time) / float(target_lead_time)
-    if ratio <= 0.5:
+    ratio = float(vendor_lead_time) / float(target_lead_time_days)
+    if ratio <= 0.7:
         return 1.0
     if ratio >= 2.0:
         return 0.0
-    return max(0.0, 1.0 - (ratio - 0.5) / 1.5)
+    return max(0.0, 1.0 - (ratio - 0.7) / 1.3)
 
 
 def _logfit(regions_served, delivery_region):
-    if not delivery_region or not regions_served:
+    if not delivery_region:
+        return 0.7
+    if not regions_served:
         return 0.5
-    destination = delivery_region.lower()
-    return 1.0 if any(destination in str(region).lower() for region in regions_served) else 0.3
+    delivery = str(delivery_region).lower()
+    normalized = [str(r).lower() for r in regions_served]
+    if any(delivery in region or region in delivery for region in normalized):
+        return 1.0
+    return 0.35
 
 
 def _comp(vendor_certs, required_certs):
     if not required_certs:
-        return 1.0
-    vendor_set = {str(cert).upper() for cert in vendor_certs}
-    return sum(1 for cert in required_certs if str(cert).upper() in vendor_set) / len(required_certs)
+        return 0.7
+    if not vendor_certs:
+        return 0.0
+    have = {str(cert).lower() for cert in vendor_certs}
+    required = [str(cert).lower() for cert in required_certs]
+    matched = sum(1 for cert in required if cert in have)
+    return min(1.0, matched / max(len(required), 1))
 
 
-def _capac(capacity_profile, quantity):
-    if not quantity or not capacity_profile:
+def _capac(profile, total_quantity):
+    if not profile or not total_quantity:
         return 0.5
-    max_units = capacity_profile.get("max_monthly_units", 0)
-    if max_units <= 0:
-        return 0.5
-    if float(quantity) <= max_units * 0.5:
+    monthly_capacity = float(profile.get("monthly_capacity", 0) or 0)
+    if monthly_capacity <= 0:
+        return 0.4
+    ratio = float(total_quantity) / monthly_capacity
+    if ratio <= 0.25:
         return 1.0
-    if float(quantity) > max_units:
-        return 0.1
-    return 0.6
-
+    if ratio >= 1.0:
+        return 0.2
+    return max(0.2, 1.0 - ((ratio - 0.25) / 0.75) * 0.8)
