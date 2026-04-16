@@ -414,3 +414,325 @@ def _outcome_adjustment(market_ctx: dict[str, Any], vendor: dict[str, Any]) -> d
         "lead_time_damping_factor": max(0.70, 1.0 - float(anomaly.get("lead_time_penalty") or 0.0)),
         "explanation_fragments": list(adjustment.get("explanation_fragments") or []),
     }
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 3 additions — strategy weight profiles, new scoring dimensions,
+# bounded influence, trust-tier multiplier, confidence classifier.
+# ═════════════════════════════════════════════════════════════════════════════
+
+WEIGHTS_FASTEST_LOCAL = {
+    "capability_match": 0.15,
+    "price_competitiveness": 0.10,
+    "lead_time": 0.35,
+    "reliability": 0.15,
+    "logistics_fit": 0.15,
+    "compliance": 0.05,
+    "capacity": 0.05,
+}
+
+WEIGHTS_BEST_DOMESTIC_VALUE = {
+    "capability_match": 0.22,
+    "price_competitiveness": 0.22,
+    "lead_time": 0.18,
+    "reliability": 0.15,
+    "logistics_fit": 0.10,
+    "compliance": 0.08,
+    "capacity": 0.05,
+}
+
+WEIGHTS_LOWEST_LANDED_COST = {
+    "capability_match": 0.18,
+    "price_competitiveness": 0.10,
+    "landed_cost": 0.28,
+    "lead_time": 0.12,
+    "reliability": 0.12,
+    "logistics_fit": 0.08,
+    "tariff_impact": 0.07,
+    "compliance": 0.05,
+}
+
+STRATEGY_WEIGHT_PROFILES = {
+    "fastest_local": WEIGHTS_FASTEST_LOCAL,
+    "best_domestic_value": WEIGHTS_BEST_DOMESTIC_VALUE,
+    "lowest_landed_cost": WEIGHTS_LOWEST_LANDED_COST,
+    "balanced": DEFAULT_WEIGHTS,
+}
+
+TRUST_TIER_SCORE_MULTIPLIER = {
+    "PLATINUM":   1.00,
+    "GOLD":       0.97,
+    "SILVER":     0.90,
+    "BRONZE":     0.78,
+    "UNVERIFIED": 0.60,
+}
+
+# Bounded-influence cap: no single dimension may contribute more than this
+# fraction of the final total.  Implements §5 "bounded influence so no single
+# signal (like price) completely dominates."
+BOUNDED_INFLUENCE_CAP = 0.30
+
+
+def _landed_cost_score(landed_cost, market_median_landed):
+    """Score based on total landed cost vs market median landed cost."""
+    if landed_cost is None or market_median_landed is None:
+        return 0.5
+    try:
+        lc = float(landed_cost)
+        med = float(market_median_landed)
+    except Exception:
+        return 0.5
+    if med <= 0:
+        return 0.5
+    ratio = lc / med
+    if ratio <= 0.8:
+        return 1.0
+    if ratio >= 1.5:
+        return 0.0
+    return max(0.0, 1.0 - (ratio - 0.8) / 0.7)
+
+
+def _tariff_impact_score(tariff_rate):
+    """Lower score for higher tariff rate. Zero tariff = 1.0."""
+    if tariff_rate is None:
+        return 0.7  # unknown tariff — neutral
+    try:
+        rate = float(tariff_rate)
+    except Exception:
+        return 0.7
+    if rate <= 0:
+        return 1.0
+    if rate >= 0.20:
+        return 0.30
+    if rate >= 0.10:
+        return 0.60
+    if rate >= 0.05:
+        return 0.80
+    return max(0.3, 1.0 - (rate / 0.05) * 0.2)
+
+
+def _spec_match_score(vendor: dict, requirements: dict) -> float:
+    """Score based on tolerance/standard/spec closeness."""
+    required_tolerance = (requirements.get("tolerance_class") or "").lower()
+    required_standards = [str(s).lower() for s in (requirements.get("standards") or [])]
+    if not required_tolerance and not required_standards:
+        return 0.7
+    caps = vendor.get("capabilities", []) or []
+    vendor_certs = {str(c).lower() for c in (vendor.get("certifications") or [])}
+    # Standards hit
+    std_hits = sum(1 for s in required_standards if s in vendor_certs)
+    std_score = (std_hits / len(required_standards)) if required_standards else 1.0
+    # Tolerance: any capability reporting tolerance_class match?
+    tol_score = 0.7
+    if required_tolerance:
+        vendor_tols = {
+            str((c.get("source_metadata") or {}).get("tolerance_class") or "").lower()
+            for c in caps
+        }
+        tol_score = 1.0 if required_tolerance in vendor_tols else 0.4
+    return round(0.5 * std_score + 0.5 * tol_score, 4)
+
+
+def _geo_strategy_score(vendor: dict, strategy: str, geo_buckets: dict | None) -> float:
+    """Bonus/penalty based on which geo tier the vendor is in, per strategy."""
+    tier = vendor.get("geo_tier") or ""
+    if strategy == "fastest_local":
+        if tier == "local":
+            return 1.0
+        if tier == "regional":
+            return 0.85
+        if tier == "national":
+            return 0.55
+        return 0.20  # global penalised
+    if strategy == "best_domestic_value":
+        if tier in ("local", "regional"):
+            return 0.90
+        if tier == "national":
+            return 0.80
+        return 0.55
+    if strategy == "lowest_landed_cost":
+        # Landed cost dimension already rewards the cheap path; geo is neutral.
+        return 0.7
+    return 0.7
+
+
+def _apply_bounded_influence(
+    breakdown: dict,
+    weights: dict,
+    cap: float = BOUNDED_INFLUENCE_CAP,
+) -> tuple[float, dict]:
+    """
+    Compute total_score with a per-dimension contribution cap.
+
+    Returns (total_score, capped_contributions).
+    """
+    contributions = {k: float(weights.get(k, 0.0)) * float(v) for k, v in breakdown.items()}
+    total = sum(contributions.values())
+    if total <= 0:
+        return 0.0, contributions
+    capped = {}
+    for k, contrib in contributions.items():
+        fraction = contrib / total
+        if fraction > cap:
+            capped[k] = total * cap
+        else:
+            capped[k] = contrib
+    return sum(capped.values()), capped
+
+
+def score_vendor_with_strategy(
+    vendor: dict,
+    requirements: dict,
+    market_ctx: dict,
+    strategy: str = "balanced",
+    geo_buckets: dict | None = None,
+) -> dict:
+    """
+    Strategy-aware vendor scorer (Phase 3).
+
+    Adds on top of score_vendor():
+      - strategy-specific weight profile
+      - landed_cost_score, tariff_impact_score, geo_strategy_score dimensions
+      - trust_tier multiplier
+      - anomaly penalty from market_ctx["anomaly_flags"]
+      - bounded-influence cap (no single dimension > 30 % of total)
+      - returns confidence label + score.
+
+    Backward-compat: score_vendor() remains unchanged.
+    """
+    weights = STRATEGY_WEIGHT_PROFILES.get(strategy, DEFAULT_WEIGHTS)
+    base_result = score_vendor(vendor=vendor, requirements=requirements, market_ctx=market_ctx, weights=weights)
+
+    breakdown = dict(base_result.get("breakdown", {}))
+    effective_weights = dict(base_result.get("weights", weights))
+
+    # New dimensions
+    if "landed_cost" in weights:
+        breakdown["landed_cost"] = _landed_cost_score(
+            market_ctx.get("landed_cost_total"),
+            market_ctx.get("market_median_landed"),
+        )
+        effective_weights["landed_cost"] = weights["landed_cost"]
+    if "tariff_impact" in weights:
+        breakdown["tariff_impact"] = _tariff_impact_score(market_ctx.get("tariff_rate"))
+        effective_weights["tariff_impact"] = weights["tariff_impact"]
+
+    # Geo strategy bonus (always applied, small weight)
+    geo_bonus_weight = 0.05
+    breakdown["geo_strategy"] = _geo_strategy_score(vendor, strategy, geo_buckets)
+    effective_weights["geo_strategy"] = geo_bonus_weight
+
+    # Spec match (additive small weight when requirements carry specs)
+    if requirements.get("tolerance_class") or requirements.get("standards"):
+        breakdown["spec_match"] = _spec_match_score(vendor, requirements)
+        effective_weights["spec_match"] = 0.05
+
+    # Bounded-influence-aware total
+    total_weight = sum(effective_weights.values()) or 1.0
+    weighted_total = sum(
+        float(effective_weights.get(k, 0.0)) * float(v) for k, v in breakdown.items()
+    )
+    normalized = weighted_total / total_weight
+    capped_total, capped_contribs = _apply_bounded_influence(
+        breakdown=breakdown, weights=effective_weights, cap=BOUNDED_INFLUENCE_CAP,
+    )
+    # Use capped contributions, re-normalised
+    capped_normalized = (capped_total / total_weight) if total_weight else 0.0
+    # Blend 80 % capped / 20 % raw so multiple strong signals are still rewarded
+    total_score = max(0.0, min(1.0, 0.8 * capped_normalized + 0.2 * normalized))
+
+    # Trust-tier multiplier
+    tier = (vendor.get("trust_tier") or "UNVERIFIED").upper()
+    multiplier = TRUST_TIER_SCORE_MULTIPLIER.get(tier, 0.60)
+    total_score = max(0.0, min(1.0, total_score * multiplier))
+
+    # Anomaly penalty
+    anomaly_flags = market_ctx.get("anomaly_flags") or []
+    severity_penalty = {
+        "LOW": -0.02, "MEDIUM": -0.08, "HIGH": -0.15, "CRITICAL": -0.30,
+    }
+    for flag in anomaly_flags:
+        sev = flag.get("severity") if isinstance(flag, dict) else getattr(flag, "severity", None)
+        total_score += severity_penalty.get(sev, 0.0)
+    total_score = max(0.0, min(1.0, total_score))
+
+    # Confidence
+    evidence_count = int((market_ctx.get("evidence_context") or {}).get("evidence_count") or 0)
+    confidence_label, confidence_score = classify_confidence(
+        score=total_score,
+        vendor=vendor,
+        evidence={"evidence_count": evidence_count},
+    )
+
+    return {
+        **base_result,
+        "strategy": strategy,
+        "total_score": round(total_score, 4),
+        "breakdown": {k: round(float(v), 4) for k, v in breakdown.items()},
+        "weights": effective_weights,
+        "trust_tier": tier,
+        "trust_tier_multiplier": multiplier,
+        "anomaly_penalty_applied": sum(
+            severity_penalty.get(
+                f.get("severity") if isinstance(f, dict) else getattr(f, "severity", None), 0.0,
+            )
+            for f in anomaly_flags
+        ),
+        "bounded_influence_cap": BOUNDED_INFLUENCE_CAP,
+        "confidence": confidence_label,
+        "confidence_score": confidence_score,
+        "explanation": base_result.get("explanation", "") + f" | strategy={strategy} tier={tier}",
+    }
+
+
+def classify_confidence(score: float, vendor: dict, evidence: dict | None = None) -> tuple[str, float]:
+    """
+    Return (confidence_label, confidence_score).
+
+    HIGH:   score ≥ 0.75 AND trust_tier ∈ {PLATINUM, GOLD} AND evidence ≥ 3
+    MEDIUM: score ≥ 0.55 AND trust_tier ∈ {GOLD, SILVER} AND evidence ≥ 1
+    LOW:    everything else, esp. UNVERIFIED tier
+    """
+    evidence = evidence or {}
+    ev_count = int(evidence.get("evidence_count", 0) or 0)
+    tier = (vendor.get("trust_tier") or "UNVERIFIED").upper()
+    s = float(score)
+
+    if tier == "UNVERIFIED":
+        return "LOW", round(max(0.2, s - 0.10), 4)
+
+    if s >= 0.75 and tier in ("PLATINUM", "GOLD") and ev_count >= 3:
+        return "HIGH", round(min(1.0, s + 0.05), 4)
+
+    if s >= 0.55 and tier in ("GOLD", "SILVER") and ev_count >= 1:
+        return "MEDIUM", round(s, 4)
+
+    return "LOW", round(max(0.2, s - 0.10), 4)
+
+
+def rank_vendors_by_strategy(
+    vendors: list,
+    requirements: dict,
+    market_ctx: dict,
+    strategy: str = "balanced",
+    geo_buckets: dict | None = None,
+) -> list:
+    """Rank vendors using the strategy-aware scorer. Preserves rank_vendors()."""
+    scored = []
+    for vendor in vendors:
+        # Merge per-vendor market context (landed_cost, tariff_rate, anomaly_flags, evidence)
+        per_vendor_ctx = dict(market_ctx)
+        per_vendor_ctx.update(vendor.get("per_vendor_market_ctx") or {})
+        result = score_vendor_with_strategy(
+            vendor=vendor,
+            requirements=requirements,
+            market_ctx=per_vendor_ctx,
+            strategy=strategy,
+            geo_buckets=geo_buckets,
+        )
+        result["vendor_id"] = vendor.get("id")
+        result["vendor_name"] = vendor.get("name", "")
+        scored.append(result)
+    scored.sort(key=lambda row: row["total_score"], reverse=True)
+    for idx, row in enumerate(scored, start=1):
+        row["rank"] = idx
+    return scored

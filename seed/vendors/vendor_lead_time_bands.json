@@ -1,0 +1,98 @@
+[
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000001",
+    "category_tag": "cnc_machining",
+    "material_family": "steel",
+    "moq": 25,
+    "moq_unit": "pieces",
+    "lead_time_min_days": 7,
+    "lead_time_max_days": 18,
+    "lead_time_typical_days": 12,
+    "confidence": 0.80,
+    "source": "self_reported"
+  },
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000002",
+    "category_tag": "sheet_metal_fabrication",
+    "material_family": "aluminum",
+    "moq": 50,
+    "moq_unit": "pieces",
+    "lead_time_min_days": 10,
+    "lead_time_max_days": 21,
+    "lead_time_typical_days": 14,
+    "confidence": 0.75,
+    "source": "self_reported"
+  },
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000003",
+    "category_tag": "injection_molding",
+    "material_family": "plastic_resin",
+    "moq": 1000,
+    "moq_unit": "pieces",
+    "lead_time_min_days": 14,
+    "lead_time_max_days": 28,
+    "lead_time_typical_days": 20,
+    "confidence": 0.85,
+    "source": "self_reported"
+  },
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000004",
+    "category_tag": "electronics_assembly",
+    "material_family": "pcb_substrate",
+    "moq": 100,
+    "moq_unit": "boards",
+    "lead_time_min_days": 12,
+    "lead_time_max_days": 25,
+    "lead_time_typical_days": 18,
+    "confidence": 0.85,
+    "source": "self_reported"
+  },
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000005",
+    "category_tag": "fastener_hardware",
+    "material_family": "steel",
+    "moq": 500,
+    "moq_unit": "pieces",
+    "lead_time_min_days": 5,
+    "lead_time_max_days": 12,
+    "lead_time_typical_days": 8,
+    "confidence": 0.80,
+    "source": "self_reported"
+  },
+  {
+    "vendor_id": "10000000-0000-0000-0000-000000000001",
+    "category_tag": "injection_molding",
+    "material_family": "plastic_resin",
+    "moq": 5000,
+    "moq_unit": "pieces",
+    "lead_time_min_days": 21,
+    "lead_time_max_days": 42,
+    "lead_time_typical_days": 30,
+    "confidence": 0.75,
+    "source": "self_reported"
+  },
+  {
+    "vendor_id": "10000000-0000-0000-0000-000000000002",
+    "category_tag": "cnc_machining",
+    "material_family": "aluminum",
+    "moq": 500,
+    "moq_unit": "pieces",
+    "lead_time_min_days": 25,
+    "lead_time_max_days": 45,
+    "lead_time_typical_days": 35,
+    "confidence": 0.70,
+    "source": "self_reported"
+  },
+  {
+    "vendor_id": "10000000-0000-0000-0000-000000000003",
+    "category_tag": "precision_machining",
+    "material_family": "steel",
+    "moq": 10,
+    "moq_unit": "pieces",
+    "lead_time_min_days": 18,
+    "lead_time_max_days": 35,
+    "lead_time_typical_days": 25,
+    "confidence": 0.90,
+    "source": "self_reported"
+  }
+]

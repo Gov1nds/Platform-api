@@ -13,6 +13,8 @@ from app.models.vendor import (
     Vendor, VendorCapability, VendorMatchRun, VendorMatch,
     VendorPerformanceSnapshot, VendorImportBatch, VendorImportRow,
     VendorIdentityAlias, VendorEvidenceAttachment,
+    VendorLocation, VendorExportCapability, VendorLeadTimeBand,
+    VendorCommunicationScore, VendorTrustTier,
 )
 from app.models.rfq import (
     RFQBatch, RFQItem, RFQVendorInvitation, InvitationStatusEvent,
@@ -39,6 +41,12 @@ from app.models.events import (
 )
 from app.models.notification import Notification, NotificationPreference
 from app.models.outcomes import QuoteOutcome, OverrideEvent, LeadTimeHistory, VendorPerformance, AnomalyFlag, ConfidenceCalibrationData
+from app.models.matching import PartVendorIndex
+from app.models.feedback import RecommendationOverride, LearningEvent
+from app.models.market_intelligence import (
+    CommodityPriceSignal, VendorLeadTimeHistoryPhase3,
+    MarketAnomalyEvent, RegionalStrategyRun,
+)
 
 __all__ = [
     # auth
@@ -76,4 +84,14 @@ __all__ = [
     "QuoteOutcome", "OverrideEvent", "LeadTimeHistory", "VendorPerformance", "AnomalyFlag", "ConfidenceCalibrationData",
     # notifications
     "Notification", "NotificationPreference",
+    # phase3 vendor intelligence
+    "VendorLocation", "VendorExportCapability", "VendorLeadTimeBand",
+    "VendorCommunicationScore", "VendorTrustTier",
+    # phase3 matching
+    "PartVendorIndex",
+    # phase3 feedback / learning
+    "RecommendationOverride", "LearningEvent",
+    # phase3 market intelligence
+    "CommodityPriceSignal", "VendorLeadTimeHistoryPhase3",
+    "MarketAnomalyEvent", "RegionalStrategyRun",
 ]

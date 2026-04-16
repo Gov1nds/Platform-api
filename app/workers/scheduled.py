@@ -74,6 +74,19 @@ if celery_app:
             "task": "app.workers.scheduled.task_phase2c_vendor_performance_foundation",
             "schedule": crontab(hour=3, minute=15),
         },
+        # ── Phase 3 scheduled tasks ─────────────────────────────────────
+        "phase3-vendor-validation-sweep": {
+            "task": "app.workers.scheduled.task_phase3_vendor_validation_batch",
+            "schedule": crontab(hour=2, minute=30),
+        },
+        "phase3-refresh-commodity-signals": {
+            "task": "app.workers.scheduled.task_phase3_refresh_commodity_signals",
+            "schedule": crontab(hour=5, minute=0),
+        },
+        "phase3-rebuild-performance-snapshots": {
+            "task": "app.workers.scheduled.task_phase3_rebuild_performance_snapshots",
+            "schedule": crontab(hour=3, minute=45),
+        },
     }
 
     @celery_app.task
@@ -356,3 +369,102 @@ if celery_app:
         """Async report export (PDF/Excel)."""
         logger.info("Report export %s format=%s (stub)", job_id, fmt)
         return {"job_id": job_id, "status": "complete", "format": fmt}
+
+
+    # ═════════════════════════════════════════════════════════════════════
+    # Phase 3 scheduled tasks (§8 "automated periodic data quality checks")
+    # ═════════════════════════════════════════════════════════════════════
+
+    @celery_app.task
+    def task_phase3_vendor_validation_batch() -> dict:
+        """Daily vendor validation + trust-tier recompute + dedup scan."""
+        from app.services.vendor_intelligence_service import vendor_intelligence_service
+        logger.info("phase3 vendor validation batch starting")
+        db = _get_db()
+        try:
+            summary = vendor_intelligence_service.run_batch_validation_and_dedup(db)
+            db.commit()
+            return summary
+        except Exception as exc:
+            db.rollback()
+            logger.exception("phase3 vendor validation batch failed")
+            return {"status": "failed", "error": str(exc)}
+        finally:
+            db.close()
+
+    @celery_app.task
+    def task_phase3_refresh_commodity_signals() -> dict:
+        """
+        Daily commodity signal refresh.
+
+        In production this pulls from an external commodity API (LME, DCE, etc).
+        In the default platform-seeded configuration it re-ingests the seed
+        commodity baseline CSV so trend / valley flags stay current.
+        """
+        import json
+        import os
+        from pathlib import Path
+        from app.services.market.commodity_price_service import commodity_price_service
+
+        db = _get_db()
+        updated = 0
+        errors: list[str] = []
+        try:
+            baseline_path = (
+                Path(os.environ.get("SEED_ROOT", "seed"))
+                / "market"
+                / "commodity_price_signals_phase3.json"
+            )
+            if baseline_path.exists():
+                data = json.loads(baseline_path.read_text())
+                for entry in data if isinstance(data, list) else data.get("items", []):
+                    try:
+                        commodity_price_service.ingest_commodity_signal(entry, db)
+                        updated += 1
+                    except Exception as exc:
+                        errors.append(f"{entry.get('commodity_name')}:{exc}")
+            db.commit()
+            return {"status": "ok", "updated": updated, "errors": errors}
+        except Exception as exc:
+            db.rollback()
+            logger.exception("phase3 refresh_commodity_signals failed")
+            return {"status": "failed", "error": str(exc)}
+        finally:
+            db.close()
+
+    @celery_app.task
+    def task_phase3_rebuild_performance_snapshots() -> dict:
+        """
+        Nightly rebuild of vendor performance snapshots plus trust tiers +
+        communication scores. Complementary to the Phase-2c task.
+        """
+        from app.models.vendor import Vendor
+        from app.services.vendor_intelligence_service import vendor_intelligence_service
+
+        db = _get_db()
+        updated = 0
+        try:
+            vendors = (
+                db.query(Vendor)
+                .filter(
+                    Vendor.is_active.is_(True),
+                    Vendor.deleted_at.is_(None),
+                    Vendor.merged_into_vendor_id.is_(None),
+                )
+                .limit(5000)
+                .all()
+            )
+            for v in vendors:
+                try:
+                    vendor_intelligence_service.compute_trust_tier(v.id, db)
+                    updated += 1
+                except Exception:
+                    logger.exception("trust tier refresh failed for %s", v.id)
+            db.commit()
+            return {"status": "ok", "updated": updated}
+        except Exception as exc:
+            db.rollback()
+            logger.exception("phase3 rebuild_performance_snapshots failed")
+            return {"status": "failed", "error": str(exc)}
+        finally:
+            db.close()

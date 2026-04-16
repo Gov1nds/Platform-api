@@ -400,3 +400,53 @@ def get_latest_recommendation(
         raise HTTPException(404, "No recommendation snapshot found for this project")
 
     return recommendation
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 3 — Vendor Intelligence recommendation endpoint (additive).
+#
+# The legacy /projects/{id}/recommendation endpoint is unchanged.
+# This new endpoint returns the Phase-3 VendorIntelligenceRecommendationResponse
+# with three-strategy output, geo context, landed cost, safety report.
+# ═════════════════════════════════════════════════════════════════════════════
+
+from app.schemas.recommendation import (
+    VendorIntelligenceRecommendationResponse as _VendorIntelRecResp,
+)
+
+
+@router.post(
+    "/{project_id}/intelligence-recommendation",
+    response_model=_VendorIntelRecResp,
+)
+def run_vendor_intelligence_recommendation(
+    project_id: str,
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Run the Phase 3 vendor-intelligence recommendation pipeline.
+
+    Produces three named sourcing strategies (Fastest Local / Best Domestic
+    Value / Lowest Landed Cost), a decision-safety report, geo bucket context,
+    commodity market signals, and per-vendor landed-cost breakdowns.
+    """
+    project = require_org_scoped_project(project_id, request, db)
+
+    if project.user_id != user.id and user.role not in ("admin", "BUYER_ADMIN", "ORGANIZATION_OWNER"):
+        _check_project_access(db, project, user, None, require_role="editor")
+
+    try:
+        return runtime_pipeline_service.generate_vendor_intelligence_recommendation(
+            db,
+            project=project,
+            actor_id=user.id,
+            trace_id=getattr(request.state, "request_id", None),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Phase 3 intelligence recommendation failed for project %s", project_id)
+        raise HTTPException(500, "Failed to generate intelligence recommendation") from exc

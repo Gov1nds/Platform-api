@@ -1,0 +1,74 @@
+[
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000001",
+    "tier": "GOLD",
+    "data_completeness_score": 0.82,
+    "reliability_score": 0.87,
+    "evidence_count": 12,
+    "missing_required_fields": [],
+    "flags": []
+  },
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000002",
+    "tier": "SILVER",
+    "data_completeness_score": 0.68,
+    "reliability_score": 0.72,
+    "evidence_count": 6,
+    "missing_required_fields": [],
+    "flags": []
+  },
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000003",
+    "tier": "GOLD",
+    "data_completeness_score": 0.78,
+    "reliability_score": 0.81,
+    "evidence_count": 9,
+    "missing_required_fields": [],
+    "flags": []
+  },
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000004",
+    "tier": "PLATINUM",
+    "data_completeness_score": 0.92,
+    "reliability_score": 0.91,
+    "evidence_count": 18,
+    "missing_required_fields": [],
+    "flags": []
+  },
+  {
+    "vendor_id": "00000000-0000-0000-0000-000000000005",
+    "tier": "BRONZE",
+    "data_completeness_score": 0.48,
+    "reliability_score": 0.61,
+    "evidence_count": 3,
+    "missing_required_fields": [],
+    "flags": ["incomplete_profile"]
+  },
+  {
+    "vendor_id": "10000000-0000-0000-0000-000000000001",
+    "tier": "SILVER",
+    "data_completeness_score": 0.65,
+    "reliability_score": 0.70,
+    "evidence_count": 5,
+    "missing_required_fields": [],
+    "flags": []
+  },
+  {
+    "vendor_id": "10000000-0000-0000-0000-000000000002",
+    "tier": "BRONZE",
+    "data_completeness_score": 0.55,
+    "reliability_score": 0.58,
+    "evidence_count": 2,
+    "missing_required_fields": [],
+    "flags": ["limited_evidence"]
+  },
+  {
+    "vendor_id": "10000000-0000-0000-0000-000000000003",
+    "tier": "PLATINUM",
+    "data_completeness_score": 0.95,
+    "reliability_score": 0.94,
+    "evidence_count": 24,
+    "missing_required_fields": [],
+    "flags": []
+  }
+]

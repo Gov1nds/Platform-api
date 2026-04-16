@@ -1,0 +1,86 @@
+[
+  {
+    "commodity_name": "hot_rolled_coil_steel",
+    "material_family_tag": "steel",
+    "price_per_unit": 0.78,
+    "unit": "kg",
+    "currency": "USD",
+    "price_date": "2026-04-10",
+    "source": "seed_phase3_lme_like",
+    "trend_direction": "rising",
+    "trend_pct_30d": 3.4,
+    "is_valley": false
+  },
+  {
+    "commodity_name": "aluminum_ingot_p1020",
+    "material_family_tag": "aluminum",
+    "price_per_unit": 2.65,
+    "unit": "kg",
+    "currency": "USD",
+    "price_date": "2026-04-10",
+    "source": "seed_phase3_lme_like",
+    "trend_direction": "falling",
+    "trend_pct_30d": -2.1,
+    "is_valley": true
+  },
+  {
+    "commodity_name": "copper_cathode_grade_a",
+    "material_family_tag": "copper",
+    "price_per_unit": 9.42,
+    "unit": "kg",
+    "currency": "USD",
+    "price_date": "2026-04-10",
+    "source": "seed_phase3_lme_like",
+    "trend_direction": "rising",
+    "trend_pct_30d": 4.8,
+    "is_valley": false
+  },
+  {
+    "commodity_name": "polypropylene_resin_homopolymer",
+    "material_family_tag": "plastic_resin",
+    "price_per_unit": 1.28,
+    "unit": "kg",
+    "currency": "USD",
+    "price_date": "2026-04-10",
+    "source": "seed_phase3_ice_like",
+    "trend_direction": "stable",
+    "trend_pct_30d": 0.3,
+    "is_valley": false
+  },
+  {
+    "commodity_name": "natural_rubber_rss3",
+    "material_family_tag": "rubber",
+    "price_per_unit": 1.72,
+    "unit": "kg",
+    "currency": "USD",
+    "price_date": "2026-04-10",
+    "source": "seed_phase3_sicom_like",
+    "trend_direction": "falling",
+    "trend_pct_30d": -1.4,
+    "is_valley": true
+  },
+  {
+    "commodity_name": "copper_clad_laminate_fr4",
+    "material_family_tag": "pcb_substrate",
+    "price_per_unit": 6.90,
+    "unit": "m2",
+    "currency": "USD",
+    "price_date": "2026-04-10",
+    "source": "seed_phase3_industry_index",
+    "trend_direction": "stable",
+    "trend_pct_30d": 0.1,
+    "is_valley": false
+  },
+  {
+    "commodity_name": "carbon_fiber_tow_12k",
+    "material_family_tag": "carbon_fiber",
+    "price_per_unit": 22.50,
+    "unit": "kg",
+    "currency": "USD",
+    "price_date": "2026-04-10",
+    "source": "seed_phase3_industry_index",
+    "trend_direction": "rising",
+    "trend_pct_30d": 1.8,
+    "is_valley": false
+  }
+]

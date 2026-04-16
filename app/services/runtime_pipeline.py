@@ -1436,5 +1436,386 @@ class RuntimePipelineService:
             return "stale"
         return "fresh"
 
+    # ═════════════════════════════════════════════════════════════════════
+    # Phase 3 — Vendor Intelligence enrichment (additive).
+    #
+    # This method consumes an already-generated ProjectRecommendationResponse
+    # (produced by run_project_pipeline()) and layers on:
+    #   - geo tier classification + bucketing
+    #   - logistics profiles
+    #   - landed cost per vendor
+    #   - commodity signal context
+    #   - per-vendor anomaly flags
+    #   - three-strategy scoring + SourcingStrategyResult output
+    #   - decision-safety report
+    #
+    # It persists a RegionalStrategyRun audit row and returns a
+    # VendorIntelligenceRecommendationResponse. Calling code that still wants
+    # the legacy ProjectRecommendationResponse can continue to use
+    # run_project_pipeline() / get_latest_recommendation() unchanged.
+    # ═════════════════════════════════════════════════════════════════════
+
+    def generate_vendor_intelligence_recommendation(
+        self,
+        db: Session,
+        *,
+        project: Project,
+        base_recommendation: "ProjectRecommendationResponse | None" = None,
+        actor_id: str | None = None,
+        trace_id: str | None = None,
+    ):
+        """
+        Build the Phase-3 VendorIntelligenceRecommendationResponse for a project.
+
+        If `base_recommendation` is None, the latest persisted recommendation is
+        used. If none exists, a fresh run_project_pipeline() is invoked first
+        so the Phase-3 output is always anchored to a valid base.
+        """
+        from decimal import Decimal as _Decimal
+        from app.models.market_intelligence import RegionalStrategyRun
+        from app.schemas.recommendation import (
+            SourcingStrategyResult, StrategyVendorOption,
+            VendorIntelligenceRecommendationResponse,
+        )
+        from app.services.decision_safety_service import decision_safety_service
+        from app.services.market.commodity_price_service import commodity_price_service
+        from app.services.market.market_anomaly_service import market_anomaly_service
+        from app.services.regional.geo_tier_service import geo_tier_service
+        from app.services.regional.sourcing_strategy_engine import (
+            sourcing_strategy_engine,
+        )
+        from app.services.scoring.vendor_scorer import (
+            STRATEGY_WEIGHT_PROFILES, score_vendor_with_strategy,
+        )
+
+        recommendation = base_recommendation or self.get_latest_recommendation(
+            db, project_id=project.id,
+        )
+        if recommendation is None:
+            recommendation = self.run_project_pipeline(
+                db=db, project=project, actor_id=actor_id, trace_id=trace_id,
+            )
+
+        # ── Requester location ───────────────────────────────────────────
+        requester_loc_input = self._extract_requester_location(project)
+        geo_ctx = geo_tier_service.classify_requester_location(requester_loc_input)
+
+        # ── Active vendor pool (as dicts for scoring) ────────────────────
+        vendor_orm_list = self._load_active_vendors(db)
+        vendor_dicts = [
+            self._vendor_to_intelligence_dict(v, db) for v in vendor_orm_list
+        ]
+        geo_buckets = geo_tier_service.bucket_vendors_by_geo_tier(
+            vendor_dicts, geo_ctx,
+        )
+
+        # Re-flatten bucketed vendors so each has geo_tier set
+        flattened = list(geo_buckets.local) + list(geo_buckets.regional) + list(
+            geo_buckets.national
+        ) + list(geo_buckets.global_)
+        # Fallback: if bucketing emptied all tiers (e.g. missing country data),
+        # fall back to vendor_dicts so the three-strategy output is not empty.
+        if not flattened:
+            flattened = vendor_dicts
+
+        # ── Per-vendor market context (commodity + logistics + landed cost + anomalies) ──
+        target_currency = (recommendation.summary.target_currency or "USD").upper()
+        requirements_stub = self._build_requirements_stub(recommendation)
+
+        scored_vendors: list[dict] = []
+        vendor_scores_for_safety: dict[str, dict] = {}
+
+        for v in flattened:
+            material_family = (
+                v.get("primary_category_tag")
+                or (v.get("capabilities") or [{}])[0].get("material_family")
+            )
+            logistics_profile = geo_tier_service.compute_logistics_profile(
+                v, geo_ctx, db=db,
+            )
+            v["logistics_profile"] = logistics_profile
+            v["geo_tier"] = logistics_profile.geo_tier
+
+            # Commodity adjustment (applied to current typical price if present)
+            current_price = _Decimal(str(v.get("typical_unit_price") or "0"))
+            adjusted = commodity_price_service.adjust_vendor_price_for_commodity_trend(
+                unit_price=current_price,
+                material_family=material_family,
+                db=db,
+            )
+
+            # Landed cost (use adjusted price, default qty=1 for per-unit view)
+            landed = sourcing_strategy_engine.compute_landed_cost(
+                vendor=v,
+                unit_price=adjusted.adjusted_price,
+                quantity=1,
+                logistics_profile=logistics_profile,
+                tariff_rate=v.get("tariff_rate"),
+                fx_rate=v.get("fx_rate"),
+                currency=target_currency,
+            )
+            v["landed_cost"] = landed
+
+            # Anomaly check
+            anomaly_flags = market_anomaly_service.check_quote_for_anomalies(
+                vendor_id=v["id"],
+                canonical_part_key=None,
+                quoted_price=adjusted.adjusted_price,
+                quoted_lead_time_days=v.get("avg_lead_time_days"),
+                db=db,
+            )
+
+            per_vendor_ctx = {
+                "landed_cost_total": float(landed.total_landed_cost),
+                "market_median_landed": float(landed.total_landed_cost),  # neutral prior
+                "tariff_rate": float(v.get("tariff_rate") or 0),
+                "anomaly_flags": [a.to_dict() for a in anomaly_flags],
+                "evidence_context": {
+                    "evidence_count": int(v.get("evidence_count") or 0),
+                },
+            }
+            v["per_vendor_market_ctx"] = per_vendor_ctx
+
+            # Strategy scores (three strategies)
+            strategy_scores: dict[str, float] = {}
+            score_breakdowns: dict[str, dict] = {}
+            for s_name in STRATEGY_WEIGHT_PROFILES:
+                if s_name == "balanced":
+                    continue
+                sr = score_vendor_with_strategy(
+                    vendor=v,
+                    requirements=requirements_stub,
+                    market_ctx=per_vendor_ctx,
+                    strategy=s_name,
+                )
+                strategy_scores[s_name] = float(sr["total_score"])
+                score_breakdowns[s_name] = sr.get("breakdown", {})
+
+            v["strategy_scores"] = strategy_scores
+            v["evidence"] = {
+                "score_breakdown": score_breakdowns.get("best_domestic_value") or {},
+                "award_ready": bool(v.get("award_ready")),
+                "rfq_recommended": bool(v.get("rfq_recommended", True)),
+                "evidence_count": int(v.get("evidence_count") or 0),
+                "lead_time_min_days": v.get("lead_time_min_days"),
+                "lead_time_max_days": v.get("lead_time_max_days"),
+                "lead_time_typical_days": v.get("avg_lead_time_days"),
+                "lead_time_reliability_score": None,
+                "risk_flags": [],
+                "no_performance_history": int(v.get("evidence_count") or 0) == 0,
+            }
+            scored_vendors.append(v)
+
+            vendor_scores_for_safety[v["id"]] = {
+                "trust_tier": v.get("trust_tier") or "UNVERIFIED",
+                "evidence_count": int(v.get("evidence_count") or 0),
+                "total_pos": int(v.get("total_pos") or 0),
+                "on_time_delivery_pct": float(v.get("on_time_delivery_pct") or 0.0),
+                "match_score": max(strategy_scores.values()) if strategy_scores else 0.0,
+                "anomaly_flags": per_vendor_ctx["anomaly_flags"],
+                "price_competitiveness_score": float(
+                    (score_breakdowns.get("best_domestic_value") or {}).get(
+                        "price_competitiveness", 0.0
+                    )
+                ),
+                "confidence_score": max(strategy_scores.values()) if strategy_scores else 0.0,
+                "missing_required_fields": list(v.get("missing_required_fields") or []),
+            }
+
+        # ── Generate the three strategies ────────────────────────────────
+        strategies = sourcing_strategy_engine.generate_sourcing_strategies(
+            scored_vendors=scored_vendors,
+            geo_buckets=geo_buckets,
+            geo_ctx=geo_ctx,
+            requirements=requirements_stub,
+            db=db,
+            currency=target_currency,
+        )
+
+        # ── Decision safety ─────────────────────────────────────────────
+        safety_report = decision_safety_service.evaluate_recommendation_safety(
+            strategy_results=strategies,
+            vendor_scores=vendor_scores_for_safety,
+            evidence={},
+        )
+
+        # ── Persist regional_strategy_runs audit ────────────────────────
+        strategy_payload = [s.to_dict() for s in strategies]
+        audit_row = RegionalStrategyRun(
+            project_id=project.id,
+            requester_location=requester_loc_input,
+            local_bucket=geo_ctx.local_state,
+            regional_bucket=list(geo_ctx.regional_states),
+            national_bucket=geo_ctx.national_country,
+            international_bucket="global",
+            strategy_results={
+                "strategies": strategy_payload,
+                "safety_report": safety_report.to_dict(),
+                "counts": geo_buckets.counts(),
+            },
+        )
+        db.add(audit_row)
+        db.flush()
+
+        # ── Build response ──────────────────────────────────────────────
+        strategy_schemas = [
+            SourcingStrategyResult(
+                strategy_name=s.strategy_name,
+                strategy_label=s.strategy_label,
+                top_option=(
+                    StrategyVendorOption(**s.top_option.to_dict())
+                    if s.top_option else None
+                ),
+                runner_up_options=[
+                    StrategyVendorOption(**r.to_dict()) for r in s.runner_up_options
+                ],
+                strategy_confidence=s.strategy_confidence,
+                rfq_required=s.rfq_required,
+                strategy_narrative=s.strategy_narrative,
+                geo_tier_context=dict(s.geo_tier_context),
+                commodity_signal=s.commodity_signal,
+            )
+            for s in strategies
+        ]
+
+        commodity_ctx: dict[str, Any] = {}
+        # Grab a commodity signal for the first vendor's material family as a
+        # representative — not per-vendor, just to expose market context.
+        for v in scored_vendors:
+            mf = (
+                v.get("primary_category_tag")
+                or (v.get("capabilities") or [{}])[0].get("material_family")
+            )
+            if mf:
+                sig = commodity_price_service.get_current_price_signal(mf, db)
+                if sig is not None:
+                    commodity_ctx = {
+                        "material_family": mf,
+                        "commodity_name": sig.commodity_name,
+                        "price_per_unit": str(sig.price_per_unit),
+                        "unit": sig.unit,
+                        "trend_direction": sig.trend_direction,
+                        "trend_pct_30d": float(sig.trend_pct_30d) if sig.trend_pct_30d else None,
+                        "is_valley": bool(sig.is_valley),
+                        "price_date": sig.price_date.isoformat() if sig.price_date else None,
+                    }
+                    break
+
+        response = VendorIntelligenceRecommendationResponse(
+            project_id=project.id,
+            bom_id=recommendation.bom_id,
+            generated_at=_now(),
+            status="success",
+            requester_location=requester_loc_input,
+            geo_context=geo_ctx.to_dict(),
+            sourcing_strategies=strategy_schemas,
+            overall_summary=recommendation.summary,
+            vendor_rankings=list(recommendation.vendor_rankings or []),
+            line_recommendations=list(recommendation.line_recommendations or []),
+            decision_safety_report=safety_report.to_dict(),
+            evidence=recommendation.evidence,
+            market_intelligence_context={
+                "commodity_signal": commodity_ctx,
+                "geo_bucket_counts": geo_buckets.counts(),
+            },
+            freshness=recommendation.freshness,
+        )
+        db.commit()
+        logger.info(
+            "vendor_intelligence_recommendation project=%s strategies=%d safety_ok=%s",
+            project.id, len(strategy_schemas), safety_report.overall_safe,
+        )
+        return response
+
+    def _extract_requester_location(self, project: Project) -> dict[str, Any]:
+        """Pull requester location out of project metadata / bom / org defaults."""
+        meta = project.project_metadata or {}
+        loc = meta.get("requester_location") or meta.get("delivery_location_full") or {}
+        if not isinstance(loc, dict):
+            loc = {}
+        if not loc:
+            # Scavenge from flat fields
+            loc = {
+                "country": meta.get("country") or meta.get("delivery_country"),
+                "state_province": meta.get("state") or meta.get("delivery_region"),
+                "city": meta.get("city") or meta.get("delivery_city"),
+            }
+        # Remove empties for cleanliness
+        return {k: v for k, v in loc.items() if v}
+
+    def _build_requirements_stub(self, recommendation) -> dict[str, Any]:
+        """Synthesize a project-level requirements dict from line recommendations."""
+        processes: set[str] = set()
+        materials: set[str] = set()
+        certifications: set[str] = set()
+        target_lead = 30
+        for line in recommendation.line_recommendations or []:
+            pc = line.procurement_class if hasattr(line, "procurement_class") else line.get("procurement_class")
+            if pc and pc != "unknown":
+                processes.add(pc)
+        return {
+            "processes": sorted(processes),
+            "materials": sorted(materials),
+            "required_certifications": sorted(certifications),
+            "target_lead_time_days": target_lead,
+            "delivery_region": recommendation.summary.target_currency,  # neutral fallback
+            "total_quantity": 1,
+        }
+
+    def _vendor_to_intelligence_dict(self, vendor: Vendor, db: Session) -> dict[str, Any]:
+        """Hydrate a vendor ORM row into the dict shape the scorer/matcher wants."""
+        from app.models.vendor import VendorCapability as _VC, VendorLeadTimeBand as _VLT
+
+        caps = (
+            db.query(_VC)
+            .filter(_VC.vendor_id == vendor.id, _VC.is_active.is_(True))
+            .all()
+        )
+        bands = (
+            db.query(_VLT)
+            .filter(_VLT.vendor_id == vendor.id)
+            .all()
+        )
+        band_min = min((int(b.lead_time_min_days) for b in bands if b.lead_time_min_days), default=None)
+        band_max = max((int(b.lead_time_max_days) for b in bands if b.lead_time_max_days), default=None)
+
+        return {
+            "id": vendor.id,
+            "name": vendor.name,
+            "country": vendor.country,
+            "country_iso2": (vendor.country or "")[:2].upper() if vendor.country else None,
+            "region": vendor.region,
+            "export_capable": bool(vendor.export_capable),
+            "trust_tier": vendor.trust_tier or "UNVERIFIED",
+            "primary_category_tag": vendor.primary_category_tag,
+            "secondary_category_tags": list(vendor.secondary_category_tags or []),
+            "missing_required_fields": list(vendor.missing_required_fields or []),
+            "reliability_score": float(vendor.reliability_score) if vendor.reliability_score else 0.5,
+            "avg_lead_time_days": float(vendor.avg_lead_time_days) if vendor.avg_lead_time_days else None,
+            "regions_served": list(vendor.regions_served or []),
+            "certifications": list(vendor.certifications or []),
+            "capacity_profile": dict(vendor.capacity_profile or {}),
+            "capabilities": [
+                {"process": c.process, "material_family": c.material_family}
+                for c in caps
+            ],
+            "lead_time_min_days": band_min,
+            "lead_time_max_days": band_max,
+            "typical_unit_price": None,
+            "tariff_rate": None,
+            "fx_rate": None,
+            "locations": [
+                {
+                    "city": loc.city,
+                    "state_province": loc.state_province,
+                    "country_iso2": loc.country_iso2,
+                    "is_primary": bool(loc.is_primary),
+                    "is_export_office": bool(loc.is_export_office),
+                    "geo_region_tag": loc.geo_region_tag,
+                }
+                for loc in (vendor.locations or [])
+            ],
+        }
+
 
 runtime_pipeline_service = RuntimePipelineService()

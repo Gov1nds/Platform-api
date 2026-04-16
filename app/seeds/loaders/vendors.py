@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.vendor import Vendor, VendorCapability
+from app.models.vendor import (
+    Vendor, VendorCapability, VendorLocation, VendorLeadTimeBand,
+    VendorTrustTier,
+)
 from app.seeds.base import (
+    SeedError,
     SeedStats,
     ensure_dict,
     ensure_list,
@@ -17,6 +22,7 @@ from app.seeds.base import (
     upsert_table,
 )
 from app.seeds.tables import vendor_capability_seed_catalog, vendor_seed_catalog
+from app.services.vendor_intelligence_service import vendor_intelligence_service
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +68,14 @@ def load_vendors(seed_root, db: Session) -> list[SeedStats]:
         ),
         _sync_operational_capabilities(db, capability_rows, vendor_rows),
     ]
+
+    # ── Phase 3 additive seed loading (all optional; missing files are skipped) ──
+    seed_root_path = Path(seed_root)
+    stats.append(_sync_vendor_locations_phase3(db, seed_root_path))
+    stats.append(_sync_vendor_lead_time_bands_phase3(db, seed_root_path))
+    stats.append(_sync_vendor_trust_tiers_phase3(db, seed_root_path))
+    stats.append(_refresh_dedup_fingerprints_phase3(db))
+
     return stats
 
 
@@ -167,4 +181,140 @@ def _sync_operational_capabilities(db: Session, capability_rows: list[dict], ven
                 existing.created_at = parse_datetime(row.get("created_at")) or existing.created_at
 
     logger.info("seeded %s | inserted=%s updated=%s", stats.name, stats.inserted, stats.updated)
+    return stats
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 3 — additive vendor-intelligence seed sync
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _read_phase3_seed(seed_root: Path, relative_path: str) -> list[dict]:
+    """Read a Phase-3 seed file if present, else return []."""
+    try:
+        return load_records(seed_root, relative_path)
+    except SeedError:
+        logger.info("phase3 seed not present: %s (skipping)", relative_path)
+        return []
+
+
+def _sync_vendor_locations_phase3(db: Session, seed_root: Path) -> SeedStats:
+    stats = SeedStats(name="pricing.vendor_locations")
+    rows = _read_phase3_seed(seed_root, "vendors/vendor_locations.json")
+    for row in rows:
+        vendor_id = row.get("vendor_id")
+        if not vendor_id:
+            continue
+        if db.get(Vendor, vendor_id) is None:
+            continue
+        loc = db.execute(
+            select(VendorLocation).where(
+                VendorLocation.vendor_id == vendor_id,
+                VendorLocation.is_primary == bool(row.get("is_primary", False)),
+                VendorLocation.label == row.get("label"),
+            )
+        ).scalar_one_or_none()
+        if loc is None:
+            loc = VendorLocation(vendor_id=vendor_id)
+            db.add(loc)
+            stats.inserted += 1
+        else:
+            stats.updated += 1
+        loc.label = row.get("label") or loc.label
+        loc.address_line1 = row.get("address_line1") or loc.address_line1
+        loc.address_line2 = row.get("address_line2") or loc.address_line2
+        loc.city = row.get("city") or loc.city
+        loc.state_province = row.get("state_province") or loc.state_province
+        loc.postal_code = row.get("postal_code") or loc.postal_code
+        loc.country_iso2 = row.get("country_iso2") or loc.country_iso2
+        loc.latitude = parse_decimal(row.get("latitude"))
+        loc.longitude = parse_decimal(row.get("longitude"))
+        loc.geo_region_tag = row.get("geo_region_tag") or loc.geo_region_tag
+        loc.is_primary = bool(row.get("is_primary", loc.is_primary))
+        loc.is_export_office = bool(row.get("is_export_office", loc.is_export_office))
+    logger.info("seeded %s | inserted=%s updated=%s", stats.name, stats.inserted, stats.updated)
+    return stats
+
+
+def _sync_vendor_lead_time_bands_phase3(db: Session, seed_root: Path) -> SeedStats:
+    stats = SeedStats(name="pricing.vendor_lead_time_bands")
+    rows = _read_phase3_seed(seed_root, "vendors/vendor_lead_time_bands.json")
+    for row in rows:
+        vendor_id = row.get("vendor_id")
+        if not vendor_id or db.get(Vendor, vendor_id) is None:
+            continue
+        band = db.execute(
+            select(VendorLeadTimeBand).where(
+                VendorLeadTimeBand.vendor_id == vendor_id,
+                VendorLeadTimeBand.category_tag == row.get("category_tag"),
+                VendorLeadTimeBand.material_family == row.get("material_family"),
+            )
+        ).scalar_one_or_none()
+        if band is None:
+            band = VendorLeadTimeBand(
+                vendor_id=vendor_id,
+                category_tag=row.get("category_tag"),
+                material_family=row.get("material_family"),
+            )
+            db.add(band)
+            stats.inserted += 1
+        else:
+            stats.updated += 1
+        band.moq = parse_decimal(row.get("moq"))
+        band.moq_unit = row.get("moq_unit") or band.moq_unit
+        band.lead_time_min_days = row.get("lead_time_min_days") or band.lead_time_min_days
+        band.lead_time_max_days = row.get("lead_time_max_days") or band.lead_time_max_days
+        band.lead_time_typical_days = parse_decimal(row.get("lead_time_typical_days"))
+        band.confidence = parse_decimal(row.get("confidence")) or Decimal("0.5")
+        band.source = row.get("source") or "self_reported"
+    logger.info("seeded %s | inserted=%s updated=%s", stats.name, stats.inserted, stats.updated)
+    return stats
+
+
+def _sync_vendor_trust_tiers_phase3(db: Session, seed_root: Path) -> SeedStats:
+    stats = SeedStats(name="pricing.vendor_trust_tiers")
+    rows = _read_phase3_seed(seed_root, "vendors/vendor_trust_tiers.json")
+    for row in rows:
+        vendor_id = row.get("vendor_id")
+        if not vendor_id:
+            continue
+        vendor = db.get(Vendor, vendor_id)
+        if vendor is None:
+            continue
+        record = db.execute(
+            select(VendorTrustTier).where(VendorTrustTier.vendor_id == vendor_id)
+        ).scalar_one_or_none()
+        if record is None:
+            record = VendorTrustTier(vendor_id=vendor_id)
+            db.add(record)
+            stats.inserted += 1
+        else:
+            stats.updated += 1
+        record.tier = row.get("tier") or "UNVERIFIED"
+        record.data_completeness_score = parse_decimal(row.get("data_completeness_score")) or Decimal("0")
+        record.reliability_score = parse_decimal(row.get("reliability_score")) or Decimal("0")
+        record.evidence_count = int(row.get("evidence_count") or 0)
+        record.missing_required_fields = list(row.get("missing_required_fields") or [])
+        record.flags = list(row.get("flags") or [])
+        # Denormalize onto vendor row
+        vendor.trust_tier = record.tier
+        vendor.missing_required_fields = list(record.missing_required_fields or [])
+        vendor.profile_flags = list(record.flags or [])
+    logger.info("seeded %s | inserted=%s updated=%s", stats.name, stats.inserted, stats.updated)
+    return stats
+
+
+def _refresh_dedup_fingerprints_phase3(db: Session) -> SeedStats:
+    stats = SeedStats(name="pricing.vendors.dedup_fingerprint")
+    vendors = db.execute(
+        select(Vendor).where(
+            Vendor.is_active.is_(True),
+            Vendor.deleted_at.is_(None),
+            Vendor.merged_into_vendor_id.is_(None),
+        )
+    ).scalars().all()
+    for v in vendors:
+        vendor_intelligence_service.refresh_vendor_fingerprint(db, v)
+        stats.updated += 1
+    logger.info("refreshed %s | updated=%s", stats.name, stats.updated)
     return stats
