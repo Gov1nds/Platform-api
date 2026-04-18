@@ -95,3 +95,108 @@ def generate_report(body: ReportRequest, user: User = Depends(require_user), db:
         filters_json=body.filters, data_json=data, summary_json=summary)
     db.add(snap); db.commit(); db.refresh(snap)
     return ReportResponse.model_validate(snap)
+
+
+# ── Individual report endpoints (Blueprint Section 15) ───────────────────────
+
+from datetime import date as _date
+
+@router.get("/reports/spend")
+def report_spend(
+    date_from: _date | None = None, date_to: _date | None = None,
+    user: User = Depends(require_user), db: Session = Depends(get_db),
+):
+    from app.services.report_service import report_service
+    org_id = getattr(user, "organization_id", None) or ""
+    return report_service.spend_analysis(db, org_id, date_from, date_to)
+
+
+@router.get("/reports/savings")
+def report_savings(
+    date_from: _date | None = None, date_to: _date | None = None,
+    user: User = Depends(require_user), db: Session = Depends(get_db),
+):
+    from app.services.report_service import report_service
+    org_id = getattr(user, "organization_id", None) or ""
+    return report_service.savings_vs_baseline(db, org_id, date_from, date_to)
+
+
+@router.get("/reports/supplier-performance")
+def report_supplier_performance(
+    date_from: _date | None = None, date_to: _date | None = None,
+    user: User = Depends(require_user), db: Session = Depends(get_db),
+):
+    from app.services.report_service import report_service
+    org_id = getattr(user, "organization_id", None) or ""
+    return report_service.supplier_performance(db, org_id, date_from, date_to)
+
+
+@router.get("/reports/operational-status")
+def report_operational(
+    user: User = Depends(require_user), db: Session = Depends(get_db),
+):
+    from app.services.report_service import report_service
+    org_id = getattr(user, "organization_id", None) or ""
+    return report_service.operational_status(db, org_id)
+
+
+@router.get("/reports/lead-time")
+def report_lead_time(
+    date_from: _date | None = None, date_to: _date | None = None,
+    user: User = Depends(require_user), db: Session = Depends(get_db),
+):
+    from app.services.report_service import report_service
+    org_id = getattr(user, "organization_id", None) or ""
+    return report_service.lead_time_analysis(db, org_id, date_from, date_to)
+
+
+@router.get("/reports/risk")
+def report_risk(
+    user: User = Depends(require_user), db: Session = Depends(get_db),
+):
+    from app.services.report_service import report_service
+    org_id = getattr(user, "organization_id", None) or ""
+    return report_service.risk_dashboard(db, org_id)
+
+
+@router.get("/reports/quote-intelligence")
+def report_quote_intel(
+    date_from: _date | None = None, date_to: _date | None = None,
+    user: User = Depends(require_user), db: Session = Depends(get_db),
+):
+    from app.services.report_service import report_service
+    org_id = getattr(user, "organization_id", None) or ""
+    return report_service.quote_intelligence(db, org_id, date_from, date_to)
+
+
+@router.get("/reports/category-insights")
+def report_category(
+    category: str | None = None,
+    user: User = Depends(require_user), db: Session = Depends(get_db),
+):
+    from app.services.report_service import report_service
+    org_id = getattr(user, "organization_id", None) or ""
+    return report_service.category_insights(db, org_id, category)
+
+
+@router.get("/reports/{report_id}/export")
+def export_report(
+    report_id: str,
+    format: str = Query("pdf", description="pdf or xlsx"),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Export a saved report snapshot as PDF."""
+    snap = db.query(ReportSnapshot).filter(ReportSnapshot.id == report_id).first()
+    if not snap:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Report not found")
+    if format == "pdf":
+        from app.services.report_service import report_service
+        pdf_bytes = report_service.export_pdf(snap.report_type, snap.data_json or {})
+        if not pdf_bytes:
+            raise HTTPException(501, "PDF export not available (reportlab not installed)")
+        from fastapi.responses import Response
+        return Response(content=pdf_bytes, media_type="application/pdf",
+                        headers={"Content-Disposition": f"attachment; filename=report_{report_id[:8]}.pdf"})
+    return {"error": "Only PDF export is currently supported"}

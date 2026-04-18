@@ -48,7 +48,21 @@ from app.models.market_intelligence import (
     MarketAnomalyEvent, RegionalStrategyRun,
 )
 
+
+# ── Blueprint v3.0 models ─────────────────────────────────────────────────
+from app.models.data_freshness import DataFreshnessLog
+from app.models.part_master import PartMaster
+from app.models.guest import GuestSearchLog
+from app.models.vendor_invite import VendorInviteToken
+from app.models.report_snapshot_v2 import ReportSnapshotV2
+from app.models.approval_chain import ApprovalChain
+
 __all__ = [
+
+    # Blueprint v3.0
+    "DataFreshnessLog", "PartMaster", "GuestSearchLog",
+    "VendorInviteToken", "ReportSnapshotV2", "ApprovalChain",
+
     # auth
     "User", "GuestSession", "VendorUser", "Organization", "OrganizationMembership",
     # bom

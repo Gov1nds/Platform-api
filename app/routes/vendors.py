@@ -383,3 +383,125 @@ def vendor_learning_events(
             for e in items
         ],
     }
+
+
+# ── Vendor claim / verify / upgrade-tier (Blueprint Section 16) ──────────────
+
+@router.post("/{vendor_id}/claim")
+def claim_vendor(
+    vendor_id: str,
+    contact_email: str = "",
+    claim_notes: str = "",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Vendor claims their profile. Sets status to CLAIM_PENDING."""
+    v = db.query(Vendor).filter(Vendor.id == vendor_id).first()
+    if not v:
+        raise HTTPException(404, "Vendor not found")
+    if getattr(v, "status", "") not in ("GHOST", "BASIC"):
+        raise HTTPException(409, "Vendor already claimed or verified")
+    v.status = "CLAIM_PENDING"
+    v.contact_email = contact_email or v.contact_email
+    from app.services.event_service import track
+    track(db, "vendor_claimed", actor_id=user.id, resource_type="vendor", resource_id=vendor_id,
+          metadata={"claim_notes": claim_notes})
+    db.commit()
+    return {"status": "claim_pending", "vendor_id": vendor_id}
+
+
+@router.post("/{vendor_id}/verify")
+def verify_vendor(
+    vendor_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Admin verifies a vendor claim. Sets status to BASIC + verified_badge."""
+    if getattr(user, "role", "") != "admin":
+        raise HTTPException(403, "Admin only")
+    v = db.query(Vendor).filter(Vendor.id == vendor_id).first()
+    if not v:
+        raise HTTPException(404, "Vendor not found")
+    v.status = "BASIC"
+    if hasattr(v, "verified_badge"):
+        v.verified_badge = True
+    from app.services.event_service import track
+    track(db, "vendor_verified", actor_id=user.id, resource_type="vendor", resource_id=vendor_id)
+    db.commit()
+    return {"status": "verified", "vendor_id": vendor_id}
+
+
+@router.post("/{vendor_id}/upgrade-tier")
+def upgrade_vendor_tier(
+    vendor_id: str,
+    new_tier: str = "STANDARD",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Admin upgrades vendor tier: BASIC → STANDARD → PREMIUM."""
+    if getattr(user, "role", "") != "admin":
+        raise HTTPException(403, "Admin only")
+    v = db.query(Vendor).filter(Vendor.id == vendor_id).first()
+    if not v:
+        raise HTTPException(404, "Vendor not found")
+    valid = {"BASIC": ["STANDARD"], "STANDARD": ["PREMIUM"]}
+    current = getattr(v, "status", "GHOST")
+    if new_tier not in valid.get(current, []):
+        raise HTTPException(409, f"Cannot upgrade from {current} to {new_tier}")
+    v.status = new_tier
+    from app.services.event_service import track
+    track(db, "vendor_tier_upgraded", actor_id=user.id, resource_type="vendor",
+          resource_id=vendor_id, metadata={"from": current, "to": new_tier})
+    db.commit()
+    return {"status": new_tier, "vendor_id": vendor_id}
+
+
+@router.get("/{vendor_id}/score-history")
+def vendor_score_history(
+    vendor_id: str,
+    limit: int = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Return last N VendorMatch records for this vendor."""
+    matches = db.query(VendorMatch).filter(
+        VendorMatch.vendor_id == vendor_id,
+    ).order_by(VendorMatch.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": str(m.id),
+            "vendor_id": str(m.vendor_id),
+            "total_score": float(getattr(m, "total_score", 0) or 0),
+            "rank": getattr(m, "rank", 0),
+            "created_at": str(m.created_at) if m.created_at else None,
+        }
+        for m in matches
+    ]
+
+
+@router.get("/search")
+def search_vendors(
+    q: str = Query("", description="Full-text search"),
+    country: str = Query("", description="Filter by country"),
+    tier: str = Query("", description="Filter by tier/status"),
+    commodity_group: str = Query("", description="Filter by commodity group"),
+    min_reliability: float = Query(0.0, description="Minimum reliability score"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Full-text search over vendors with filters."""
+    query = db.query(Vendor).filter(Vendor.is_active == True)
+    if q:
+        query = query.filter(Vendor.name.ilike(f"%{q}%"))
+    if country:
+        query = query.filter(Vendor.country == country)
+    if tier:
+        query = query.filter(Vendor.status == tier)
+    if min_reliability > 0:
+        query = query.filter(Vendor.reliability_score >= min_reliability)
+    total = query.count()
+    items = query.offset(offset).limit(limit).all()
+    return {
+        "total": total,
+        "items": [VendorResponse.model_validate(v) for v in items],
+    }

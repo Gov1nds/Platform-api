@@ -101,3 +101,136 @@ def submit_quote(body: QuoteSubmitRequest, db: Session = Depends(get_db)):
         quote_status="received", quote_version=header.quote_version, total=float(total),
         lines=[{"part_name":l.part_name,"unit_price":float(l.unit_price) if l.unit_price else None} for l in header.lines],
         created_at=header.created_at)
+
+
+# ── RFQ Dispatch, Reminders, Quote Comparison, Accept/Reject ─────────────────
+
+@router.post("/{rfq_id}/dispatch")
+def dispatch_rfq(
+    rfq_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Dispatch RFQ to all pending vendor invitations via email/portal."""
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
+    if not rfq:
+        raise HTTPException(404, "RFQ not found")
+    from app.services.rfq_dispatch_service import rfq_dispatch_service
+    results = rfq_dispatch_service.dispatch_batch(db, rfq)
+    rfq.status = "sent"
+    db.commit()
+    return {
+        "rfq_id": rfq_id,
+        "dispatched": len([r for r in results if r.success]),
+        "failed": len([r for r in results if not r.success]),
+        "results": [{"vendor_id": r.vendor_id, "success": r.success, "channel": r.channel, "error": r.error} for r in results],
+    }
+
+
+@router.post("/{rfq_id}/send-reminders")
+def send_rfq_reminders(
+    rfq_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Send reminder emails to vendors that haven't responded."""
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
+    if not rfq:
+        raise HTTPException(404, "RFQ not found")
+    invitations = db.query(RFQVendorInvitation).filter_by(rfq_batch_id=rfq_id).all()
+    from app.services.rfq_dispatch_service import rfq_dispatch_service
+    results = []
+    for inv in invitations:
+        if getattr(inv, "status", "") not in ("responded", "quoted", "declined"):
+            results.append(rfq_dispatch_service.send_reminder(db, rfq, inv))
+    return {"reminders_sent": len([r for r in results if r.success])}
+
+
+@router.get("/{rfq_id}/quote-comparison")
+def quote_comparison(
+    rfq_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Spreadsheet-style quote comparison matrix.
+    Rows = BOM lines, Cols = vendors, Cells = TLC with constraints.
+    """
+    rfq = db.query(RFQBatch).filter(RFQBatch.id == rfq_id).first()
+    if not rfq:
+        raise HTTPException(404, "RFQ not found")
+
+    quotes = db.query(RFQQuoteHeader).filter_by(rfq_batch_id=rfq_id).all()
+    items = db.query(RFQItem).filter_by(rfq_batch_id=rfq_id).all()
+
+    matrix = {}
+    vendors = []
+    for quote in quotes:
+        vid = str(quote.vendor_id)
+        if vid not in [v["id"] for v in vendors]:
+            vendors.append({"id": vid, "quote_id": str(quote.id), "status": quote.quote_status})
+        lines = db.query(RFQQuoteLine).filter_by(quote_header_id=quote.id).all()
+        for line in lines:
+            line_key = str(getattr(line, "bom_line_id", "") or getattr(line, "rfq_item_id", ""))
+            if line_key not in matrix:
+                matrix[line_key] = {}
+            matrix[line_key][vid] = {
+                "unit_price": float(getattr(line, "unit_price", 0) or 0),
+                "lead_time_weeks": getattr(line, "lead_time_weeks", None),
+                "moq": getattr(line, "moq", None),
+                "currency": getattr(line, "currency", "USD"),
+            }
+
+    bom_lines = [{"id": str(item.id), "description": getattr(item, "description", "")} for item in items]
+
+    return {
+        "rfq_id": rfq_id,
+        "bom_lines": bom_lines,
+        "vendors": vendors,
+        "matrix": matrix,
+    }
+
+
+@router.post("/quotes/{quote_id}/accept")
+def accept_quote(
+    quote_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Accept a vendor quote. Creates PO stub. Rejects other quotes for same RFQ."""
+    quote = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.id == quote_id).first()
+    if not quote:
+        raise HTTPException(404, "Quote not found")
+    quote.quote_status = "ACCEPTED"
+
+    # Reject other quotes for same RFQ
+    other_quotes = db.query(RFQQuoteHeader).filter(
+        RFQQuoteHeader.rfq_batch_id == quote.rfq_batch_id,
+        RFQQuoteHeader.id != quote_id,
+    ).all()
+    for oq in other_quotes:
+        oq.quote_status = "REJECTED"
+
+    from app.services.event_service import track
+    track(db, "quote_accepted", actor_id=user.id, resource_type="quote", resource_id=quote_id)
+    db.commit()
+    return {"status": "accepted", "quote_id": quote_id}
+
+
+@router.post("/quotes/{quote_id}/reject")
+def reject_quote(
+    quote_id: str,
+    reason: str = "",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Reject a vendor quote."""
+    quote = db.query(RFQQuoteHeader).filter(RFQQuoteHeader.id == quote_id).first()
+    if not quote:
+        raise HTTPException(404, "Quote not found")
+    quote.quote_status = "REJECTED"
+    from app.services.event_service import track
+    track(db, "quote_rejected", actor_id=user.id, resource_type="quote", resource_id=quote_id,
+          metadata={"reason": reason})
+    db.commit()
+    return {"status": "rejected", "quote_id": quote_id, "reason": reason}

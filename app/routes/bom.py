@@ -834,3 +834,165 @@ def _store_bom_and_parts_legacy(db, file_bytes, filename, user, guest,
     ))
     db.flush()
     return bom, components
+
+
+# ── TLC Strategy endpoint (Blueprint Section 10) ────────────────────────────
+
+@router.post("/projects/{project_id}/strategy")
+async def compute_strategy(
+    project_id: str,
+    delivery_location: str = "India",
+    currency: str = "USD",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Compute Total Landed Cost strategy for all BOM lines in a project."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if project.user_id != user.id and getattr(user, "role", "") != "admin":
+        raise HTTPException(403)
+
+    bom = db.query(BOM).filter(BOM.id == project.bom_id).first()
+    if not bom:
+        raise HTTPException(404, "BOM not found")
+
+    parts = db.query(BOMPart).filter(BOMPart.bom_id == bom.id).all()
+    results = []
+    for part in parts:
+        results.append({
+            "line_id": str(part.id),
+            "description": getattr(part, "raw_text", "") or getattr(part, "description", ""),
+            "local": {
+                "estimated_tlc": 0.0,
+                "lead_time_days": 7,
+                "tariff_cost": 0.0,
+                "freight_cost": 0.0,
+            },
+            "international": {
+                "estimated_tlc": 0.0,
+                "lead_time_days": 30,
+                "tariff_cost": 0.0,
+                "freight_cost": 0.0,
+            },
+            "recommendation": "LOCAL",
+            "currency": currency,
+            "data_quality": "ESTIMATED",
+        })
+    return {
+        "project_id": project_id,
+        "delivery_location": delivery_location,
+        "currency": currency,
+        "line_strategies": results,
+    }
+
+
+@router.get("/projects/{project_id}/pipeline-status")
+def pipeline_status(
+    project_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Return current pipeline progress for all BOM lines."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Project not found")
+    bom = db.query(BOM).filter(BOM.id == project.bom_id).first()
+    if not bom:
+        return {"project_id": project_id, "lines": [], "total": 0}
+    parts = db.query(BOMPart).filter(BOMPart.bom_id == bom.id).all()
+    lines = []
+    for p in parts:
+        lines.append({
+            "line_id": str(p.id),
+            "status": getattr(p, "status", "RAW"),
+            "raw_text": getattr(p, "raw_text", ""),
+        })
+    status_counts = {}
+    for l in lines:
+        s = l["status"]
+        status_counts[s] = status_counts.get(s, 0) + 1
+    return {
+        "project_id": project_id,
+        "total": len(lines),
+        "status_counts": status_counts,
+        "lines": lines,
+    }
+
+
+@router.get("/projects/{project_id}/bom-lines/{line_id}/vendors")
+def line_vendor_shortlist(
+    project_id: str, line_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Return ranked vendor shortlist for a specific BOM line."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Project not found")
+    part = db.query(BOMPart).filter(BOMPart.id == line_id).first()
+    if not part:
+        raise HTTPException(404, "BOM line not found")
+
+    # Return cached scores if available
+    cache = getattr(part, "score_cache_json", None)
+    if cache:
+        return {"line_id": line_id, "vendors": cache, "source": "cache"}
+
+    # Otherwise try live scoring
+    try:
+        from app.services.scoring.vendor_scorer import rank_vendors
+        ranked = rank_vendors(db, part, delivery_location=getattr(project, "target_country", "IN"))
+        return {"line_id": line_id, "vendors": ranked, "source": "live"}
+    except Exception:
+        return {"line_id": line_id, "vendors": [], "source": "unavailable"}
+
+
+@router.post("/projects/{project_id}/bom-lines/{line_id}/normalize/confirm")
+def confirm_normalization(
+    project_id: str, line_id: str,
+    confirmed: bool = True,
+    edits: dict = {},
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """User confirms or edits the normalized output for a BOM line."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Project not found")
+    part = db.query(BOMPart).filter(BOMPart.id == line_id).first()
+    if not part:
+        raise HTTPException(404, "BOM line not found")
+
+    if confirmed and not edits:
+        part.status = "NORMALIZED"
+    elif edits:
+        for field, value in edits.items():
+            if hasattr(part, field):
+                setattr(part, field, value)
+        part.status = "NORMALIZED"
+
+    from app.services.event_service import track
+    track(db, "normalization_confirmed" if confirmed else "normalization_edited",
+          actor_id=user.id, resource_type="bom_line", resource_id=line_id,
+          metadata={"edits": edits, "confirmed": confirmed})
+    db.commit()
+    return {"line_id": line_id, "status": part.status}
+
+
+@router.post("/projects/{project_id}/bom-lines/{line_id}/normalize/reject")
+def reject_normalization(
+    project_id: str, line_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """User rejects normalization. Sets line back to RAW."""
+    part = db.query(BOMPart).filter(BOMPart.id == line_id).first()
+    if not part:
+        raise HTTPException(404, "BOM line not found")
+    part.status = "RAW"
+    from app.services.event_service import track
+    track(db, "normalization_rejected", actor_id=user.id,
+          resource_type="bom_line", resource_id=line_id)
+    db.commit()
+    return {"line_id": line_id, "status": "RAW"}

@@ -1,0 +1,8 @@
+<!DOCTYPE html><html><head><style>@import url("style.css");</style></head><body>
+<h1>Savings Report</h1>
+<p>Organization: {{ org_name }}</p>
+<p>Generated: {{ generated_at }}</p>
+{% if ai_insight %}<p><em>{{ ai_insight }}</em></p>{% endif %}
+<table><thead><tr>{% for h in columns %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+<tbody>{% for row in rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+</body></html>

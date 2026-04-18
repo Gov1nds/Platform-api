@@ -1,0 +1,101 @@
+part_id,canonical_name,category,commodity_group,taxonomy_code,spec_template,default_uom,manufacturer_part_number,manufacturer
+,Resistor 10k 5% 0402,passive,resistors,31162800,{"resistance":"10k","tolerance":"5%","package":"0402"},each,RC0402JR-0710KL,Yageo
+,Resistor 100R 1% 0603,passive,resistors,31162800,{"resistance":"100R","tolerance":"1%","package":"0603"},each,RC0603FR-07100RL,Yageo
+,Capacitor 100nF 50V 0402,passive,capacitors,31162100,{"capacitance":"100nF","voltage":"50V","package":"0402"},each,CC0402KRX7R9BB104,Yageo
+,Capacitor 10uF 16V 0805,passive,capacitors,31162100,{"capacitance":"10uF","voltage":"16V","package":"0805"},each,GRM21BR61C106KE15L,Murata
+,IC STM32F103C8T6,semiconductor,microcontrollers,31211500,{"core":"ARM Cortex-M3","flash":"64KB","package":"LQFP-48"},each,STM32F103C8T6,STMicroelectronics
+,IC ESP32-WROOM-32,semiconductor,microcontrollers,31211500,{"core":"Xtensa LX6","wifi":"802.11bgn","package":"module"},each,ESP32-WROOM-32,Espressif
+,LED 0603 Red,optoelectronics,leds,39111600,{"color":"red","package":"0603","forward_voltage":"1.8V"},each,150060RS75000,Wurth
+,Connector USB-C Female,electromechanical,connectors,31161500,{"type":"USB-C","gender":"female","pins":24},each,USB4105-GF-A,GCT
+,Inductor 10uH 1A 0805,passive,inductors,31161800,{"inductance":"10uH","current":"1A","package":"0805"},each,LQH3NPN100MG0L,Murata
+,MOSFET N-Ch 60V 30A,semiconductor,transistors,31211600,{"type":"N-Channel","vds":"60V","id":"30A","package":"TO-220"},each,IRF3205PBF,Infineon
+,Bearing 6204-2RS,mechanical,bearings,31171500,{"bore":"20mm","od":"47mm","width":"14mm","seal":"2RS"},each,6204-2RS,SKF
+,O-Ring Viton 25mm,mechanical,seals,31161600,{"material":"Viton","id":"25mm","cs":"3mm"},each,OR-V-25x3,Parker
+,Hex Bolt M8x30 SS304,fastener,bolts,31161700,{"thread":"M8","length":"30mm","material":"SS304"},each,,Generic
+,Aluminum 6061-T6 Sheet 1mm,raw_material,aluminum,31101500,{"alloy":"6061-T6","thickness":"1mm"},sqm,,Hindalco
+,Steel AISI 304 Rod 10mm,raw_material,steel,31101500,{"grade":"AISI 304","diameter":"10mm"},meter,,Tata Steel
+,PCB FR4 2-Layer 1.6mm,fabricated,pcb,31162400,{"layers":2,"material":"FR4","thickness":"1.6mm"},each,,JLCPCB
+,Relay 5V SPDT,electromechanical,relays,39121000,{"coil_voltage":"5V","contact":"SPDT","rating":"10A"},each,SRD-05VDC-SL-C,Songle
+,Crystal 8MHz HC-49S,passive,crystals,31162300,{"frequency":"8MHz","package":"HC-49S","load":"20pF"},each,,TXC
+,Voltage Regulator LM7805,semiconductor,voltage_regulators,31211500,{"output":"5V","package":"TO-220"},each,LM7805CT,ON Semi
+,DC Motor 12V 100RPM,electromechanical,motors,26101500,{"voltage":"12V","speed":"100RPM","torque":"5kgcm"},each,,Johnson
+,Resistor 10k 5% 0402 Var-1,passive,resistors,31162800,{"resistance":"10k","tolerance":"5%","package":"0402"},each,RC0402JR-0710KL,Yageo
+,Resistor 100R 1% 0603 Var-2,passive,resistors,31162800,{"resistance":"100R","tolerance":"1%","package":"0603"},each,RC0603FR-07100RL,Yageo
+,Capacitor 100nF 50V 0402 Var-3,passive,capacitors,31162100,{"capacitance":"100nF","voltage":"50V","package":"0402"},each,CC0402KRX7R9BB104,Yageo
+,Capacitor 10uF 16V 0805 Var-4,passive,capacitors,31162100,{"capacitance":"10uF","voltage":"16V","package":"0805"},each,GRM21BR61C106KE15L,Murata
+,IC STM32F103C8T6 Var-5,semiconductor,microcontrollers,31211500,{"core":"ARM Cortex-M3","flash":"64KB","package":"LQFP-48"},each,STM32F103C8T6,STMicroelectronics
+,IC ESP32-WROOM-32 Var-6,semiconductor,microcontrollers,31211500,{"core":"Xtensa LX6","wifi":"802.11bgn","package":"module"},each,ESP32-WROOM-32,Espressif
+,LED 0603 Red Var-7,optoelectronics,leds,39111600,{"color":"red","package":"0603","forward_voltage":"1.8V"},each,150060RS75000,Wurth
+,Connector USB-C Female Var-8,electromechanical,connectors,31161500,{"type":"USB-C","gender":"female","pins":24},each,USB4105-GF-A,GCT
+,Inductor 10uH 1A 0805 Var-9,passive,inductors,31161800,{"inductance":"10uH","current":"1A","package":"0805"},each,LQH3NPN100MG0L,Murata
+,MOSFET N-Ch 60V 30A Var-10,semiconductor,transistors,31211600,{"type":"N-Channel","vds":"60V","id":"30A","package":"TO-220"},each,IRF3205PBF,Infineon
+,Bearing 6204-2RS Var-11,mechanical,bearings,31171500,{"bore":"20mm","od":"47mm","width":"14mm","seal":"2RS"},each,6204-2RS,SKF
+,O-Ring Viton 25mm Var-12,mechanical,seals,31161600,{"material":"Viton","id":"25mm","cs":"3mm"},each,OR-V-25x3,Parker
+,Hex Bolt M8x30 SS304 Var-13,fastener,bolts,31161700,{"thread":"M8","length":"30mm","material":"SS304"},each,,Generic
+,Aluminum 6061-T6 Sheet 1mm Var-14,raw_material,aluminum,31101500,{"alloy":"6061-T6","thickness":"1mm"},sqm,,Hindalco
+,Steel AISI 304 Rod 10mm Var-15,raw_material,steel,31101500,{"grade":"AISI 304","diameter":"10mm"},meter,,Tata Steel
+,PCB FR4 2-Layer 1.6mm Var-16,fabricated,pcb,31162400,{"layers":2,"material":"FR4","thickness":"1.6mm"},each,,JLCPCB
+,Relay 5V SPDT Var-17,electromechanical,relays,39121000,{"coil_voltage":"5V","contact":"SPDT","rating":"10A"},each,SRD-05VDC-SL-C,Songle
+,Crystal 8MHz HC-49S Var-18,passive,crystals,31162300,{"frequency":"8MHz","package":"HC-49S","load":"20pF"},each,,TXC
+,Voltage Regulator LM7805 Var-19,semiconductor,voltage_regulators,31211500,{"output":"5V","package":"TO-220"},each,LM7805CT,ON Semi
+,DC Motor 12V 100RPM Var-20,electromechanical,motors,26101500,{"voltage":"12V","speed":"100RPM","torque":"5kgcm"},each,,Johnson
+,Resistor 10k 5% 0402 Var-21,passive,resistors,31162800,{"resistance":"10k","tolerance":"5%","package":"0402"},each,RC0402JR-0710KL,Yageo
+,Resistor 100R 1% 0603 Var-22,passive,resistors,31162800,{"resistance":"100R","tolerance":"1%","package":"0603"},each,RC0603FR-07100RL,Yageo
+,Capacitor 100nF 50V 0402 Var-23,passive,capacitors,31162100,{"capacitance":"100nF","voltage":"50V","package":"0402"},each,CC0402KRX7R9BB104,Yageo
+,Capacitor 10uF 16V 0805 Var-24,passive,capacitors,31162100,{"capacitance":"10uF","voltage":"16V","package":"0805"},each,GRM21BR61C106KE15L,Murata
+,IC STM32F103C8T6 Var-25,semiconductor,microcontrollers,31211500,{"core":"ARM Cortex-M3","flash":"64KB","package":"LQFP-48"},each,STM32F103C8T6,STMicroelectronics
+,IC ESP32-WROOM-32 Var-26,semiconductor,microcontrollers,31211500,{"core":"Xtensa LX6","wifi":"802.11bgn","package":"module"},each,ESP32-WROOM-32,Espressif
+,LED 0603 Red Var-27,optoelectronics,leds,39111600,{"color":"red","package":"0603","forward_voltage":"1.8V"},each,150060RS75000,Wurth
+,Connector USB-C Female Var-28,electromechanical,connectors,31161500,{"type":"USB-C","gender":"female","pins":24},each,USB4105-GF-A,GCT
+,Inductor 10uH 1A 0805 Var-29,passive,inductors,31161800,{"inductance":"10uH","current":"1A","package":"0805"},each,LQH3NPN100MG0L,Murata
+,MOSFET N-Ch 60V 30A Var-30,semiconductor,transistors,31211600,{"type":"N-Channel","vds":"60V","id":"30A","package":"TO-220"},each,IRF3205PBF,Infineon
+,Bearing 6204-2RS Var-31,mechanical,bearings,31171500,{"bore":"20mm","od":"47mm","width":"14mm","seal":"2RS"},each,6204-2RS,SKF
+,O-Ring Viton 25mm Var-32,mechanical,seals,31161600,{"material":"Viton","id":"25mm","cs":"3mm"},each,OR-V-25x3,Parker
+,Hex Bolt M8x30 SS304 Var-33,fastener,bolts,31161700,{"thread":"M8","length":"30mm","material":"SS304"},each,,Generic
+,Aluminum 6061-T6 Sheet 1mm Var-34,raw_material,aluminum,31101500,{"alloy":"6061-T6","thickness":"1mm"},sqm,,Hindalco
+,Steel AISI 304 Rod 10mm Var-35,raw_material,steel,31101500,{"grade":"AISI 304","diameter":"10mm"},meter,,Tata Steel
+,PCB FR4 2-Layer 1.6mm Var-36,fabricated,pcb,31162400,{"layers":2,"material":"FR4","thickness":"1.6mm"},each,,JLCPCB
+,Relay 5V SPDT Var-37,electromechanical,relays,39121000,{"coil_voltage":"5V","contact":"SPDT","rating":"10A"},each,SRD-05VDC-SL-C,Songle
+,Crystal 8MHz HC-49S Var-38,passive,crystals,31162300,{"frequency":"8MHz","package":"HC-49S","load":"20pF"},each,,TXC
+,Voltage Regulator LM7805 Var-39,semiconductor,voltage_regulators,31211500,{"output":"5V","package":"TO-220"},each,LM7805CT,ON Semi
+,DC Motor 12V 100RPM Var-40,electromechanical,motors,26101500,{"voltage":"12V","speed":"100RPM","torque":"5kgcm"},each,,Johnson
+,Resistor 10k 5% 0402 Var-41,passive,resistors,31162800,{"resistance":"10k","tolerance":"5%","package":"0402"},each,RC0402JR-0710KL,Yageo
+,Resistor 100R 1% 0603 Var-42,passive,resistors,31162800,{"resistance":"100R","tolerance":"1%","package":"0603"},each,RC0603FR-07100RL,Yageo
+,Capacitor 100nF 50V 0402 Var-43,passive,capacitors,31162100,{"capacitance":"100nF","voltage":"50V","package":"0402"},each,CC0402KRX7R9BB104,Yageo
+,Capacitor 10uF 16V 0805 Var-44,passive,capacitors,31162100,{"capacitance":"10uF","voltage":"16V","package":"0805"},each,GRM21BR61C106KE15L,Murata
+,IC STM32F103C8T6 Var-45,semiconductor,microcontrollers,31211500,{"core":"ARM Cortex-M3","flash":"64KB","package":"LQFP-48"},each,STM32F103C8T6,STMicroelectronics
+,IC ESP32-WROOM-32 Var-46,semiconductor,microcontrollers,31211500,{"core":"Xtensa LX6","wifi":"802.11bgn","package":"module"},each,ESP32-WROOM-32,Espressif
+,LED 0603 Red Var-47,optoelectronics,leds,39111600,{"color":"red","package":"0603","forward_voltage":"1.8V"},each,150060RS75000,Wurth
+,Connector USB-C Female Var-48,electromechanical,connectors,31161500,{"type":"USB-C","gender":"female","pins":24},each,USB4105-GF-A,GCT
+,Inductor 10uH 1A 0805 Var-49,passive,inductors,31161800,{"inductance":"10uH","current":"1A","package":"0805"},each,LQH3NPN100MG0L,Murata
+,MOSFET N-Ch 60V 30A Var-50,semiconductor,transistors,31211600,{"type":"N-Channel","vds":"60V","id":"30A","package":"TO-220"},each,IRF3205PBF,Infineon
+,Bearing 6204-2RS Var-51,mechanical,bearings,31171500,{"bore":"20mm","od":"47mm","width":"14mm","seal":"2RS"},each,6204-2RS,SKF
+,O-Ring Viton 25mm Var-52,mechanical,seals,31161600,{"material":"Viton","id":"25mm","cs":"3mm"},each,OR-V-25x3,Parker
+,Hex Bolt M8x30 SS304 Var-53,fastener,bolts,31161700,{"thread":"M8","length":"30mm","material":"SS304"},each,,Generic
+,Aluminum 6061-T6 Sheet 1mm Var-54,raw_material,aluminum,31101500,{"alloy":"6061-T6","thickness":"1mm"},sqm,,Hindalco
+,Steel AISI 304 Rod 10mm Var-55,raw_material,steel,31101500,{"grade":"AISI 304","diameter":"10mm"},meter,,Tata Steel
+,PCB FR4 2-Layer 1.6mm Var-56,fabricated,pcb,31162400,{"layers":2,"material":"FR4","thickness":"1.6mm"},each,,JLCPCB
+,Relay 5V SPDT Var-57,electromechanical,relays,39121000,{"coil_voltage":"5V","contact":"SPDT","rating":"10A"},each,SRD-05VDC-SL-C,Songle
+,Crystal 8MHz HC-49S Var-58,passive,crystals,31162300,{"frequency":"8MHz","package":"HC-49S","load":"20pF"},each,,TXC
+,Voltage Regulator LM7805 Var-59,semiconductor,voltage_regulators,31211500,{"output":"5V","package":"TO-220"},each,LM7805CT,ON Semi
+,DC Motor 12V 100RPM Var-60,electromechanical,motors,26101500,{"voltage":"12V","speed":"100RPM","torque":"5kgcm"},each,,Johnson
+,Resistor 10k 5% 0402 Var-61,passive,resistors,31162800,{"resistance":"10k","tolerance":"5%","package":"0402"},each,RC0402JR-0710KL,Yageo
+,Resistor 100R 1% 0603 Var-62,passive,resistors,31162800,{"resistance":"100R","tolerance":"1%","package":"0603"},each,RC0603FR-07100RL,Yageo
+,Capacitor 100nF 50V 0402 Var-63,passive,capacitors,31162100,{"capacitance":"100nF","voltage":"50V","package":"0402"},each,CC0402KRX7R9BB104,Yageo
+,Capacitor 10uF 16V 0805 Var-64,passive,capacitors,31162100,{"capacitance":"10uF","voltage":"16V","package":"0805"},each,GRM21BR61C106KE15L,Murata
+,IC STM32F103C8T6 Var-65,semiconductor,microcontrollers,31211500,{"core":"ARM Cortex-M3","flash":"64KB","package":"LQFP-48"},each,STM32F103C8T6,STMicroelectronics
+,IC ESP32-WROOM-32 Var-66,semiconductor,microcontrollers,31211500,{"core":"Xtensa LX6","wifi":"802.11bgn","package":"module"},each,ESP32-WROOM-32,Espressif
+,LED 0603 Red Var-67,optoelectronics,leds,39111600,{"color":"red","package":"0603","forward_voltage":"1.8V"},each,150060RS75000,Wurth
+,Connector USB-C Female Var-68,electromechanical,connectors,31161500,{"type":"USB-C","gender":"female","pins":24},each,USB4105-GF-A,GCT
+,Inductor 10uH 1A 0805 Var-69,passive,inductors,31161800,{"inductance":"10uH","current":"1A","package":"0805"},each,LQH3NPN100MG0L,Murata
+,MOSFET N-Ch 60V 30A Var-70,semiconductor,transistors,31211600,{"type":"N-Channel","vds":"60V","id":"30A","package":"TO-220"},each,IRF3205PBF,Infineon
+,Bearing 6204-2RS Var-71,mechanical,bearings,31171500,{"bore":"20mm","od":"47mm","width":"14mm","seal":"2RS"},each,6204-2RS,SKF
+,O-Ring Viton 25mm Var-72,mechanical,seals,31161600,{"material":"Viton","id":"25mm","cs":"3mm"},each,OR-V-25x3,Parker
+,Hex Bolt M8x30 SS304 Var-73,fastener,bolts,31161700,{"thread":"M8","length":"30mm","material":"SS304"},each,,Generic
+,Aluminum 6061-T6 Sheet 1mm Var-74,raw_material,aluminum,31101500,{"alloy":"6061-T6","thickness":"1mm"},sqm,,Hindalco
+,Steel AISI 304 Rod 10mm Var-75,raw_material,steel,31101500,{"grade":"AISI 304","diameter":"10mm"},meter,,Tata Steel
+,PCB FR4 2-Layer 1.6mm Var-76,fabricated,pcb,31162400,{"layers":2,"material":"FR4","thickness":"1.6mm"},each,,JLCPCB
+,Relay 5V SPDT Var-77,electromechanical,relays,39121000,{"coil_voltage":"5V","contact":"SPDT","rating":"10A"},each,SRD-05VDC-SL-C,Songle
+,Crystal 8MHz HC-49S Var-78,passive,crystals,31162300,{"frequency":"8MHz","package":"HC-49S","load":"20pF"},each,,TXC
+,Voltage Regulator LM7805 Var-79,semiconductor,voltage_regulators,31211500,{"output":"5V","package":"TO-220"},each,LM7805CT,ON Semi
+,DC Motor 12V 100RPM Var-80,electromechanical,motors,26101500,{"voltage":"12V","speed":"100RPM","torque":"5kgcm"},each,,Johnson

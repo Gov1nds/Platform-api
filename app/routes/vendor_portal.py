@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.user import VendorUser
+from app.models.vendor import Vendor
 from app.models.rfq import RFQBatch, RFQVendorInvitation, InvitationStatusEvent, RFQQuoteHeader, RFQQuoteLine, PurchaseOrder
 from app.models.logistics import Shipment
 from app.schemas import QuoteSubmitRequest, QuoteResponse
@@ -92,3 +93,64 @@ def vendor_performance(vu:VendorUser=Depends(require_vendor_user), db:Session=De
     completed = db.query(PurchaseOrder).filter(PurchaseOrder.vendor_id == vu.vendor_id, PurchaseOrder.status=="completed").count()
     return {"total_quotes":total_quotes,"total_orders":total_orders,"completed_orders":completed,
         "completion_rate":round(completed/max(total_orders,1)*100,1)}
+
+
+# ── Vendor portal enhancements (Blueprint Section 16) ────────────────────────
+
+@router.patch("/profile")
+def update_vendor_profile(
+    updates: dict = {},
+    vu: VendorUser = Depends(require_vendor_user),
+    db: Session = Depends(get_db),
+):
+    """Vendor edits their own profile sections."""
+    vendor = db.query(Vendor).filter(Vendor.id == vu.vendor_id).first()
+    if not vendor:
+        raise HTTPException(404, "Vendor not found")
+    allowed_fields = {
+        "name", "website", "contact_email", "contact_phone",
+        "country", "region", "certifications", "capacity_profile",
+        "default_currency", "description",
+    }
+    updated = []
+    for field, value in updates.items():
+        if field in allowed_fields and hasattr(vendor, field):
+            setattr(vendor, field, value)
+            updated.append(field)
+    # Recompute profile completeness
+    from app.services.vendor_intelligence_service import vendor_intelligence_service
+    try:
+        vendor_intelligence_service.compute_completeness(db, vendor)
+    except Exception:
+        pass
+    db.commit()
+    return {"updated_fields": updated, "vendor_id": str(vendor.id)}
+
+
+@router.post("/orders/{po_id}/production-update")
+def production_update(
+    po_id: str,
+    milestone: str = "",
+    notes: str = "",
+    estimated_ready_date: str | None = None,
+    vu: VendorUser = Depends(require_vendor_user),
+    db: Session = Depends(get_db),
+):
+    """Vendor provides production status update for a PO."""
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(404, "PO not found")
+    if str(po.vendor_id) != str(vu.vendor_id):
+        raise HTTPException(403, "Not your PO")
+    from app.services.workflow.state_machine import transition_po
+    target = "IN_PRODUCTION"
+    if milestone.lower() in ("qc_hold", "qc-hold"):
+        target = "QC_HOLD"
+    elif milestone.lower() in ("ready_to_ship", "ready-to-ship", "ready"):
+        target = "READY_TO_SHIP"
+    try:
+        transition_po(db, po, target, actor_user_id=vu.id, notes=notes)
+    except ValueError:
+        pass
+    db.commit()
+    return {"po_id": po_id, "status": po.status, "milestone": milestone}

@@ -104,3 +104,127 @@ def _ship_resp(s):
         milestones=[{"type":m.milestone_type,"location":m.location,"notes":m.notes,
             "is_delay":m.is_delay,"occurred_at":str(m.occurred_at),"source":m.source} for m in s.milestones],
         created_at=s.created_at)
+
+
+# ── PO Lifecycle — 12-state transitions (Blueprint Section 13) ───────────────
+
+@router.post("/po/{po_id}/transition")
+def transition_po(
+    po_id: str,
+    new_status: str = "",
+    notes: str = "",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Transition a PO to a new status using the 12-state machine."""
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(404, "PO not found")
+    from app.services.workflow.state_machine import transition_po as do_transition
+    try:
+        updated_po = do_transition(db, po, new_status, actor_user_id=user.id, notes=notes)
+        db.commit()
+        return POResponse.model_validate(updated_po)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Transition failed: {e}")
+
+
+@router.post("/po/{po_id}/approve")
+def approve_po(
+    po_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Shortcut for DRAFT → APPROVED transition."""
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(404, "PO not found")
+    if getattr(po, "status", "") != "DRAFT":
+        raise HTTPException(409, f"PO is in {po.status}, expected DRAFT")
+    from app.services.workflow.state_machine import transition_po as do_transition
+    try:
+        updated = do_transition(db, po, "APPROVED", actor_user_id=user.id, notes="Approved")
+        db.commit()
+        return POResponse.model_validate(updated)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@router.post("/po/{po_id}/book-logistics")
+def book_logistics(
+    po_id: str,
+    carrier: str = "",
+    service_level: str = "standard",
+    origin_location: str = "",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Book logistics for a PO. Creates Shipment record and transitions PO to BOOKED."""
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(404, "PO not found")
+    shipment = Shipment(
+        po_id=po_id,
+        project_id=po.project_id,
+        carrier=carrier,
+        origin=origin_location,
+        status="booked",
+    )
+    db.add(shipment)
+    from app.services.workflow.state_machine import transition_po as do_transition
+    try:
+        do_transition(db, po, "BOOKED", actor_user_id=user.id, notes=f"Booked with {carrier}")
+    except ValueError:
+        pass  # May already be in a compatible state
+    db.commit()
+    db.refresh(shipment)
+    return {"po_id": po_id, "shipment_id": str(shipment.id), "status": "booked"}
+
+
+@router.post("/po/{po_id}/confirm-gr")
+def confirm_goods_receipt(
+    po_id: str,
+    notes: str = "",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Confirm goods receipt. Transitions PO to GOODS_RECEIPT_CONFIRMED."""
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(404, "PO not found")
+    from app.services.workflow.state_machine import transition_po as do_transition
+    try:
+        updated = do_transition(db, po, "GOODS_RECEIPT_CONFIRMED", actor_user_id=user.id, notes=notes)
+        db.commit()
+        return POResponse.model_validate(updated)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@router.get("/po/{po_id}/timeline")
+def po_timeline(
+    po_id: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Return full 12-state PO lifecycle history from audit log."""
+    from app.models.events import EventAuditLog
+    events = db.query(EventAuditLog).filter(
+        EventAuditLog.entity_type == "purchase_order",
+        EventAuditLog.entity_id == po_id,
+    ).order_by(EventAuditLog.created_at.asc()).all()
+    return [
+        {
+            "id": str(e.id),
+            "event_type": e.event_type,
+            "from_state": e.from_state,
+            "to_state": e.to_state,
+            "actor_id": str(e.actor_id) if e.actor_id else None,
+            "payload": e.payload or {},
+            "created_at": str(e.created_at),
+        }
+        for e in events
+    ]

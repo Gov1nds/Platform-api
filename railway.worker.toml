@@ -1,0 +1,3 @@
+[deploy]
+startCommand = "python -m arq app.workers.arq_worker.WorkerSettings"
+restartPolicyType = "always"

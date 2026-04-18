@@ -144,6 +144,17 @@ class Settings:
         if o.strip()
     ]
 
+    
+    # ── Blueprint v3.0 additions ─────────────────────────────────────────
+    INSIGHT_LLM_URL: str = os.getenv("INSIGHT_LLM_URL", "")
+    INSIGHT_LLM_API_KEY: str = os.getenv("INSIGHT_LLM_API_KEY", "")
+    PUBLIC_APP_URL: str = os.getenv("PUBLIC_APP_URL", "https://app.pgihub.com")
+    DHL_WEBHOOK_SECRET: str = os.getenv("DHL_WEBHOOK_SECRET", "")
+    FEDEX_WEBHOOK_SECRET: str = os.getenv("FEDEX_WEBHOOK_SECRET", "")
+    UPS_WEBHOOK_SECRET: str = os.getenv("UPS_WEBHOOK_SECRET", "")
+    MAERSK_API_KEY: str = os.getenv("MAERSK_API_KEY", "")
+    AWS_TEXTRACT_REGION: str = os.getenv("AWS_TEXTRACT_REGION", "us-east-1")
+
     # ── Convenience properties ───────────────────────────────────────────
 
     @property
@@ -196,21 +207,3 @@ class Settings:
 settings = Settings()
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 settings.validate_production()
-
- # ── Notification Providers (INT-006, GAP-007) ────────────────────────
-SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
-SENDGRID_FROM_EMAIL: str = os.getenv("SENDGRID_FROM_EMAIL", "")
-TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
-TWILIO_FROM_NUMBER: str = os.getenv("TWILIO_FROM_NUMBER", "")
-FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
-FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "")
-
-# ── Tracking / Logistics APIs ────────────────────────────────────────
-AFTERSHIP_API_KEY: str = os.getenv("AFTERSHIP_API_KEY", "")
-AFTERSHIP_WEBHOOK_SECRET: str = os.getenv("AFTERSHIP_WEBHOOK_SECRET", "")
-
-# ── Geolocation ──────────────────────────────────────────────────────
-MAXMIND_ACCOUNT_ID: str = os.getenv("MAXMIND_ACCOUNT_ID", "")
-MAXMIND_LICENSE_KEY: str = os.getenv("MAXMIND_LICENSE_KEY", "")
-MAXMIND_DB_PATH: str = os.getenv("MAXMIND_DB_PATH", "")

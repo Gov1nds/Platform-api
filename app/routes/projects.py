@@ -450,3 +450,10 @@ def run_vendor_intelligence_recommendation(
     except Exception as exc:
         logger.exception("Phase 3 intelligence recommendation failed for project %s", project_id)
         raise HTTPException(500, "Failed to generate intelligence recommendation") from exc
+
+
+@router.get("/{project_id}/consolidation")
+def consolidation(project_id: str, user = Depends(require_user), db: Session = Depends(get_db)):
+    """Task 14: Vendor consolidation analysis."""
+    from app.services.consolidation_service import analyze_consolidation
+    return analyze_consolidation(db, project_id)

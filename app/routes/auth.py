@@ -602,3 +602,194 @@ def vendor_register(body: VendorRegisterRequest, db: Session = Depends(get_db)):
         vendor_user_id=vu.id,
         vendor_id=vendor.id,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# OAUTH 2.0 / OIDC — Google, LinkedIn, Microsoft
+# References: Blueprint Section 20.4, GAP-AUTH-001
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/oauth/{provider}/login")
+async def oauth_login(
+    provider: str,
+    request: Request,
+    response: Response,
+    redirect_uri: str | None = None,
+):
+    """
+    Redirect user to OAuth provider consent screen.
+
+    Supported providers: google, linkedin, microsoft.
+    Generates PKCE code_verifier stored in a signed cookie.
+    """
+    from app.services.oauth_service import (
+        get_authorization_url,
+        generate_pkce_pair,
+        is_provider_configured,
+        PROVIDER_CONFIG,
+    )
+
+    if provider not in PROVIDER_CONFIG:
+        raise HTTPException(400, f"Unsupported provider: {provider}. Use: google, linkedin, microsoft")
+    if not is_provider_configured(provider):
+        raise HTTPException(501, f"OAuth provider '{provider}' is not configured. Set the corresponding env vars.")
+
+    # PKCE
+    code_verifier, code_challenge = generate_pkce_pair()
+    state = str(uuid.uuid4())
+
+    # Default redirect URI
+    if not redirect_uri:
+        origin = settings.ALLOWED_ORIGINS[0] if settings.ALLOWED_ORIGINS else "http://localhost:5173"
+        redirect_uri = f"{origin}/auth/callback/{provider}"
+
+    auth_url = get_authorization_url(provider, redirect_uri, state, code_challenge)
+
+    # Store PKCE verifier + state in signed cookie
+    from fastapi.responses import RedirectResponse
+    resp = RedirectResponse(url=auth_url, status_code=302)
+    resp.set_cookie(
+        key=f"oauth_{provider}_verifier",
+        value=f"{code_verifier}|{state}|{redirect_uri}",
+        max_age=600,
+        httponly=True,
+        samesite="lax",
+    )
+    return resp
+
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(
+    provider: str,
+    code: str,
+    state: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    OAuth callback — exchanges code for tokens, finds/creates user, mints JWT.
+    """
+    from app.services.oauth_service import (
+        exchange_code,
+        get_userinfo,
+        PROVIDER_CONFIG,
+    )
+
+    if provider not in PROVIDER_CONFIG:
+        raise HTTPException(400, f"Unsupported provider: {provider}")
+
+    # Retrieve PKCE verifier from cookie
+    cookie_value = request.cookies.get(f"oauth_{provider}_verifier", "")
+    if not cookie_value:
+        raise HTTPException(400, "OAuth state cookie missing or expired. Please try again.")
+
+    parts = cookie_value.split("|", 2)
+    if len(parts) < 3:
+        raise HTTPException(400, "Invalid OAuth state cookie")
+
+    code_verifier, stored_state, redirect_uri = parts
+
+    if state != stored_state:
+        raise HTTPException(400, "OAuth state mismatch — possible CSRF attack")
+
+    # Exchange code for tokens
+    try:
+        token_data = await exchange_code(provider, code, redirect_uri, code_verifier)
+    except Exception as exc:
+        logger.exception("OAuth code exchange failed for %s", provider)
+        raise HTTPException(502, f"Failed to exchange code with {provider}: {exc}")
+
+    access_token_provider = token_data.get("access_token", "")
+    id_token = token_data.get("id_token")
+
+    # Get user info
+    try:
+        if id_token:
+            from app.services.oauth_service import verify_id_token
+            user_info = await verify_id_token(provider, id_token)
+        else:
+            user_info = await get_userinfo(provider, access_token_provider)
+    except Exception as exc:
+        logger.exception("Failed to get user info from %s", provider)
+        raise HTTPException(502, f"Failed to fetch user info from {provider}")
+
+    if not user_info.email:
+        raise HTTPException(400, f"No email returned from {provider}. Ensure email scope is granted.")
+
+    # Find or create user
+    user = db.query(User).filter(User.email == user_info.email).first()
+    created = False
+
+    if not user:
+        # Create new user + org
+        user = User(
+            email=user_info.email,
+            full_name=user_info.name or user_info.email.split("@")[0],
+            password_hash="",  # OAuth users have no password
+            role="BUYER_EDITOR",
+            is_active=True,
+            is_verified=True,
+            auth_provider=provider,
+            auth_provider_id=user_info.provider_user_id,
+        )
+        db.add(user)
+        db.flush()
+
+        org = Organization(name=f"{user_info.name or user_info.email}'s Organization")
+        db.add(org)
+        db.flush()
+
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+            role="OWNER",
+        )
+        db.add(membership)
+        created = True
+    else:
+        # Update provider info if not set
+        if not getattr(user, "auth_provider", None):
+            user.auth_provider = provider
+            user.auth_provider_id = user_info.provider_user_id
+
+    # Mint platform JWT
+    platform_token = create_access_token({
+        "sub": user.id,
+        "email": user.email,
+        "type": "user",
+        "role": getattr(user, "role", "BUYER_EDITOR"),
+    })
+    refresh = create_refresh_token({"sub": user.id, "email": user.email})
+
+    # Guest merge
+    merge_result = {}
+    guest_cookie = request.cookies.get(settings.GUEST_SESSION_COOKIE_NAME)
+    if guest_cookie:
+        try:
+            merge_result = guest_service.merge_guest_to_user(db, guest_cookie, user) or {}
+        except Exception:
+            logger.debug("Guest merge failed during OAuth callback", exc_info=True)
+
+    track(db, "oauth_login", actor_id=user.id, metadata={"provider": provider, "created": created})
+    db.commit()
+
+    # Set refresh cookie
+    response.set_cookie(
+        key="pgi_refresh",
+        value=refresh,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        httponly=True,
+        samesite="lax",
+        secure=settings.is_production,
+    )
+
+    # Clear OAuth verifier cookie
+    response.delete_cookie(f"oauth_{provider}_verifier")
+
+    return TokenResponse(
+        access_token=platform_token,
+        user=UserResponse.model_validate(user),
+        merge_result=merge_result if isinstance(merge_result, dict) else {},
+    )

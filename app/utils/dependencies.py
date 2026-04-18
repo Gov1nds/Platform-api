@@ -365,3 +365,45 @@ def require_guest_or_user(
         return None, gs
 
     raise HTTPException(401, "Authentication or guest session required")
+
+# ── Task 31: RBAC permission enforcement (Blueprint §31.1, C4) ────────────
+
+class Permission:
+    PROJECT_READ = "project:read"
+    PROJECT_WRITE = "project:write"
+    RFQ_CREATE = "rfq:create"
+    PO_APPROVE = "po:approve"
+    VENDOR_INVITE = "vendor:invite"
+    REPORT_EXPORT = "report:export"
+    ORG_ADMIN = "org:admin"
+
+ROLE_PERMISSIONS = {
+    "owner":    {Permission.PROJECT_READ, Permission.PROJECT_WRITE, Permission.RFQ_CREATE,
+                 Permission.PO_APPROVE, Permission.VENDOR_INVITE, Permission.REPORT_EXPORT,
+                 Permission.ORG_ADMIN},
+    "admin":    {Permission.PROJECT_WRITE, Permission.RFQ_CREATE, Permission.PO_APPROVE,
+                 Permission.VENDOR_INVITE, Permission.REPORT_EXPORT},
+    "approver": {Permission.PROJECT_READ, Permission.PO_APPROVE},
+    "buyer":    {Permission.PROJECT_WRITE, Permission.RFQ_CREATE, Permission.VENDOR_INVITE},
+    "viewer":   {Permission.PROJECT_READ, Permission.REPORT_EXPORT},
+    "ORGANIZATION_OWNER": {Permission.PROJECT_READ, Permission.PROJECT_WRITE, Permission.RFQ_CREATE,
+                           Permission.PO_APPROVE, Permission.VENDOR_INVITE, Permission.REPORT_EXPORT,
+                           Permission.ORG_ADMIN},
+    "BUYER_ADMIN": {Permission.PROJECT_WRITE, Permission.RFQ_CREATE, Permission.PO_APPROVE,
+                    Permission.VENDOR_INVITE, Permission.REPORT_EXPORT},
+    "BUYER_APPROVER": {Permission.PROJECT_READ, Permission.PO_APPROVE},
+    "BUYER_EDITOR": {Permission.PROJECT_WRITE, Permission.RFQ_CREATE, Permission.VENDOR_INVITE},
+    "BUYER_VIEWER": {Permission.PROJECT_READ, Permission.REPORT_EXPORT},
+}
+
+def require_permission(perm: str):
+    """Dependency factory for fine-grained permission checks."""
+    def _check(user=Depends(require_user), db=Depends(get_db)):
+        role = (user.role or "viewer").upper()
+        role_map = {"BUYER": "BUYER_EDITOR", "ADMIN": "BUYER_ADMIN"}
+        effective = role_map.get(role, role)
+        perms = ROLE_PERMISSIONS.get(effective, set()) | ROLE_PERMISSIONS.get(role.lower(), set())
+        if perm not in perms:
+            raise HTTPException(403, f"Permission denied: requires \'{perm}\' (role=\'{role}\')")
+        return user
+    return Depends(_check)

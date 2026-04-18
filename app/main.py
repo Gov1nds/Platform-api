@@ -138,8 +138,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
+    description="PGI Hub Platform API — Blueprint v3.0",
     lifespan=lifespan,
+    docs_url="/docs" if not settings.is_production else None,
+    redoc_url="/redoc" if not settings.is_production else None,
 )
+
+# ── Deprecated routes manifest (Task 30) ────────────────────────────────────
+
+DEPRECATED_ROUTES = {
+    "/api/v1/bom/analyze": "2026-12-31",
+    "/api/v1/bom/promote-to-project": "2026-12-31",
+    "/api/v1/auth/login": "2026-06-30",
+}
+
+@app.middleware("http")
+async def add_version_and_deprecation_headers(request, call_next):
+    import time as _time
+    t0 = _time.time()
+    response = await call_next(request)
+    response.headers["X-API-Version"] = settings.VERSION
+    if request.url.path in DEPRECATED_ROUTES:
+        response.headers["Deprecation"] = "true"
+        response.headers["Sunset"] = DEPRECATED_ROUTES[request.url.path]
+    # Task 28: Prometheus request latency
+    try:
+        from app.observability.metrics import REQUEST_LATENCY
+        REQUEST_LATENCY.labels(
+            method=request.method, route=request.url.path,
+            status=str(response.status_code)
+        ).observe(_time.time() - t0)
+    except Exception:
+        pass
+    return response
 
 # ── Middleware stack (order matters: outermost first) ────────────────────────
 
@@ -149,34 +180,16 @@ from app.middleware.idempotency import IdempotencyMiddleware  # noqa: E402
 
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(TenantIsolationMiddleware)
-app.add_middleware(
-    IdempotencyMiddleware,
-    redis_client=None,  # Patched after lifespan creates the client
-)
+app.add_middleware(IdempotencyMiddleware, redis_getter=lambda: _redis_client)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
+    expose_headers=["X-Request-ID", "X-Idempotent-Replay", "X-API-Version",
+                    "Deprecation", "Sunset"],
 )
-
-# ── Patch idempotency middleware with Redis client after startup ─────────────
-# The IdempotencyMiddleware is instantiated before lifespan runs.
-# We lazily inject the redis client via an on_event-style hook.
-
-@app.middleware("http")
-async def _inject_redis_into_idempotency(request, call_next):
-    """Ensure the idempotency middleware has the live Redis client."""
-    for mw in app.middleware_stack.__dict__.get("app", {}) if False else []:
-        pass  # no-op; actual injection below
-    # Directly set on the middleware instance via app state
-    if _redis_client is not None:
-        for mw_cls in getattr(app, "_middleware", []):
-            if hasattr(mw_cls, "_redis"):
-                mw_cls._redis = _redis_client
-    return await call_next(request)
 
 
 # ── Router registration ─────────────────────────────────────────────────────
@@ -194,11 +207,31 @@ from app.routes import (  # noqa: E402
     intake,
     notifications,
     webhooks,
+    guest,
 )
 
 prefix = settings.API_PREFIX
-for r in [auth, bom, projects, vendors, rfq, chat, orders, vendor_portal, analytics, intake, notifications, webhooks]:
+for r in [auth, bom, projects, vendors, rfq, chat, orders, vendor_portal, analytics, intake, notifications, webhooks, guest]:
     app.include_router(r.router, prefix=prefix)
+
+
+# ── Prometheus metrics endpoint ──────────────────────────────────────────────
+
+@app.get("/metrics", tags=["System"])
+def prometheus_metrics():
+    """Prometheus text-format metrics endpoint."""
+    try:
+        from prometheus_client import (
+            CollectorRegistry, Counter, Histogram, generate_latest,
+            CONTENT_TYPE_LATEST, REGISTRY,
+        )
+        from fastapi.responses import Response as FastAPIResponse
+        return FastAPIResponse(
+            content=generate_latest(REGISTRY),
+            media_type=CONTENT_TYPE_LATEST,
+        )
+    except ImportError:
+        return {"error": "prometheus_client not installed"}
 
 
 # ── System endpoints ────────────────────────────────────────────────────────

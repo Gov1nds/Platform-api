@@ -1,159 +1,87 @@
-
 """
-Idempotency middleware.
+Idempotency middleware — Blueprint §32.3, C34.
 
-For configured mutating endpoints, checks the ``Idempotency-Key`` header
-against a Redis store. On duplicate key within TTL, returns the cached
-response without re-executing the handler.
-
-References: GAP-015, architecture.md CC-03, api-contract-review ARP-07
+Uses redis_getter callable for lazy Redis initialization.
 """
 from __future__ import annotations
-
-import hashlib
-import json
-import logging
-import re
-from typing import Any
-
+import json, logging, re
+from typing import Any, Callable
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 logger = logging.getLogger(__name__)
+CACHE_SECONDS = 86400
 
-# TTL for idempotency records (seconds)
-_TTL_TRANSACTIONAL = 7 * 24 * 3600   # 7 days
-_TTL_AUDIT = 30 * 24 * 3600          # 30 days (audit trail)
+IDEMPOTENT_METHODS = {"POST", "PUT", "PATCH"}
 
-# Routes that REQUIRE an Idempotency-Key on POST/PUT/PATCH.
-# Patterns use a simplified regex syntax (path params as {…}).
-IDEMPOTENT_ROUTE_PATTERNS: list[re.Pattern[str]] = [
+IDEMPOTENT_ROUTE_PATTERNS = [
     re.compile(r"^/api/v1/projects/[^/]+/rfqs/[^/]+/award$"),
     re.compile(r"^/api/v1/projects/[^/]+/purchase-orders$"),
     re.compile(r"^/api/v1/projects/[^/]+/purchase-orders/[^/]+/goods-receipt$"),
     re.compile(r"^/api/v1/projects/[^/]+/purchase-orders/[^/]+/invoices$"),
     re.compile(r"^/api/v1/vendor/rfqs/[^/]+/quotes$"),
     re.compile(r"^/api/v1/chat/threads/[^/]+/messages$"),
+    re.compile(r"^/api/v1/rfq/create$"),
+    re.compile(r"^/api/v1/orders/po$"),
 ]
-
-# Routes that ACCEPT but do not require an Idempotency-Key
-IDEMPOTENT_OPTIONAL_PATTERNS: list[re.Pattern[str]] = [
+IDEMPOTENT_OPTIONAL_PATTERNS = [
     re.compile(r"^/api/v1/projects$"),
     re.compile(r"^/api/v1/projects/[^/]+/rfqs$"),
 ]
 
-
-def _matches_route(path: str, patterns: list[re.Pattern[str]]) -> bool:
+def _matches(path, patterns):
     return any(p.match(path) for p in patterns)
 
+def _is_required(path):
+    return _matches(path, IDEMPOTENT_ROUTE_PATTERNS)
 
-def _is_required_route(path: str) -> bool:
-    return _matches_route(path, IDEMPOTENT_ROUTE_PATTERNS)
-
-
-def _is_idempotent_route(path: str) -> bool:
-    return (
-        _matches_route(path, IDEMPOTENT_ROUTE_PATTERNS)
-        or _matches_route(path, IDEMPOTENT_OPTIONAL_PATTERNS)
-    )
-
-
-def _cache_key(idempotency_key: str, user_id: str | None) -> str:
-    """Scope the key to the user to prevent cross-user collisions."""
-    raw = f"{user_id or 'anon'}:{idempotency_key}"
-    return f"idem:{hashlib.sha256(raw.encode()).hexdigest()}"
-
+def _is_idempotent(path):
+    return _matches(path, IDEMPOTENT_ROUTE_PATTERNS) or _matches(path, IDEMPOTENT_OPTIONAL_PATTERNS)
 
 class IdempotencyMiddleware(BaseHTTPMiddleware):
-    """
-    Middleware that intercepts mutating requests on configured routes,
-    checks Redis for a previously stored response under the same
-    ``Idempotency-Key``, and returns the cached response on hit.
-
-    Falls back to a no-op (pass-through) when Redis is unavailable.
-    """
-
-    def __init__(self, app: Any, redis_client: Any = None) -> None:
+    def __init__(self, app: Any, redis_getter: Callable[[], Any] | None = None, **kw):
         super().__init__(app)
-        self._redis = redis_client
+        self._redis_getter = redis_getter
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
-        if request.method not in ("POST", "PUT", "PATCH"):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.method not in IDEMPOTENT_METHODS:
             return await call_next(request)
-
         path = request.url.path
-        idem_key = request.headers.get("Idempotency-Key", "").strip()
-
-        # If the route requires a key and none was provided → 400
-        if not idem_key and _is_required_route(path):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "error_code": "IDEMPOTENCY_KEY_REQUIRED",
-                    "message": "Idempotency-Key header is required for this endpoint",
-                },
-            )
-
-        # If no key supplied or route not configured, pass through
-        if not idem_key or not _is_idempotent_route(path):
+        key = request.headers.get("Idempotency-Key", "").strip()
+        if not key and _is_required(path):
+            return JSONResponse(status_code=400, content={
+                "error_code": "IDEMPOTENCY_KEY_REQUIRED",
+                "message": "Idempotency-Key header is required for this endpoint"})
+        if not key or not _is_idempotent(path):
             return await call_next(request)
-
-        # Redis unavailable → degrade gracefully
-        if self._redis is None:
-            logger.debug("Redis unavailable — skipping idempotency check")
+        redis = self._redis_getter() if self._redis_getter else None
+        if redis is None:
             return await call_next(request)
-
-        user_id = getattr(request.state, "user_id", None)
-        cache_key = _cache_key(idem_key, user_id)
-
-        # Check for cached response
+        cache_key = f"idem:{request.method}:{path}:{key}"
         try:
-            cached = await self._redis.get(cache_key)
+            cached = await redis.get(cache_key)
         except Exception:
-            logger.warning("Redis GET failed for idempotency key", exc_info=True)
             cached = None
-
-        if cached is not None:
+        if cached:
             try:
                 data = json.loads(cached)
-                logger.info("Idempotency cache hit for key=%s", idem_key)
-                return JSONResponse(
-                    status_code=data.get("status_code", 200),
-                    content=data.get("body"),
-                    headers={"X-Idempotency-Replay": "true"},
-                )
-            except (json.JSONDecodeError, TypeError):
-                logger.warning("Corrupt idempotency cache entry — executing fresh")
-
-        # Execute the request
+                return Response(content=data["body"], status_code=data["status"],
+                    headers={**data.get("headers", {}), "X-Idempotent-Replay": "true"})
+            except Exception:
+                pass
         response = await call_next(request)
-
-        # Cache the response if it was successful (2xx)
         if 200 <= response.status_code < 300:
             try:
-                body_bytes = b""
-                async for chunk in response.body_iterator:  # type: ignore[attr-defined]
-                    if isinstance(chunk, str):
-                        body_bytes += chunk.encode("utf-8")
-                    else:
-                        body_bytes += chunk
-
-                cache_entry = json.dumps({
-                    "status_code": response.status_code,
-                    "body": json.loads(body_bytes) if body_bytes else None,
-                })
-                await self._redis.setex(cache_key, _TTL_TRANSACTIONAL, cache_entry)
-
-                # Return a new response since we consumed the body iterator
-                return JSONResponse(
-                    status_code=response.status_code,
-                    content=json.loads(body_bytes) if body_bytes else None,
-                    headers=dict(response.headers),
-                )
+                body = b""
+                async for chunk in response.body_iterator:
+                    body += chunk if isinstance(chunk, bytes) else chunk.encode()
+                await redis.setex(cache_key, CACHE_SECONDS, json.dumps({
+                    "status": response.status_code,
+                    "body": body.decode("utf-8", errors="ignore"),
+                    "headers": {k: v for k, v in response.headers.items() if k.lower() in ("content-type",)},
+                }))
+                return Response(content=body, status_code=response.status_code, headers=dict(response.headers))
             except Exception:
                 logger.warning("Failed to cache idempotency response", exc_info=True)
-
         return response

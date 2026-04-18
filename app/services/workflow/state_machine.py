@@ -571,3 +571,124 @@ def enforce_po_stage(project: Project) -> None:
     """Ensure project is in a valid stage for PO creation."""
     if project.status not in PO_ALLOWED_STAGES:
         raise HTTPException(400, f"Cannot create PO from project stage '{project.status}'")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PO LIFECYCLE STATE MACHINE (Blueprint Section 13)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Map Blueprint state names to existing POStatus enum values and vice versa
+_PO_STATE_ALIASES = {
+    "DRAFT": "PO_APPROVED",
+    "APPROVED": "PO_APPROVED",
+    "ISSUED": "PO_SENT",
+    "ACKNOWLEDGED": "VENDOR_ACCEPTED",
+    "IN_PRODUCTION": "PRODUCTION_STARTED",
+    "QC_HOLD": "QUALITY_CHECK",
+    "READY_TO_SHIP": "PACKED",
+    "BOOKED": "SHIPPED",
+    "IN_TRANSIT": "IN_TRANSIT",
+    "CUSTOMS_HOLD": "CUSTOMS",
+    "OUT_FOR_DELIVERY": "IN_TRANSIT",
+    "DELIVERED": "DELIVERED",
+    "GOODS_RECEIPT_CONFIRMED": "GR_CONFIRMED",
+    "CANCELLED": "CANCELLED",
+    "DISPUTED": "ON_HOLD",
+}
+
+VALID_PO_TRANSITIONS = {
+    "PO_APPROVED": ["PO_SENT", "CANCELLED"],
+    "PO_SENT": ["VENDOR_ACCEPTED", "CANCELLED"],
+    "VENDOR_ACCEPTED": ["PRODUCTION_STARTED", "CANCELLED"],
+    "PRODUCTION_STARTED": ["QUALITY_CHECK", "PACKED"],
+    "QUALITY_CHECK": ["PRODUCTION_STARTED", "CANCELLED"],
+    "PACKED": ["SHIPPED"],
+    "SHIPPED": ["IN_TRANSIT"],
+    "IN_TRANSIT": ["CUSTOMS", "DELIVERED"],
+    "CUSTOMS": ["IN_TRANSIT"],
+    "DELIVERED": ["GR_CONFIRMED", "ON_HOLD"],
+    "GR_CONFIRMED": ["CLOSED"],
+    "CLOSED": [],
+    "CANCELLED": [],
+    "ON_HOLD": ["GR_CONFIRMED", "CANCELLED"],
+    "CHANGE_ORDER_PENDING": ["PO_APPROVED", "CANCELLED"],
+}
+
+
+def can_transition_po(current_status: str, new_status: str) -> bool:
+    """Check whether a PO state transition is valid."""
+    # Resolve aliases
+    current = _PO_STATE_ALIASES.get(current_status, current_status)
+    target = _PO_STATE_ALIASES.get(new_status, new_status)
+    allowed = VALID_PO_TRANSITIONS.get(current, [])
+    return target in allowed
+
+
+def transition_po(
+    db: Session,
+    po,
+    new_status: str,
+    actor_user_id: str | None = None,
+    notes: str | None = None,
+) -> object:
+    """
+    Transition a PurchaseOrder to a new status.
+
+    Validates the transition, updates the record, writes an audit log entry,
+    and dispatches relevant notifications.
+    """
+    current = po.status or "PO_APPROVED"
+    target = _PO_STATE_ALIASES.get(new_status, new_status)
+
+    if not can_transition_po(current, target):
+        raise ValueError(
+            f"Invalid PO transition: {current} → {target}. "
+            f"Allowed: {VALID_PO_TRANSITIONS.get(current, [])}"
+        )
+
+    old_status = po.status
+    po.status = target
+
+    # Write audit log
+    _audit_transition(
+        db,
+        entity_type="purchase_order",
+        entity_id=str(po.id),
+        from_state=old_status,
+        to_state=target,
+        actor_user_id=actor_user_id,
+        notes=notes,
+    )
+
+    # Dispatch notification for key transitions
+    _notify_po_transition(db, po, old_status, target, actor_user_id)
+
+    return po
+
+
+def _notify_po_transition(db, po, from_state, to_state, actor_user_id):
+    """Send notifications for significant PO state changes."""
+    notification_map = {
+        "SHIPPED": "ORDER_SHIPPED",
+        "IN_TRANSIT": "ORDER_SHIPPED",
+        "DELIVERED": "ORDER_SHIPPED",
+        "CANCELLED": "PO_DELAYED",
+    }
+    event_type = notification_map.get(to_state)
+    if not event_type:
+        return
+    try:
+        from app.services.notification_service import notification_service
+        notification_service.send(
+            db,
+            user_id=actor_user_id,
+            event_type=event_type,
+            context_data={
+                "po_id": str(po.id),
+                "po_number": getattr(po, "po_number", ""),
+                "from_state": from_state,
+                "to_state": to_state,
+            },
+        )
+    except Exception:
+        pass

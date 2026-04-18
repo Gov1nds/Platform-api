@@ -133,3 +133,25 @@ class ConnectorRateLimiter:
 
 
 connector_rate_limiter = ConnectorRateLimiter()
+
+# ── Task 27: Tiered rate limiting by plan (Blueprint §30.4, C33) ──────────
+
+from datetime import date
+from fastapi import HTTPException
+
+TIER_LIMITS_PER_DAY = {
+    "guest":      {"intelligence_report": 20,   "bom_upload": 0,    "rfq_create": 0},
+    "free":       {"intelligence_report": 100,  "bom_upload": 0,    "rfq_create": 10},
+    "starter":    {"intelligence_report": 500,  "bom_upload": 10,   "rfq_create": 50},
+    "pro":        {"intelligence_report": 5000, "bom_upload": 500,  "rfq_create": 500},
+    "enterprise": {"intelligence_report": None, "bom_upload": None, "rfq_create": None},
+}
+
+async def check_plan_limit(redis, user_or_session_id: str, plan: str, endpoint_class: str) -> None:
+    limit = TIER_LIMITS_PER_DAY.get(plan, {}).get(endpoint_class)
+    if limit is None: return
+    key = f"plan_limit:{plan}:{user_or_session_id}:{endpoint_class}:{date.today().isoformat()}"
+    count = await redis.incr(key)
+    if count == 1: await redis.expire(key, 86400)
+    if count > limit:
+        raise HTTPException(429, f"Daily {endpoint_class} limit ({limit}) exceeded for plan \'{plan}\'")

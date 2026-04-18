@@ -1,148 +1,70 @@
-from __future__ import annotations
-
-import json
-import logging
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-
-import redis
-from sqlalchemy import and_, or_, select
+"""Forex locking on quote submission (Blueprint §12.1, §23.2, C18)."""
+from datetime import datetime, timezone
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.enums import FreshnessStatus
-from app.integrations.open_exchange_rates import OpenExchangeRatesClient
-from app.models.market import FXRate
-from app.services.integration_logging import integration_run
+def get_locked_fx(db: Session, from_currency: str, to_currency: str, quote_id: str) -> dict:
+    if from_currency == to_currency:
+        return {"rate": 1.0, "fx_rate_id": None, "locked_at": datetime.now(timezone.utc).isoformat()}
+    row = db.execute(text(
+        "SELECT id, rate, fetched_at FROM fx_rates "
+        "WHERE from_currency = :f AND to_currency = :t AND freshness_status = 'FRESH' "
+        "ORDER BY fetched_at DESC LIMIT 1"), {"f": from_currency, "t": to_currency}).first()
+    if not row:
+        row = db.execute(text(
+            "SELECT id, rate, fetched_at FROM fx_rates "
+            "WHERE from_currency = :f AND to_currency = :t "
+            "ORDER BY fetched_at DESC LIMIT 1"), {"f": from_currency, "t": to_currency}).first()
+        if not row:
+            raise ValueError(f"No FX rate for {from_currency}->{to_currency}")
+    db.execute(text("UPDATE fx_rates SET locked_for_quote_id = :qid "
+                    "WHERE id = :rid AND locked_for_quote_id IS NULL"),
+               {"qid": quote_id, "rid": row.id})
+    return {"rate": float(row.rate), "fx_rate_id": str(row.id),
+            "locked_at": datetime.now(timezone.utc).isoformat(),
+            "source_fetched_at": row.fetched_at.isoformat()}
 
-logger = logging.getLogger(__name__)
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
+# ── Service singleton (backward compatibility) ─────────────────────────────
 
 class FXService:
-    CACHE_KEY = "fx:pair:{base}:{quote}"
-    DEFAULT_TTL_SECONDS = 3600
+    """Forex conversion and locking service."""
+    
+    def convert(self, amount: float, from_currency: str, to_currency: str,
+                db=None) -> dict:
+        """Convert amount between currencies using latest rate."""
+        if from_currency == to_currency:
+            return {"converted": amount, "rate": 1.0, "from": from_currency, "to": to_currency}
+        if db is None:
+            from app.core.database import SessionLocal
+            with SessionLocal() as db:
+                return self._convert(db, amount, from_currency, to_currency)
+        return self._convert(db, amount, from_currency, to_currency)
 
-    def __init__(self) -> None:
-        self.client = OpenExchangeRatesClient()
-        self._redis = None
+    def _convert(self, db, amount, from_currency, to_currency):
+        row = db.execute(text(
+            "SELECT rate FROM fx_rates "
+            "WHERE from_currency = :f AND to_currency = :t "
+            "ORDER BY fetched_at DESC LIMIT 1"
+        ), {"f": from_currency, "t": to_currency}).first()
+        if row:
+            rate = float(row.rate)
+            return {"converted": amount * rate, "rate": rate,
+                    "from": from_currency, "to": to_currency}
+        # Try inverse
+        row = db.execute(text(
+            "SELECT rate FROM fx_rates "
+            "WHERE from_currency = :t AND to_currency = :f "
+            "ORDER BY fetched_at DESC LIMIT 1"
+        ), {"f": from_currency, "t": to_currency}).first()
+        if row:
+            rate = 1.0 / float(row.rate)
+            return {"converted": amount * rate, "rate": rate,
+                    "from": from_currency, "to": to_currency}
+        return {"converted": amount, "rate": 1.0, "from": from_currency, "to": to_currency,
+                "warning": "No rate found, using 1:1"}
 
-    def _redis_client(self):
-        if self._redis is not None:
-            return self._redis
-        try:
-            self._redis = redis.from_url(settings.REDIS_URL, decode_responses=True)
-            self._redis.ping()
-            return self._redis
-        except Exception:
-            self._redis = None
-            return None
-
-    def _cache_get(self, base: str, quote: str) -> Decimal | None:
-        redis_client = self._redis_client()
-        if not redis_client:
-            return None
-        raw = redis_client.get(self.CACHE_KEY.format(base=base, quote=quote))
-        return Decimal(raw) if raw else None
-
-    def _cache_set(self, base: str, quote: str, rate: Decimal, ttl_seconds: int | None = None) -> None:
-        redis_client = self._redis_client()
-        if not redis_client:
-            return
-        redis_client.setex(
-            self.CACHE_KEY.format(base=base, quote=quote),
-            ttl_seconds or self.DEFAULT_TTL_SECONDS,
-            str(rate),
-        )
-
-    def get_rate(self, db: Session, *, base_currency: str, quote_currency: str) -> Decimal:
-        base = base_currency.upper()
-        quote = quote_currency.upper()
-        if base == quote:
-            return Decimal("1")
-
-        cached = self._cache_get(base, quote)
-        if cached is not None:
-            return cached
-
-        direct = self._latest_direct(db, base, quote)
-        if direct is not None:
-            self._cache_set(base, quote, direct)
-            return direct
-
-        derived = self._derive_rate(db, base, quote)
-        if derived is not None:
-            self._cache_set(base, quote, derived)
-            return derived
-
-        raise LookupError(f"No FX rate available for {base}/{quote}")
-
-    def _latest_direct(self, db: Session, base: str, quote: str) -> Decimal | None:
-        row = db.execute(
-            select(FXRate)
-            .where(FXRate.base_currency == base, FXRate.quote_currency == quote)
-            .order_by(FXRate.fetched_at.desc().nullslast(), FXRate.created_at.desc())
-        ).scalars().first()
-        return Decimal(str(row.rate)) if row else None
-
-    def _derive_rate(self, db: Session, base: str, quote: str) -> Decimal | None:
-        usd_to_quote = self._latest_direct(db, "USD", quote)
-        usd_to_base = self._latest_direct(db, "USD", base)
-        if usd_to_quote is not None and usd_to_base is not None and usd_to_base != 0:
-            return usd_to_quote / usd_to_base
-        return None
-
-    def refresh_rates(self, db: Session, *, symbols: list[str] | None = None) -> dict:
-        symbols = sorted(set((symbols or []) + ["USD"]))
-        if not self.client.configured():
-            logger.warning("Open Exchange Rates not configured; keeping baseline FX rows")
-            return {"status": "fallback", "updated": 0}
-
-        payload = {"symbols": symbols}
-        with integration_run(db, integration_id="INT-003", provider="open_exchange_rates", operation="refresh_fx", payload=payload) as run:
-            data = self.client.latest(symbols=symbols)
-            fetched_at = datetime.fromtimestamp(int(data["timestamp"]), tz=timezone.utc)
-            updated = 0
-            for quote, rate in data.get("rates", {}).items():
-                if quote.upper() == "USD":
-                    continue
-                row = db.execute(
-                    select(FXRate).where(and_(FXRate.base_currency == "USD", FXRate.quote_currency == quote.upper()))
-                ).scalar_one_or_none()
-                if row is None:
-                    row = FXRate(base_currency="USD", quote_currency=quote.upper())
-                    db.add(row)
-                row.rate = rate
-                row.source = "open_exchange_rates"
-                row.confidence = Decimal("0.98")
-                row.freshness_status = FreshnessStatus.FRESH
-                row.ttl_seconds = self.DEFAULT_TTL_SECONDS
-                row.fetched_at = fetched_at
-                row.effective_from = fetched_at
-                row.effective_to = fetched_at + timedelta(seconds=self.DEFAULT_TTL_SECONDS)
-                row.last_verified_at = _now()
-                row.provider_id = "open_exchange_rates"
-                row.data_source = "live_api"
-                self._cache_set("USD", quote.upper(), Decimal(str(rate)), self.DEFAULT_TTL_SECONDS)
-                updated += 1
-            run["response_count"] = updated
-            return {"status": "success", "updated": updated, "fetched_at": fetched_at.isoformat()}
-
-    def mark_provider_failure(self, db: Session) -> None:
-        stale_cutoff = _now() - timedelta(seconds=self.DEFAULT_TTL_SECONDS)
-        rows = db.execute(
-            select(FXRate).where(
-                and_(
-                    FXRate.provider_id == "open_exchange_rates",
-                    or_(FXRate.fetched_at.is_(None), FXRate.fetched_at < stale_cutoff),
-                )
-            )
-        ).scalars().all()
-        for row in rows:
-            row.freshness_status = FreshnessStatus.STALE
-
+    def lock_for_quote(self, db, from_currency: str, to_currency: str, quote_id: str) -> dict:
+        return get_locked_fx(db, from_currency, to_currency, quote_id)
 
 fx_service = FXService()

@@ -1,0 +1,29 @@
+# FTA Agreements manifest (Blueprint §29.3)
+- hs_code: "ANY"
+  from_country: "IN"
+  to_country: "SG"
+  duty_rate_pct: 0
+  fta_eligible: true
+  fta_agreement_name: "India-Singapore CECA"
+  effective_date: "2005-08-01"
+- hs_code: "ANY"
+  from_country: "VN"
+  to_country: "JP"
+  duty_rate_pct: 0
+  fta_eligible: true
+  fta_agreement_name: "RCEP"
+  effective_date: "2022-01-01"
+- hs_code: "ANY"
+  from_country: "MX"
+  to_country: "US"
+  duty_rate_pct: 0
+  fta_eligible: true
+  fta_agreement_name: "USMCA"
+  effective_date: "2020-07-01"
+- hs_code: "ANY"
+  from_country: "IN"
+  to_country: "JP"
+  duty_rate_pct: 0
+  fta_eligible: true
+  fta_agreement_name: "India-Japan CEPA"
+  effective_date: "2011-08-01"

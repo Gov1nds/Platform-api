@@ -11,6 +11,7 @@ from app.seeds.loaders.market import load_market
 from app.seeds.loaders.platform import load_platform
 from app.seeds.loaders.reference import load_reference
 from app.seeds.loaders.vendors import load_vendors
+from app.seeds.loaders.part_master import load_part_master
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class SeedRunner:
                     load_reference,
                     load_vendors,
                     load_market,
+                    load_part_master,
                 ):
                     for stat in loader(self.seed_root, db):
                         results.append(stat)
