@@ -1,95 +1,294 @@
 """
-Pydantic schemas for the Guest Intelligence Report endpoint.
+guest.py
+─────────────────────────────────────────────────────────────────────────────
+PGI Hub — Guest Lead Generation Schema Layer
 
-References: Blueprint Section 2.3
+CONTRACT AUTHORITY: contract.md §2.70–2.73 (Guest_Session, Guest_Search_Log,
+Guest_Report_Snapshot, Guest_Rate_Limit_Bucket), §3.20 (SM-003 Guest_Session
+states), §4.2 (Guest Endpoints), CN-14.
+
+CN-14 dual-window rule:
+  • Guest session cookie TTL: 30 days sliding (re-engagement identity).
+  • Guest_Search_Log retention: 90 days before anonymization/hard-delete.
+
+Invariants:
+  • Guest reports use the SAME normalize/enrich/score pipeline as authenticated
+    users — no separate code path (requirements.yaml/guest_and_lead_generation).
+  • Guest session data is NEVER duplicated into the User table — MERGED on conversion.
+  • vendor_results_json in GuestSearchLog is REDACTED (no contact info).
+  • Rate limiting: per-IP and per-session (Redis primary; DB fallback table).
+  • Free report caps at 5 components; top 3 vendors per component (redacted).
+─────────────────────────────────────────────────────────────────────────────
 """
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field, model_validator
 
-
-class GuestIntelligenceRequest(BaseModel):
-    """Request body for POST /guest/intelligence-report."""
-    components: list[str] = Field(..., min_length=1, max_length=10, description="Raw text descriptions of components (1-10 items)")
-    delivery_location: str = Field(..., description="City/country for delivery, free text")
-    currency: str = Field(default="USD", description="ISO-4217 currency code")
-    session_token: str | None = Field(default=None, description="Existing guest session token for continuity")
-
-
-class FreshnessAnnotation(BaseModel):
-    """Freshness status for a data point."""
-    table: str = Field(description="Source table name")
-    status: str = Field(description="FRESH | STALE | ESTIMATED | UNKNOWN")
-    fetched_at: datetime | None = Field(default=None, description="When the data was last fetched")
-    ttl_minutes: int = Field(default=0, description="Time-to-live in minutes")
+from .common import (
+    FreshnessStatus,
+    DataFreshnessEnvelope,
+    CountryCode,
+    CurrencyCode,
+    GuestRateLimitScope,
+    GuestSessionState,
+    PGIBase,
+    RiskFlagDetail,
+)
 
 
-class RiskFlag(BaseModel):
-    """Risk flag for a component."""
-    flag_type: str = Field(description="Type of risk: SINGLE_SOURCE | LONG_LEAD | HIGH_TARIFF | VOLATILE_PRICE")
-    severity: str = Field(default="medium", description="low | medium | high")
-    description: str = Field(default="", description="Human-readable risk description")
+# ──────────────────────────────────────────────────────────────────────────
+# Guest_Session (contract §2.70)
+# ──────────────────────────────────────────────────────────────────────────
+
+class GuestSessionSchema(PGIBase):
+    """An anonymous visitor's session.
+
+    session_token: httpOnly cookie value — never exposed in API response body.
+    state: NEW | ACTIVE | EXPIRED | CONVERTED (SM-003).
+    Sliding cookie TTL: 30 days from last_active_at (CN-14).
+    Search log retention: 90 days (CN-14).
+    """
+
+    session_id: UUID
+    state: GuestSessionState
+    detected_location_json: dict[str, Any] = Field(default_factory=dict)
+    detected_currency: Optional[CurrencyCode] = None
+    overridden_location_json: Optional[dict[str, Any]] = None
+    overridden_currency: Optional[CurrencyCode] = None
+    component_count: int = 0
+    converted_to_user_id: Optional[UUID] = None
+    created_at: datetime
+    last_active_at: datetime
+    expires_at: datetime
+
+    # session_token intentionally excluded from response schema
+    # (set via httpOnly cookie by Repo C; never in response body)
 
 
-class PriceEstimate(BaseModel):
-    """Price estimate with confidence and source."""
-    unit_price: float = Field(description="Estimated unit price")
-    currency: str = Field(default="USD")
-    confidence: float = Field(default=0.7, description="0.0-1.0 confidence score")
-    source: str = Field(default="historical", description="historical | live | benchmark")
-    data_quality_label: str = Field(default="", description="FRESH | STALE | ESTIMATED | DEGRADED_ESTIMATE")
+# ──────────────────────────────────────────────────────────────────────────
+# Guest_Search_Log (contract §2.71)
+# ──────────────────────────────────────────────────────────────────────────
+
+class GuestSearchLogSchema(PGIBase):
+    """A recorded guest search event.
+
+    vendor_results_json: REDACTED — no vendor contact information stored.
+    Anonymized/deleted after 90 days (CN-14).
+    """
+
+    search_id: UUID
+    session_id: UUID
+    search_query: str
+    components_json: list[Any] = Field(default_factory=list)
+    detected_location_json: dict[str, Any] = Field(default_factory=dict)
+    detected_currency: Optional[CurrencyCode] = None
+    vendor_results_json: list[Any] = Field(
+        default_factory=list,
+        description="Redacted vendor match results — no contact info.",
+    )
+    free_report_generated: bool = False
+    converted_to_signup: bool = False
+    created_at: datetime
 
 
-class EnrichedComponent(BaseModel):
-    """Enriched component data returned to guest."""
-    raw_text: str = Field(description="Original input text")
-    canonical_name: str | None = Field(default=None, description="Normalized part name")
-    category: str | None = Field(default=None, description="Product category")
-    commodity_group: str | None = Field(default=None, description="Commodity group for scoring")
-    confidence: float = Field(default=0.0, description="Normalization confidence 0.0-1.0")
-    price_estimate: PriceEstimate | None = Field(default=None, description="Estimated pricing")
-    risk_flags: list[RiskFlag] = Field(default_factory=list, description="Identified risks")
+# ──────────────────────────────────────────────────────────────────────────
+# Guest_Report_Snapshot (contract §2.72)
+# ──────────────────────────────────────────────────────────────────────────
+
+class GuestReportSnapshotSchema(PGIBase):
+    """A cached snapshot of a generated free intelligence report."""
+
+    snapshot_id: UUID
+    search_id: UUID
+    report_json: dict[str, Any] = Field(
+        description="Full free report JSON (see GuestIntelligenceReportResponse)."
+    )
+    created_at: datetime
 
 
-class RedactedVendor(BaseModel):
-    """Vendor info with contact details redacted for guest users."""
-    vendor_id: str = Field(description="Vendor identifier")
-    display_name: str = Field(description="Vendor display name (may be partially masked)")
-    country: str | None = Field(default=None)
-    reliability_score: float = Field(default=0.0, description="0.0-1.0")
-    total_score: float = Field(default=0.0, description="Overall match score")
-    rank: int = Field(default=0, description="Rank in shortlist")
-    score_breakdown: dict[str, Any] = Field(default_factory=dict, description="Score breakdown by dimension")
-    data_quality_label: str = Field(default="", description="FRESH | DEGRADED_ESTIMATE")
-    # Contact info explicitly NOT included
+# ──────────────────────────────────────────────────────────────────────────
+# Guest_Rate_Limit_Bucket (contract §2.73)
+# ──────────────────────────────────────────────────────────────────────────
+
+class GuestRateLimitBucketSchema(PGIBase):
+    """Rate limit tracking bucket (DB fallback; primary is Redis).
+
+    scope: 'ip' | 'session'.
+    window_start / window_end: sliding window boundaries.
+    UNIQUE: (scope, identifier, window_start).
+    """
+
+    bucket_id: UUID
+    scope: GuestRateLimitScope
+    identifier: str = Field(max_length=128)
+    count: int = 0
+    window_start: datetime
+    window_end: datetime
 
 
-class StrategyOption(BaseModel):
-    """Local vs international sourcing comparison."""
-    mode: str = Field(description="local | international")
-    estimated_tlc: float = Field(default=0.0, description="Total landed cost estimate")
-    lead_time_days: int = Field(default=0, description="Estimated lead time")
-    tariff_impact: float = Field(default=0.0, description="Tariff cost component")
-    freight_estimate: float = Field(default=0.0, description="Freight cost component")
-    currency: str = Field(default="USD")
+# ──────────────────────────────────────────────────────────────────────────
+# POST /api/v1/guest/intelligence-report
+# ──────────────────────────────────────────────────────────────────────────
+
+class GuestComponentRequest(PGIBase):
+    """A single component specification in a guest search request."""
+
+    raw_text: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Free-text component description.",
+    )
+    quantity: float = Field(gt=0)
+    unit: Optional[str] = Field(default=None, max_length=32)
 
 
-class LockedFeatureTeaser(BaseModel):
-    """Feature that requires sign-in to access."""
-    feature: str = Field(description="Feature name")
-    description: str = Field(description="What signing in unlocks")
+class GuestDeliveryLocationRequest(PGIBase):
+    """Delivery location provided in the guest search (IP-detected or user-entered)."""
+
+    country: CountryCode
+    city: Optional[str] = Field(default=None, max_length=128)
+    lat: Optional[float] = Field(default=None, ge=-90.0, le=90.0)
+    lng: Optional[float] = Field(default=None, ge=-180.0, le=180.0)
 
 
-class GuestIntelligenceResponse(BaseModel):
-    """Response body for POST /guest/intelligence-report."""
-    components: list[EnrichedComponent] = Field(default_factory=list, description="Enriched components with risk flags")
-    vendor_shortlist: list[RedactedVendor] = Field(default_factory=list, description="Top 3 vendors (contact info redacted)")
-    strategy_summary: list[StrategyOption] = Field(default_factory=list, description="Local vs international TLC comparison")
-    freshness_report: list[FreshnessAnnotation] = Field(default_factory=list, description="Freshness status of underlying data")
-    locked_features: list[LockedFeatureTeaser] = Field(default_factory=list, description="Features requiring sign-in")
-    session_token: str = Field(description="Guest session token for continuity")
+class GuestIntelligenceReportRequest(PGIBase):
+    """POST /api/v1/guest/intelligence-report.
 
-    model_config = ConfigDict(from_attributes=True)
+    Max 5 components (422 if exceeded).
+    delivery_location and currency default to IP-detected values if omitted.
+    No auth required; guest_session_token cookie optional.
+    """
+
+    components: list[GuestComponentRequest] = Field(
+        min_length=1,
+        max_length=5,
+        description="Up to 5 components. 422 if more than 5 submitted.",
+    )
+    delivery_location: GuestDeliveryLocationRequest
+    currency: CurrencyCode = Field(default="USD")
+
+
+class CostEstimateBand(PGIBase):
+    """Price band shown in the free report (LAW-1: freshness timestamp included)."""
+
+    floor: float
+    ceiling: float
+    currency: CurrencyCode
+    fetched_at: datetime
+    label: str = Field(
+        default="",
+        description=(
+            "ESTIMATED or BENCHMARK when actual data unavailable (LAW-1). "
+            "Empty string when live data is available."
+        ),
+    )
+
+
+class RedactedVendorMatch(PGIBase):
+    """Vendor match shown in the free report with contact details REDACTED.
+
+    Contact, exact prices, and score decomposition are locked features
+    (hidden until sign-in per requirements/free_report_generator).
+    """
+
+    vendor_id: UUID
+    name: str
+    country: CountryCode
+    score: float
+    why_match: str = Field(
+        description="Plain-language match rationale (LAW-2: explain everything)."
+    )
+    # Contact information intentionally omitted (locked feature)
+
+
+class FreshnessSummaryItem(PGIBase):
+    """Per-data-source freshness information surfaced in the free report."""
+
+    source: str
+    fetched_at: datetime
+    freshness_status: FreshnessStatus
+    warning: Optional[str] = None
+
+
+class GuestReportComponent(PGIBase):
+    """Intelligence result for a single component in the free report."""
+
+    normalized_name: str
+    category: str
+    strategy: str = Field(description="Plain-language sourcing strategy recommendation.")
+    cost_estimate: CostEstimateBand
+    top_vendors: list[RedactedVendorMatch] = Field(
+        max_length=3,
+        description="Top 3 vendor matches — contact details redacted.",
+    )
+    risk_flags: list[RiskFlagDetail] = Field(default_factory=list)
+
+    # Locked features (shown as teasers only)
+    locked_features_teaser: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Labels of features unlocked after sign-in: "
+            "'full_vendor_contact', 'exact_pricing', 'send_rfq', 'score_decomposition'."
+        ),
+    )
+
+
+class GuestIntelligenceReportResponse(PGIBase):
+    """Full response for POST /api/v1/guest/intelligence-report.
+
+    Sets guest_session_token httpOnly cookie.
+    Freshness timestamps attached to every price (LAW-1).
+    """
+
+    session_id: UUID
+    report: "GuestReport"
+    data_freshness: DataFreshnessEnvelope
+
+
+class GuestReport(PGIBase):
+    """The free intelligence report payload."""
+
+    components: list[GuestReportComponent]
+    generated_at: datetime
+    freshness_summary: list[FreshnessSummaryItem] = Field(default_factory=list)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# POST /api/v1/guest/detect-location
+# ──────────────────────────────────────────────────────────────────────────
+
+class DetectLocationRequest(PGIBase):
+    """IP geolocation request — null IP uses the request's source IP."""
+
+    ip: Optional[str] = Field(default=None, description="IPv4 or IPv6 address to look up.")
+
+
+class DetectLocationResponse(PGIBase):
+    """IP geolocation result (MaxMind / ipapi.co)."""
+
+    country: CountryCode
+    city: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    currency: CurrencyCode
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# GET /api/v1/guest/search/{session_id}
+# ──────────────────────────────────────────────────────────────────────────
+
+class GuestSearchHistoryResponse(PGIBase):
+    """Return guest search history for re-engagement display."""
+
+    session: GuestSessionSchema
+    searches: list[GuestSearchLogSchema]
+    reports: list[GuestReportSnapshotSchema]
+
+
+# Forward reference resolution
+GuestIntelligenceReportResponse.model_rebuild()

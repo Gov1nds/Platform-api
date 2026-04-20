@@ -1,338 +1,763 @@
-"""
-Pydantic schemas for the PGI Platform.
-
-This file re-exports all existing schemas for backward compatibility
-while also exposing the new common primitives (ErrorEnvelope,
-PaginatedResponse, MoneyField, FreshnessMetadata).
-
-As the codebase migrates, individual schema submodules
-(auth.py, bom.py, rfq.py, …) will be added in later batches and
-re-exported here.
-
-References: api-contract-review.md Section 5.5,
-            frontend-backend-contract.md
-"""
+"""Public schema package exports."""
 from __future__ import annotations
 
-from datetime import datetime
+from .common import *
+from .common import __all__ as _common_all
 
-from pydantic import BaseModel
-
-# ── New common schemas ───────────────────────────────────────────────────────
-from app.schemas.common import (  # noqa: F401
-    ErrorDetail,
-    ErrorEnvelope,
-    FreshnessMetadata,
-    MoneyField,
-    PaginatedResponse,
-    PermissionHints,
+from .admin import (
+    AdminAuditLogQueryParams,
+    AdminFreshnessLogQueryParams,
+    RefreshBaselinePriceRequest,
+    RefreshForexRequest,
+    RefreshTariffRequest,
+    RefreshLogisticsRequest,
+    RefreshAcceptedResponse,
+    NormalizationReplayRequest,
+    NormalizationReplayResponse,
+    ConsolidationAnalysisResponse,
 )
 
-# ── Existing schemas (preserved for backward compatibility) ──────────────────
-
-
-class UserRegister(BaseModel):
-    email: str
-    password: str
-    full_name: str = ""
-    session_token: str | None = None
-
-
-class UserLogin(BaseModel):
-    email: str
-    password: str
-    session_token: str | None = None
-
-
-class UserResponse(BaseModel):
-    id: str
-    email: str
-    full_name: str
-    role: str = "buyer"
-    is_active: bool = True
-    is_verified: bool = False
-
-    model_config = {"from_attributes": True}
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: UserResponse
-    merge_result: dict = {}
-
-
-class VendorUserLogin(BaseModel):
-    email: str
-    password: str
-
-
-class VendorUserResponse(BaseModel):
-    id: str
-    vendor_id: str
-    email: str
-    full_name: str
-    role: str
-
-    model_config = {"from_attributes": True}
-
-
-class VendorTokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: VendorUserResponse
-
-
-class BOMAnalyzeResponse(BaseModel):
-    search_session_id: str
-    total_parts: int = 0
-    analysis: dict = {}
-    recommended_flow: str = "search_session"
-
-
-class BOMUploadResponse(BaseModel):
-    bom_id: str
-    project_id: str
-    total_parts: int = 0
-    status: str = "analyzed"
-    analysis: dict = {}
-
-
-class ProjectResponse(BaseModel):
-    id: str
-    bom_id: str
-    name: str
-    status: str
-    visibility: str
-    total_parts: int = 0
-    average_cost: float | None = None
-    cost_range_low: float | None = None
-    cost_range_high: float | None = None
-    lead_time_days: float | None = None
-    decision_summary: str | None = None
-    file_name: str | None = None
-    analyzer_report: dict = {}
-    strategy: dict = {}
-    events: list[dict] = []
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class ProjectListResponse(BaseModel):
-    items: list[ProjectResponse] = []
-    total: int = 0
-
-
-class SearchSessionResponse(BaseModel):
-    id: str
-    query_text: str | None = None
-    query_type: str
-    input_type: str
-    results_json: dict = {}
-    analysis_payload: dict = {}
-    status: str
-    promoted_to: str | None = None
-    promoted_to_id: str | None = None
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class SourcingCaseResponse(BaseModel):
-    id: str
-    name: str
-    query_text: str | None = None
-    analysis_payload: dict = {}
-    vendor_shortlist: list = []
-    status: str
-    promoted_to_project_id: str | None = None
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class VendorResponse(BaseModel):
-    id: str
-    name: str
-    country: str | None = None
-    region: str | None = None
-    website: str | None = None
-    contact_email: str | None = None
-    reliability_score: float = 0.8
-    avg_lead_time_days: float | None = None
-    certifications: list = []
-    regions_served: list = []
-    capacity_profile: dict = {}
-    is_active: bool = True
-
-    model_config = {"from_attributes": True}
-
-
-class VendorMatchResponse(BaseModel):
-    vendor_id: str
-    vendor_name: str
-    rank: int
-    total_score: float
-    breakdown: dict = {}
-    explanation: str = ""
-    explanation_json: dict = {}
-    market_freshness: str = ""
-
-
-class VendorMatchListResponse(BaseModel):
-    run_id: str
-    project_id: str
-    matches: list[VendorMatchResponse] = []
-    total_considered: int = 0
-
-
-class RFQCreateRequest(BaseModel):
-    bom_id: str
-    project_id: str
-    vendor_ids: list[str] = []
-    notes: str = ""
-    deadline: datetime | None = None
-
-
-class RFQResponse(BaseModel):
-    id: str
-    project_id: str | None = None
-    bom_id: str
-    status: str
-    notes: str | None = None
-    deadline: datetime | None = None
-    items: list[dict] = []
-    invitations: list[dict] = []
-    quotes: list[dict] = []
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class QuoteSubmitRequest(BaseModel):
-    rfq_batch_id: str = ""
-    vendor_id: str = ""
-    quote_number: str | None = None
-    currency: str = "USD"
-    incoterms: str | None = None
-    valid_until: datetime | None = None
-    lines: list[dict] = []
-    notes: str = ""
-
-
-class QuoteResponse(BaseModel):
-    id: str
-    rfq_batch_id: str
-    vendor_id: str | None = None
-    quote_status: str
-    quote_version: int = 1
-    total: float | None = None
-    lines: list[dict] = []
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class POCreateRequest(BaseModel):
-    project_id: str
-    rfq_batch_id: str | None = None
-    vendor_id: str
-    shipping_terms: str | None = None
-    payment_terms: str | None = None
-    line_items: list[dict] = []
-
-
-class POResponse(BaseModel):
-    id: str
-    project_id: str
-    vendor_id: str | None = None
-    po_number: str | None = None
-    status: str
-    total: float | None = None
-    currency: str = "USD"
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class ShipmentCreateRequest(BaseModel):
-    po_id: str
-    project_id: str | None = None
-    carrier: str | None = None
-    tracking_number: str | None = None
-    origin: str | None = None
-    destination: str | None = None
-    eta: datetime | None = None
-
-
-class MilestoneCreateRequest(BaseModel):
-    shipment_id: str
-    milestone_type: str
-    location: str | None = None
-    notes: str | None = None
-    is_delay: bool = False
-
-
-class ShipmentResponse(BaseModel):
-    id: str
-    po_id: str
-    carrier: str | None = None
-    tracking_number: str | None = None
-    status: str
-    eta: datetime | None = None
-    milestones: list[dict] = []
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class ThreadCreateRequest(BaseModel):
-    context_type: str
-    context_id: str
-    title: str | None = None
-
-
-class MessageCreateRequest(BaseModel):
-    thread_id: str
-    content: str
-    visibility: str = "internal"
-    attachment_url: str | None = None
-
-
-class ThreadResponse(BaseModel):
-    id: str
-    context_type: str
-    context_id: str
-    title: str | None = None
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class MessageResponse(BaseModel):
-    id: str
-    thread_id: str
-    sender_user_id: str | None = None
-    visibility: str
-    content: str
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class ReportRequest(BaseModel):
-    report_type: str
-    scope_type: str | None = None
-    scope_id: str | None = None
-    filters: dict = {}
-
-
-class ReportResponse(BaseModel):
-    id: str
-    report_type: str
-    data_json: dict = {}
-    summary_json: dict = {}
-    created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
+from .analytics import (
+    ReportScheduleSchema,
+    ReportScheduleCreateRequest,
+    ReportScheduleCreateResponse,
+    ReportRunSchema,
+    InsightSummarySchema,
+    SpendSnapshotSchema,
+    SavingsSnapshotSchema,
+    CategoryInsightSchema,
+    RiskDashboardSnapshotSchema,
+    QuoteIntelligenceSnapshotSchema,
+    OperationalStatusView,
+    LeadTimeAnalysisSchema,
+    SnapshotMetadataSchema,
+    SpendReportResponse,
+    SavingsReportResponse,
+    SupplierPerformanceReportResponse,
+    OperationalStatusReportResponse,
+    LeadTimeReportResponse,
+    RiskReportResponse,
+    QuoteIntelligenceReportResponse,
+    CategoryInsightsReportResponse,
+)
+
+from .audit import (
+    EventAuditLogSchema,
+    EventAuditLogListResponse,
+    EventAuditLogQueryParams,
+    DataFreshnessLogAdminSchema,
+    FreshnessLogListResponse,
+    IntegrationRunLogSchema,
+    DataSubjectRequestSchema,
+    DataSubjectRequestCreateRequest,
+    DataSubjectRequestCreateResponse,
+    DataSubjectRequestUpdateRequest,
+    PIIRedactionRuleSchema,
+    PIIRedactionRuleCreateRequest,
+    ExportControlFlagSchema,
+    ExportControlFlagCreateRequest,
+)
+
+from .auth import (
+    AuthUserSnapshot,
+    AuthOrganizationSnapshot,
+    OAuthCallbackRequest,
+    OAuthCallbackResponse,
+    TokenRefreshRequest,
+    TokenRefreshResponse,
+    LogoutRequest,
+    MeResponse,
+    MFAEnrollRequest,
+    MFAEnrollResponse,
+    MFAVerifyRequest,
+    MFAVerifyResponse,
+    MergeGuestRequest,
+    MergeGuestResponse,
+    OAuthLinkSchema,
+    RefreshTokenSchema,
+    MFAEnrollmentSchema,
+)
+
+from .bom import (
+    BOMUploadResponse,
+    BOMUploadInitResponse,
+    BOMUploadConfirmMappingRequest,
+    BOMUploadConfirmMappingResponse,
+    BOMLineResponse,
+    BOMLineSummaryResponse,
+    BOMLineListResponse,
+    TypedBOMEntry,
+    TypedBOMRequest,
+    TypedBOMResponse,
+    BOMLineNormalizeConfirmRequest,
+    BOMLineNormalizeConfirmResponse,
+    BOMLineBulkActionRequest,
+    BOMLineBulkActionResponse,
+    RecomputeScoreRequest,
+    RecomputeScoreResponse,
+)
+
+from .chat import (
+    ChatThreadSchema,
+    ChatThreadListResponse,
+    ThreadParticipantSchema,
+    ChatMessageSchema,
+    ChatMessageListResponse,
+    OfferPayloadRequest,
+    SendMessageRequest,
+    OfferEventSchema,
+    AcceptOfferResponse,
+    RejectOfferRequest,
+    RejectOfferResponse,
+    WSInboundSendMessage,
+    WSInboundTyping,
+    WSOutboundMessage,
+    WSOutboundStatus,
+    WSOutboundNotification,
+    WSOutboundOrderStatus,
+    DocumentSchema,
+    DocumentUploadResponse,
+)
+
+from .config import (
+    ConfigVersionSchema,
+    ConfigVersionCreateRequest,
+    ConfigVersionDeprecateRequest,
+    ConfigVersionListResponse,
+    FeatureFlagSchema,
+    FeatureFlagCreateRequest,
+    FeatureFlagUpdateRequest,
+    FeatureFlagListResponse,
+)
+
+from .guest import (
+    GuestSessionSchema,
+    GuestSearchLogSchema,
+    GuestReportSnapshotSchema,
+    GuestRateLimitBucketSchema,
+    GuestComponentRequest,
+    GuestDeliveryLocationRequest,
+    GuestIntelligenceReportRequest,
+    CostEstimateBand,
+    RedactedVendorMatch,
+    FreshnessSummaryItem,
+    GuestReportComponent,
+    GuestIntelligenceReportResponse,
+    GuestReport,
+    DetectLocationRequest,
+    DetectLocationResponse,
+    GuestSearchHistoryResponse,
+)
+
+from .market_data import (
+    BaselinePriceSchema,
+    BaselinePriceFreshnessSummary,
+    ForexRateSchema,
+    ForexLockSchema,
+    TariffRateSchema,
+    LogisticsRateSchema,
+    CommodityPriceTickSchema,
+    SnapshotMetadataSchema,
+    DataFreshnessLogSchema,
+    DataFreshnessLogListResponse,
+    MarketContextPackage,
+)
+
+from .notifications import (
+    NotificationSchema,
+    NotificationListResponse,
+    MarkNotificationReadResponse,
+    NotificationTemplateSchema,
+    NotificationPreferenceSchema,
+    NotificationPreferenceUpdateRequest,
+    NotificationPreferenceListResponse,
+    OutboxMessageSchema,
+    TaskSchema,
+    TaskListResponse,
+    TaskCompleteRequest,
+    TaskCompleteResponse,
+    AlertSchema,
+    AlertCreateRequest,
+)
+
+from .order import (
+    PurchaseOrderResponse,
+    PurchaseOrderSummaryResponse,
+    OrderCreateRequest,
+    OrderCreatePOResult,
+    OrderCreateResponse,
+    POLineSchema,
+    ChangeOrderSchema,
+    ChangeOrderCreateRequest,
+    ShipmentResponse,
+    ShipmentEventSchema,
+    BookLogisticsRequest,
+    BookLogisticsResponse,
+    GoodsReceiptSchema,
+    GRLineSchema,
+    GRLineConfirmRequest,
+    ConfirmGRRequest,
+    ConfirmGRResponse,
+    VendorOrderUpdateRequest,
+    VendorOrderUpdateResponse,
+    ApprovalRequestSchema,
+    ApprovalDecisionSchema,
+    OrderApproveRequest,
+    OrderApproveResponse,
+)
+
+from .invoice import (
+    InvoiceSchema,
+    InvoiceSummarySchema,
+    InvoiceLineSchema,
+    PaymentSchema,
+    PaymentCreateRequest,
+    PaymentEventSchema,
+    DisputeSchema,
+    DisputeCreateRequest,
+    DisputeResolveRequest,
+    ExceptionCaseSchema,
+    ExceptionCaseUpdateRequest,
+)
+
+from .part_master import (
+    PartMasterResponse,
+    PartMasterSummaryResponse,
+    PartMasterWithEmbeddingResponse,
+    PartMasterCreateRequest,
+    PartMasterUpdateRequest,
+    PartMasterListResponse,
+    CandidateMatchSchema,
+    CandidateMatchListResponse,
+)
+
+from .project import (
+    ProjectResponse,
+    ProjectSummaryResponse,
+    ProjectCreateRequest,
+    ProjectCreateResponse,
+    ProjectUpdateRequest,
+    ProjectPromoteRequest,
+    ProjectPromoteResponse,
+    ProjectListResponse,
+    ProjectACLEntry,
+    GrantProjectAccessRequest,
+    UpdateProjectAccessRequest,
+    ProjectACLListResponse,
+    WorkspaceDecisionSchema,
+    BOMStatusCount,
+    RecentActivityItem,
+    BOMDashboardResponse,
+)
+
+from .rfq import (
+    RFQResponse,
+    BuyerFacingRFQResponse,
+    VendorFacingRFQResponse,
+    RFQSummaryResponse,
+    RFQLineQuantityRequest,
+    RFQTermsSnapshot,
+    RFQCreateRequest,
+    RFQCreateResponse,
+    RFQLineSchema,
+    RFQVendorInviteSchema,
+    RFQDetailResponse,
+)
+
+from .quote import (
+    QuoteResponse,
+    BuyerFacingQuoteResponse,
+    VendorFacingQuoteResponse,
+    QuoteListResponse,
+    QuoteLineSchema,
+    QuoteRevisionSchema,
+    VendorQuoteLineRequest,
+    VendorQuoteCreateRequest,
+    VendorQuoteCreateResponse,
+    QuoteAcceptResponse,
+    QuoteRejectRequest,
+    QuoteRejectResponse,
+    AwardDecisionSchema,
+    ComparisonRunSchema,
+    QuoteComparisonCell,
+    QuoteComparisonStrategyColumn,
+    ForexLockSummary,
+    TariffLockSummary,
+    QuoteComparisonResponse,
+)
+
+from .user import (
+    UserResponse,
+    UserCreateRequest,
+    UserUpdateRequest,
+    UserAdminUpdateRequest,
+    OrganizationResponse,
+    BuyerFacingOrganizationResponse,
+    VendorFacingOrganizationResponse,
+    OrganizationCreateRequest,
+    OrganizationUpdateRequest,
+    OrganizationPlanChangeRequest,
+    OrganizationMembershipSchema,
+    AddMemberRequest,
+    UpdateMemberRoleRequest,
+    UserListResponse,
+)
+
+from .vendor import (
+    VendorResponse,
+    BuyerFacingVendorResponse,
+    VendorFacingVendorResponse,
+    VendorSummaryResponse,
+    VendorDetailResponse,
+    VendorListResponse,
+    VendorUpdateRequest,
+    VendorUserSchema,
+    VendorPartCapabilitySchema,
+    VendorPerformanceSnapshotSchema,
+    CertificationSchema,
+    CertificationUploadRequest,
+    CertificationUploadResponse,
+    VendorProfileClaimSchema,
+    VendorClaimRequest,
+    VendorClaimResponse,
+    VendorInviteSchema,
+    VendorInviteRequest,
+    VendorInviteResponse,
+    VendorTierTransitionSchema,
+    VendorRatingSchema,
+    VendorRatingCreateRequest,
+    PreferredVendorListSchema,
+    PreferredVendorMemberSchema,
+    AddPreferredVendorRequest,
+    AddPreferredVendorResponse,
+    VendorFilterResultSchema,
+    VendorDashboardResponse,
+)
+
+from .webhooks import (
+    WebhookReceivedResponse,
+    CarrierWebhookMilestone,
+    DHLWebhookPayload,
+    FedExWebhookPayload,
+    UPSWebhookPayload,
+    MaerskWebhookPayload,
+    ESignatureWebhookPayload,
+    ERPWebhookPayload,
+    SAPWebhookPayload,
+    OracleWebhookPayload,
+    NetSuiteWebhookPayload,
+)
+
+from .intelligence import (
+    NormalizationRunSchema,
+    NormalizationTraceSchema,
+    NormalizationTraceMergeSchema,
+    ReviewTaskSchema,
+    ReviewTaskListResponse,
+    ScoreBreakdownSchema,
+    VendorScoreCacheEntry,
+    VendorShortlistResponse,
+    StrategyRecommendationSchema,
+    SubstitutionRecommendationSchema,
+    ConsolidationInsightSchema,
+    ConsolidationInsightLineSchema,
+    ConsolidationAnalysisResponse,
+    DataSourcesSnapshotSchema,
+    DataSourcesSnapshotLinkSchema,
+    EvidenceRecordSchema,
+)
+
+from .b2b_contracts import (
+    RepoBDeliveryLocation,
+    CanonicalOutput,
+    BaselinePriceContext,
+    TariffSnapshotContext,
+    LogisticsSnapshotContext,
+    ForexSnapshotContext,
+    MarketContextPayload,
+    VendorCandidateProfile,
+    VendorCandidateCapability,
+    VendorPerformanceSnapshot,
+    VendorCandidatePayload,
+    CostBand,
+    StrategyVendorInput,
+    PartMasterHint,
+    NormalizeRowInput,
+    NormalizeRequest,
+    NormalizeCanonicalOutput,
+    NormalizePartMasterCandidate,
+    NormalizeResult,
+    NormalizeResponse,
+    EnrichBOMLineInput,
+    EnrichRequest,
+    EnrichPriceBandResult,
+    EnrichTariffResult,
+    EnrichLogisticsCostBand,
+    EnrichLogisticsResult,
+    EnrichmentOutput,
+    EnrichResponse,
+    ScoreBOMLineInput,
+    ScoreRequest,
+    ScoreDimensionBreakdown,
+    ScoreBreakdownMap,
+    RankedVendorResult,
+    ScoreResponse,
+    StrategyBOMLineInput,
+    StrategyRequest,
+    TLCModeBreakdown,
+    TLCBreakdownOutput,
+    StrategyResponse,
+    ReplayRequest,
+    ReplayCanonicalSnapshot,
+    ReplayResult,
+    ReplayResponse,
+)
+
+__all__ = [*_common_all,
+    "AdminAuditLogQueryParams",
+    "AdminFreshnessLogQueryParams",
+    "RefreshBaselinePriceRequest",
+    "RefreshForexRequest",
+    "RefreshTariffRequest",
+    "RefreshLogisticsRequest",
+    "RefreshAcceptedResponse",
+    "NormalizationReplayRequest",
+    "NormalizationReplayResponse",
+    "ConsolidationAnalysisResponse",
+    "ReportScheduleSchema",
+    "ReportScheduleCreateRequest",
+    "ReportScheduleCreateResponse",
+    "ReportRunSchema",
+    "InsightSummarySchema",
+    "SpendSnapshotSchema",
+    "SavingsSnapshotSchema",
+    "CategoryInsightSchema",
+    "RiskDashboardSnapshotSchema",
+    "QuoteIntelligenceSnapshotSchema",
+    "OperationalStatusView",
+    "LeadTimeAnalysisSchema",
+    "SnapshotMetadataSchema",
+    "SpendReportResponse",
+    "SavingsReportResponse",
+    "SupplierPerformanceReportResponse",
+    "OperationalStatusReportResponse",
+    "LeadTimeReportResponse",
+    "RiskReportResponse",
+    "QuoteIntelligenceReportResponse",
+    "CategoryInsightsReportResponse",
+    "EventAuditLogSchema",
+    "EventAuditLogListResponse",
+    "EventAuditLogQueryParams",
+    "DataFreshnessLogAdminSchema",
+    "FreshnessLogListResponse",
+    "IntegrationRunLogSchema",
+    "DataSubjectRequestSchema",
+    "DataSubjectRequestCreateRequest",
+    "DataSubjectRequestCreateResponse",
+    "DataSubjectRequestUpdateRequest",
+    "PIIRedactionRuleSchema",
+    "PIIRedactionRuleCreateRequest",
+    "ExportControlFlagSchema",
+    "ExportControlFlagCreateRequest",
+    "AuthUserSnapshot",
+    "AuthOrganizationSnapshot",
+    "OAuthCallbackRequest",
+    "OAuthCallbackResponse",
+    "TokenRefreshRequest",
+    "TokenRefreshResponse",
+    "LogoutRequest",
+    "MeResponse",
+    "MFAEnrollRequest",
+    "MFAEnrollResponse",
+    "MFAVerifyRequest",
+    "MFAVerifyResponse",
+    "MergeGuestRequest",
+    "MergeGuestResponse",
+    "OAuthLinkSchema",
+    "RefreshTokenSchema",
+    "MFAEnrollmentSchema",
+    "BOMUploadResponse",
+    "BOMUploadInitResponse",
+    "BOMUploadConfirmMappingRequest",
+    "BOMUploadConfirmMappingResponse",
+    "BOMLineResponse",
+    "BOMLineSummaryResponse",
+    "BOMLineListResponse",
+    "TypedBOMEntry",
+    "TypedBOMRequest",
+    "TypedBOMResponse",
+    "BOMLineNormalizeConfirmRequest",
+    "BOMLineNormalizeConfirmResponse",
+    "BOMLineBulkActionRequest",
+    "BOMLineBulkActionResponse",
+    "RecomputeScoreRequest",
+    "RecomputeScoreResponse",
+    "ChatThreadSchema",
+    "ChatThreadListResponse",
+    "ThreadParticipantSchema",
+    "ChatMessageSchema",
+    "ChatMessageListResponse",
+    "OfferPayloadRequest",
+    "SendMessageRequest",
+    "OfferEventSchema",
+    "AcceptOfferResponse",
+    "RejectOfferRequest",
+    "RejectOfferResponse",
+    "WSInboundSendMessage",
+    "WSInboundTyping",
+    "WSOutboundMessage",
+    "WSOutboundStatus",
+    "WSOutboundNotification",
+    "WSOutboundOrderStatus",
+    "DocumentSchema",
+    "DocumentUploadResponse",
+    "ConfigVersionSchema",
+    "ConfigVersionCreateRequest",
+    "ConfigVersionDeprecateRequest",
+    "ConfigVersionListResponse",
+    "FeatureFlagSchema",
+    "FeatureFlagCreateRequest",
+    "FeatureFlagUpdateRequest",
+    "FeatureFlagListResponse",
+    "GuestSessionSchema",
+    "GuestSearchLogSchema",
+    "GuestReportSnapshotSchema",
+    "GuestRateLimitBucketSchema",
+    "GuestComponentRequest",
+    "GuestDeliveryLocationRequest",
+    "GuestIntelligenceReportRequest",
+    "CostEstimateBand",
+    "RedactedVendorMatch",
+    "FreshnessSummaryItem",
+    "GuestReportComponent",
+    "GuestIntelligenceReportResponse",
+    "GuestReport",
+    "DetectLocationRequest",
+    "DetectLocationResponse",
+    "GuestSearchHistoryResponse",
+    "BaselinePriceSchema",
+    "BaselinePriceFreshnessSummary",
+    "ForexRateSchema",
+    "ForexLockSchema",
+    "TariffRateSchema",
+    "LogisticsRateSchema",
+    "CommodityPriceTickSchema",
+    "SnapshotMetadataSchema",
+    "DataFreshnessLogSchema",
+    "DataFreshnessLogListResponse",
+    "MarketContextPackage",
+    "NotificationSchema",
+    "NotificationListResponse",
+    "MarkNotificationReadResponse",
+    "NotificationTemplateSchema",
+    "NotificationPreferenceSchema",
+    "NotificationPreferenceUpdateRequest",
+    "NotificationPreferenceListResponse",
+    "OutboxMessageSchema",
+    "TaskSchema",
+    "TaskListResponse",
+    "TaskCompleteRequest",
+    "TaskCompleteResponse",
+    "AlertSchema",
+    "AlertCreateRequest",
+    "PurchaseOrderResponse",
+    "PurchaseOrderSummaryResponse",
+    "OrderCreateRequest",
+    "OrderCreatePOResult",
+    "OrderCreateResponse",
+    "POLineSchema",
+    "ChangeOrderSchema",
+    "ChangeOrderCreateRequest",
+    "ShipmentResponse",
+    "ShipmentEventSchema",
+    "BookLogisticsRequest",
+    "BookLogisticsResponse",
+    "GoodsReceiptSchema",
+    "GRLineSchema",
+    "GRLineConfirmRequest",
+    "ConfirmGRRequest",
+    "ConfirmGRResponse",
+    "VendorOrderUpdateRequest",
+    "VendorOrderUpdateResponse",
+    "ApprovalRequestSchema",
+    "ApprovalDecisionSchema",
+    "OrderApproveRequest",
+    "OrderApproveResponse",
+    "InvoiceSchema",
+    "InvoiceSummarySchema",
+    "InvoiceLineSchema",
+    "PaymentSchema",
+    "PaymentCreateRequest",
+    "PaymentEventSchema",
+    "DisputeSchema",
+    "DisputeCreateRequest",
+    "DisputeResolveRequest",
+    "ExceptionCaseSchema",
+    "ExceptionCaseUpdateRequest",
+    "PartMasterResponse",
+    "PartMasterSummaryResponse",
+    "PartMasterWithEmbeddingResponse",
+    "PartMasterCreateRequest",
+    "PartMasterUpdateRequest",
+    "PartMasterListResponse",
+    "CandidateMatchSchema",
+    "CandidateMatchListResponse",
+    "ProjectResponse",
+    "ProjectSummaryResponse",
+    "ProjectCreateRequest",
+    "ProjectCreateResponse",
+    "ProjectUpdateRequest",
+    "ProjectPromoteRequest",
+    "ProjectPromoteResponse",
+    "ProjectListResponse",
+    "ProjectACLEntry",
+    "GrantProjectAccessRequest",
+    "UpdateProjectAccessRequest",
+    "ProjectACLListResponse",
+    "WorkspaceDecisionSchema",
+    "BOMStatusCount",
+    "RecentActivityItem",
+    "BOMDashboardResponse",
+    "RFQResponse",
+    "BuyerFacingRFQResponse",
+    "VendorFacingRFQResponse",
+    "RFQSummaryResponse",
+    "RFQLineQuantityRequest",
+    "RFQTermsSnapshot",
+    "RFQCreateRequest",
+    "RFQCreateResponse",
+    "RFQLineSchema",
+    "RFQVendorInviteSchema",
+    "RFQDetailResponse",
+    "QuoteResponse",
+    "BuyerFacingQuoteResponse",
+    "VendorFacingQuoteResponse",
+    "QuoteListResponse",
+    "QuoteLineSchema",
+    "QuoteRevisionSchema",
+    "VendorQuoteLineRequest",
+    "VendorQuoteCreateRequest",
+    "VendorQuoteCreateResponse",
+    "QuoteAcceptResponse",
+    "QuoteRejectRequest",
+    "QuoteRejectResponse",
+    "AwardDecisionSchema",
+    "ComparisonRunSchema",
+    "QuoteComparisonCell",
+    "QuoteComparisonStrategyColumn",
+    "ForexLockSummary",
+    "TariffLockSummary",
+    "QuoteComparisonResponse",
+    "UserResponse",
+    "UserCreateRequest",
+    "UserUpdateRequest",
+    "UserAdminUpdateRequest",
+    "OrganizationResponse",
+    "BuyerFacingOrganizationResponse",
+    "VendorFacingOrganizationResponse",
+    "OrganizationCreateRequest",
+    "OrganizationUpdateRequest",
+    "OrganizationPlanChangeRequest",
+    "OrganizationMembershipSchema",
+    "AddMemberRequest",
+    "UpdateMemberRoleRequest",
+    "UserListResponse",
+    "VendorResponse",
+    "BuyerFacingVendorResponse",
+    "VendorFacingVendorResponse",
+    "VendorSummaryResponse",
+    "VendorDetailResponse",
+    "VendorListResponse",
+    "VendorUpdateRequest",
+    "VendorUserSchema",
+    "VendorPartCapabilitySchema",
+    "VendorPerformanceSnapshotSchema",
+    "CertificationSchema",
+    "CertificationUploadRequest",
+    "CertificationUploadResponse",
+    "VendorProfileClaimSchema",
+    "VendorClaimRequest",
+    "VendorClaimResponse",
+    "VendorInviteSchema",
+    "VendorInviteRequest",
+    "VendorInviteResponse",
+    "VendorTierTransitionSchema",
+    "VendorRatingSchema",
+    "VendorRatingCreateRequest",
+    "PreferredVendorListSchema",
+    "PreferredVendorMemberSchema",
+    "AddPreferredVendorRequest",
+    "AddPreferredVendorResponse",
+    "VendorFilterResultSchema",
+    "VendorDashboardResponse",
+    "WebhookReceivedResponse",
+    "CarrierWebhookMilestone",
+    "DHLWebhookPayload",
+    "FedExWebhookPayload",
+    "UPSWebhookPayload",
+    "MaerskWebhookPayload",
+    "ESignatureWebhookPayload",
+    "ERPWebhookPayload",
+    "SAPWebhookPayload",
+    "OracleWebhookPayload",
+    "NetSuiteWebhookPayload",
+    "NormalizationRunSchema",
+    "NormalizationTraceSchema",
+    "NormalizationTraceMergeSchema",
+    "ReviewTaskSchema",
+    "ReviewTaskListResponse",
+    "ScoreBreakdownSchema",
+    "VendorScoreCacheEntry",
+    "VendorShortlistResponse",
+    "StrategyRecommendationSchema",
+    "SubstitutionRecommendationSchema",
+    "ConsolidationInsightSchema",
+    "ConsolidationInsightLineSchema",
+    "ConsolidationAnalysisResponse",
+    "DataSourcesSnapshotSchema",
+    "DataSourcesSnapshotLinkSchema",
+    "EvidenceRecordSchema",
+    "RepoBDeliveryLocation",
+    "CanonicalOutput",
+    "BaselinePriceContext",
+    "TariffSnapshotContext",
+    "LogisticsSnapshotContext",
+    "ForexSnapshotContext",
+    "MarketContextPayload",
+    "VendorCandidateProfile",
+    "VendorCandidateCapability",
+    "VendorPerformanceSnapshot",
+    "VendorCandidatePayload",
+    "CostBand",
+    "StrategyVendorInput",
+    "PartMasterHint",
+    "NormalizeRowInput",
+    "NormalizeRequest",
+    "NormalizeCanonicalOutput",
+    "NormalizePartMasterCandidate",
+    "NormalizeResult",
+    "NormalizeResponse",
+    "EnrichBOMLineInput",
+    "EnrichRequest",
+    "EnrichPriceBandResult",
+    "EnrichTariffResult",
+    "EnrichLogisticsCostBand",
+    "EnrichLogisticsResult",
+    "EnrichmentOutput",
+    "EnrichResponse",
+    "ScoreBOMLineInput",
+    "ScoreRequest",
+    "ScoreDimensionBreakdown",
+    "ScoreBreakdownMap",
+    "RankedVendorResult",
+    "ScoreResponse",
+    "StrategyBOMLineInput",
+    "StrategyRequest",
+    "TLCModeBreakdown",
+    "TLCBreakdownOutput",
+    "StrategyResponse",
+    "ReplayRequest",
+    "ReplayCanonicalSnapshot",
+    "ReplayResult",
+    "ReplayResponse",
+]

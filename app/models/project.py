@@ -1,209 +1,378 @@
 """
-Project, session, and workspace models.
+Project, ProjectACL, WorkspaceDecision, BOMUpload, BOMLine entities.
 
-References: GAP-004 (SM-002, SM-003), GAP-005, GAP-014, GAP-025,
-            architecture.md Domain 6, state-machines.md FSD-02/FSD-03,
-            canonical-domain-model.md BC-03
+Contract anchors
+----------------
+§2.4  Project        §2.5  ProjectACL      §2.91 WorkspaceDecision
+§2.6  BOM_Upload     §2.7  BOM_Line
+§3.1  BOMLine.status (SM-001)     §3.2 Project.state (SM-002)
+§3.3  Project.is_session_or_project (SM-003)
+§3.4  BOMUpload.import_status
+§3.37 BOMUpload.source_type       §3.46 Project.weight_profile
+§3.47 Project.stage               §3.48 Priority
+§3.72 BOMLine.sourcing_type       §3.87 ProjectACL.role
+§3.89 WorkspaceDecision.from_state/to_state
+
+Notes
+-----
+* CN-11: ``project.state`` is required (SM-002).
+* CN-3: BOM_Line uses the 17-state SM-001 vocabulary.
+* CN-20: ``bom_line.score_cache_json`` is kept as denormalized read cache;
+  authoritative scoring data lives in ``vendor_score_cache`` (see
+  ``intelligence.py``).
+* ``bom_line.raw_text`` is immutable after insert — enforced by service layer
+  + audit trail (trigger enforcement deferred to migrations).
 """
+from __future__ import annotations
+
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
-    Column, String, Text, Integer, DateTime, ForeignKey, Numeric, Index,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    Interval,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.database import Base
+from app.models.base import (
+    Base,
+    CreatedAtMixin,
+    SoftDeleteMixin,
+    TimestampMixin,
+    country_code_nullable,
+    enum_check,
+    jsonb_array,
+    jsonb_object,
+    jsonb_object_nullable,
+    money_default_zero,
+    nullable_enum_check,
+    tstz,
+    uuid_fk,
+    uuid_pk,
+)
+from app.models.enums import (
+    BOMLineStatus,
+    BOMUploadImportStatus,
+    BOMUploadSourceType,
+    Priority,
+    ProjectACLRole,
+    ProjectSessionType,
+    ProjectStage,
+    ProjectState,
+    ProjectWeightProfile,
+    SourcingMode,
+    WorkspaceDecisionStateValue,
+    values_of,
+)
 
 
-def _now():
-    return datetime.now(timezone.utc)
+# ─────────────────────────────────────────────────────────────────────────────
+# Project (§2.4)
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-def _uuid():
-    return str(uuid.uuid4())
+class Project(Base, TimestampMixin, SoftDeleteMixin):
+    """A buyer's sourcing workspace — starts as ``session`` and may be
+    promoted to ``project`` (one-way)."""
 
+    __tablename__ = "project"
 
-class Project(Base):
-    """
-    Project entity (ENT-009).
-
-    Status follows ProjectStatus enum (SM-002, 12 states):
-    DRAFT → INTAKE_COMPLETE → ANALYSIS_IN_PROGRESS → … → CLOSED | CANCELLED | ARCHIVED
-    """
-    __tablename__ = "projects"
-    __table_args__ = (
-        Index("ix_projects_user_id", "user_id"),
-        Index("ix_projects_guest_session", "guest_session_id"),
-        Index("ix_projects_org", "organization_id"),
-        {"schema": "projects"},
+    project_id: Mapped[uuid.UUID] = uuid_pk()
+    organization_id: Mapped[uuid.UUID] = uuid_fk(
+        "organization.organization_id", ondelete="RESTRICT", index=True
     )
-
-    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    bom_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("bom.boms.id", ondelete="CASCADE"),
-        nullable=False,
+    created_by: Mapped[uuid.UUID] = uuid_fk(
+        "user.user_id", ondelete="RESTRICT", index=True
     )
-    user_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("auth.users.id", ondelete="SET NULL"),
-        nullable=True,
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_country: Mapped[str | None] = country_code_nullable()
+    target_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_lat: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    delivery_lng: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    target_currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, server_default=text("'USD'")
     )
-    guest_session_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("auth.guest_sessions.id", ondelete="SET NULL"),
-        nullable=True,
+    priority: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'NORMAL'")
     )
-    organization_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("auth.organizations.id", ondelete="SET NULL"),
-        nullable=True,
+    stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    weight_profile: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'balanced'")
     )
-    sourcing_case_id = Column(UUID(as_uuid=False), nullable=True)
-    name = Column(Text, nullable=False, default="Uploaded BOM")
-    file_name = Column(Text, nullable=True)
-    status = Column(String(40), nullable=False, default="DRAFT")  # ProjectStatus (SM-002)
-    visibility = Column(Text, nullable=False, default="owner_only")
-    weight_profile = Column(String(40), nullable=False, default="balanced")  # PC-004
-
-    # Denormalized counters
-    total_parts = Column(Integer, nullable=False, default=0)
-    bom_upload_count = Column(Integer, nullable=False, default=0)
-    bom_line_count = Column(Integer, nullable=False, default=0)
-    rfq_count = Column(Integer, nullable=False, default=0)
-    po_count = Column(Integer, nullable=False, default=0)
-
-    # Cost fields — Numeric(20,8) per GAP-025
-    average_cost = Column(Numeric(20, 8), nullable=True)
-    cost_range_low = Column(Numeric(20, 8), nullable=True)
-    cost_range_high = Column(Numeric(20, 8), nullable=True)
-    lead_time_days = Column(Numeric(12, 2), nullable=True)
-    decision_summary = Column(Text, nullable=True)
-    current_rfq_id = Column(UUID(as_uuid=False), nullable=True)
-    current_po_id = Column(UUID(as_uuid=False), nullable=True)
-    analyzer_report = Column(JSONB, nullable=False, default=dict)
-    strategy = Column(JSONB, nullable=False, default=dict)
-    project_metadata = Column(JSONB, nullable=False, default=dict)
-
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), default=_now)
-    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    weight_profile_custom_json: Mapped[dict | None] = jsonb_object_nullable()
+    is_session_or_project: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default=text("'session'")
+    )
+    state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'DRAFT'")
+    )
+    required_timeline: Mapped = mapped_column(Interval, nullable=True)
+    incoterm_preference: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     # Relationships
-    user = relationship("User", back_populates="projects")
-    events = relationship("ProjectEvent", back_populates="project", cascade="all, delete-orphan")
-    acl_entries = relationship("ProjectACL", back_populates="project", cascade="all, delete-orphan")
+    bom_uploads: Mapped[list["BOMUpload"]] = relationship(
+        "BOMUpload",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    bom_lines: Mapped[list["BOMLine"]] = relationship(
+        "BOMLine",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    acls: Mapped[list["ProjectACL"]] = relationship(
+        "ProjectACL",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="raise",
+    )
+
+    # is_session_or_project may only transition session -> project; reverse
+    # transition is application-enforced, never DB-driven.
+    __table_args__ = (
+        enum_check("priority", values_of(Priority)),
+        nullable_enum_check("stage", values_of(ProjectStage)),
+        enum_check("weight_profile", values_of(ProjectWeightProfile)),
+        enum_check("is_session_or_project", values_of(ProjectSessionType)),
+        enum_check("state", values_of(ProjectState)),
+        # Custom weights required iff weight_profile='custom'
+        CheckConstraint(
+            "(weight_profile <> 'custom') OR (weight_profile_custom_json IS NOT NULL)",
+            name="weight_profile_custom_json_required",
+        ),
+        # Project name required when promoted to a full project
+        CheckConstraint(
+            "(is_session_or_project = 'session') OR (name IS NOT NULL)",
+            name="project_name_required_when_project",
+        ),
+        CheckConstraint(
+            "(is_session_or_project = 'session') OR (stage IS NOT NULL)",
+            name="project_stage_required_when_project",
+        ),
+        Index("ix_project_organization_id_state", "organization_id", "state"),
+        Index("ix_project_is_session_or_project", "is_session_or_project"),
+        Index(
+            "ix_project_organization_id_is_session_or_project",
+            "organization_id",
+            "is_session_or_project",
+        ),
+    )
 
 
-class ProjectACL(Base):
+# ─────────────────────────────────────────────────────────────────────────────
+# ProjectACL (§2.5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class ProjectACL(Base, CreatedAtMixin):
+    """Per-project role assignment (owner / viewer / approver / editor)."""
+
     __tablename__ = "project_acl"
+
+    acl_id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = uuid_fk(
+        "project.project_id", ondelete="CASCADE"
+    )
+    user_id: Mapped[uuid.UUID] = uuid_fk(
+        "user.user_id", ondelete="RESTRICT", index=True
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    granted_at: Mapped[datetime] = tstz(default_now=True)
+    granted_by: Mapped[uuid.UUID] = uuid_fk("user.user_id", ondelete="RESTRICT")
+
+    project: Mapped["Project"] = relationship(
+        "Project", back_populates="acls", lazy="raise"
+    )
+
     __table_args__ = (
-        Index("ix_pacl_project", "project_id"),
-        Index("ix_pacl_principal", "principal_type", "principal_id"),
-        {"schema": "projects"},
+        enum_check("role", values_of(ProjectACLRole)),
+        UniqueConstraint("project_id", "user_id", name="uq_project_acl_project_id_user_id"),
     )
 
-    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    project_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("projects.projects.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    organization_id = Column(UUID(as_uuid=False), nullable=True)
-    principal_type = Column(Text, nullable=False)
-    principal_id = Column(UUID(as_uuid=False), nullable=False)
-    role = Column(Text, nullable=False, default="viewer")
-    granted_at = Column(DateTime(timezone=True), default=_now)
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
-    project = relationship("Project", back_populates="acl_entries")
+# ─────────────────────────────────────────────────────────────────────────────
+# WorkspaceDecision (§2.91)  — append-only log of session↔project transitions
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-class ProjectEvent(Base):
-    """Legacy project event tracking. New audit goes to EventAuditLog."""
-    __tablename__ = "project_events"
-    __table_args__ = {"schema": "projects"}
+class WorkspaceDecision(Base, CreatedAtMixin):
+    """Append-only record of workspace-type transitions.
 
-    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    project_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("projects.projects.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    event_type = Column(Text, nullable=False)
-    old_status = Column(Text, nullable=True)
-    new_status = Column(Text, nullable=True)
-    payload = Column(JSONB, nullable=False, default=dict)
-    actor_user_id = Column(UUID(as_uuid=False), nullable=True)
-    trace_id = Column(String(64), nullable=True)
-    idempotency_key = Column(String(120), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=_now)
-
-    project = relationship("Project", back_populates="events")
-
-
-class SearchSession(Base):
+    Invariant: ``from_state='session'`` and ``to_state='project'`` only
+    (one-way promotion). Reverse transitions are prohibited — enforced in
+    :mod:`app.services.project_service`.
     """
-    Sourcing Session entity (ENT-008, SM-003).
 
-    Maps to Sourcing_Session in the canonical model.
+    __tablename__ = "workspace_decision"
+
+    decision_id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = uuid_fk(
+        "project.project_id", ondelete="CASCADE"
+    )
+    decided_by: Mapped[uuid.UUID] = uuid_fk("user.user_id", ondelete="RESTRICT")
+    from_state: Mapped[str] = mapped_column(String(8), nullable=False)
+    to_state: Mapped[str] = mapped_column(String(8), nullable=False)
+    decided_at: Mapped[datetime] = tstz(default_now=True)
+
+    __table_args__ = (
+        enum_check("from_state", values_of(WorkspaceDecisionStateValue)),
+        enum_check("to_state", values_of(WorkspaceDecisionStateValue)),
+        CheckConstraint(
+            "from_state <> to_state",
+            name="workspace_decision_state_change",
+        ),
+        CheckConstraint(
+            "from_state = 'session' AND to_state = 'project'",
+            name="workspace_decision_session_to_project_only",
+        ),
+        Index("ix_workspace_decision_project_id", "project_id"),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BOMUpload (§2.6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class BOMUpload(Base, CreatedAtMixin):
+    """Raw BOM file / typed-entry upload batch."""
+
+    __tablename__ = "bom_upload"
+
+    upload_id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = uuid_fk(
+        "project.project_id", ondelete="CASCADE"
+    )
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    file_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    import_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'RECEIVED'")
+    )
+    validation_errors_json: Mapped[list] = jsonb_array()
+    row_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    column_mapping_json: Mapped[dict] = jsonb_object()
+    processed_at: Mapped[datetime | None] = tstz(nullable=True)
+
+    project: Mapped["Project"] = relationship(
+        "Project", back_populates="bom_uploads", lazy="raise"
+    )
+
+    __table_args__ = (
+        enum_check("source_type", values_of(BOMUploadSourceType)),
+        enum_check("import_status", values_of(BOMUploadImportStatus)),
+        CheckConstraint("row_count >= 0", name="row_count_nonneg"),
+        CheckConstraint(
+            "file_hash IS NULL OR char_length(file_hash) = 64",
+            name="file_hash_sha256_hex",
+        ),
+        UniqueConstraint("project_id", "file_hash", name="uq_bom_upload_project_id_file_hash"),
+        Index("ix_bom_upload_import_status", "import_status"),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BOMLine (§2.7)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class BOMLine(Base, TimestampMixin):
+    """Single component / line-item within a project.
+
+    * ``raw_text`` is immutable after insert.
+    * ``status`` transitions only via the workflow orchestrator (SM-001).
+    * ``score_cache_json`` is a denormalized read-cache — authoritative
+      scores are in ``vendor_score_cache`` (CN-20).
     """
-    __tablename__ = "search_sessions"
-    __table_args__ = (
-        Index("ix_ss_user", "user_id"),
-        Index("ix_ss_guest", "guest_session_id"),
-        Index("ix_ss_org", "organization_id"),
-        {"schema": "projects"},
+
+    __tablename__ = "bom_line"
+
+    bom_line_id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = uuid_fk(
+        "project.project_id", ondelete="CASCADE"
+    )
+    upload_id: Mapped[uuid.UUID | None] = uuid_fk(
+        "bom_upload.upload_id", ondelete="SET NULL", nullable=True
+    )
+    part_id: Mapped[uuid.UUID | None] = uuid_fk(
+        "part_master.part_id", ondelete="SET NULL", nullable=True
+    )
+    row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    spec_json: Mapped[dict] = jsonb_object()
+    quantity: Mapped[Decimal] = mapped_column(
+        Numeric(20, 8), nullable=False, server_default=text("0")
+    )
+    unit: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    target_country: Mapped[str | None] = country_code_nullable()
+    delivery_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    priority: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'NORMAL'")
+    )
+    acceptable_substitutes: Mapped[list] = jsonb_array()
+    required_certifications: Mapped[list] = jsonb_array()
+    manufacturer_part_number: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'RAW'")
+    )
+    sourcing_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    normalization_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(4, 3), nullable=True
+    )
+    enrichment_json: Mapped[dict] = jsonb_object()
+    # CN-20: denormalized read cache only. Authoritative data = vendor_score_cache.
+    score_cache_json: Mapped[dict] = jsonb_object()
+
+    project: Mapped["Project"] = relationship(
+        "Project", back_populates="bom_lines", lazy="raise"
     )
 
-    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    user_id = Column(UUID(as_uuid=False), nullable=True)
-    guest_session_id = Column(UUID(as_uuid=False), nullable=True)
-    organization_id = Column(UUID(as_uuid=False), nullable=True)
-    session_token = Column(String(120), nullable=True)
-    query_text = Column(Text, nullable=True)
-    query_type = Column(String(40), nullable=False, default="component")
-    input_type = Column(String(40), nullable=False, default="text")
-    delivery_location = Column(Text, nullable=True)
-    target_currency = Column(String(10), nullable=True, default="USD")
-    results_json = Column(JSONB, nullable=False, default=dict)
-    analysis_payload = Column(JSONB, nullable=False, default=dict)
-    promoted_to = Column(String(40), nullable=True)
-    promoted_to_id = Column(UUID(as_uuid=False), nullable=True)
-    status = Column(String(40), nullable=False, default="ACTIVE")  # SessionStatus (SM-003)
-    created_at = Column(DateTime(timezone=True), default=_now)
-    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
-
-
-class SourcingCase(Base):
-    __tablename__ = "sourcing_cases"
     __table_args__ = (
-        Index("ix_sc_user", "user_id"),
-        Index("ix_sc_guest", "guest_session_id"),
-        Index("ix_sc_org", "organization_id"),
-        {"schema": "projects"},
+        enum_check("priority", values_of(Priority)),
+        enum_check("status", values_of(BOMLineStatus)),
+        nullable_enum_check("sourcing_type", values_of(SourcingMode)),
+        # Quantity must be positive on any non-DRAFT (RAW) state per §2.7.
+        # RAW is the ingestion-time state where the value may be 0 until
+        # the user confirms; all downstream states require qty > 0.
+        CheckConstraint(
+            "status = 'RAW' OR quantity > 0",
+            name="quantity_positive_on_active_states",
+        ),
+        CheckConstraint(
+            "normalization_confidence IS NULL "
+            "OR (normalization_confidence >= 0 AND normalization_confidence <= 1)",
+            name="normalization_confidence_range",
+        ),
+        Index("ix_bom_line_project_id_status", "project_id", "status"),
+        Index("ix_bom_line_part_id", "part_id"),
+        Index("ix_bom_line_upload_id", "upload_id"),
+        Index("ix_bom_line_spec_json", "spec_json", postgresql_using="gin"),
+        Index("ix_bom_line_enrichment_json_gin", "enrichment_json", postgresql_using="gin"),
     )
 
-    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    user_id = Column(UUID(as_uuid=False), nullable=True)
-    guest_session_id = Column(UUID(as_uuid=False), nullable=True)
-    organization_id = Column(UUID(as_uuid=False), nullable=True)
-    session_token = Column(String(120), nullable=True)
-    search_session_id = Column(UUID(as_uuid=False), nullable=True)
-    name = Column(Text, nullable=False, default="Saved search")
-    query_text = Column(Text, nullable=True)
-    analysis_payload = Column(JSONB, nullable=False, default=dict)
-    vendor_shortlist = Column(JSONB, nullable=False, default=list)
-    notes = Column(Text, nullable=True)
-    promoted_to_project_id = Column(UUID(as_uuid=False), nullable=True)
-    status = Column(String(40), nullable=False, default="ACTIVE")
-    created_at = Column(DateTime(timezone=True), default=_now)
-    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
-
-# IntakeSession and IntakeItem removed per APPROVED-ENHANCEMENT-002 (dead code).
+__all__ = [
+    "Project",
+    "ProjectACL",
+    "WorkspaceDecision",
+    "BOMUpload",
+    "BOMLine",
+]

@@ -1,26 +1,71 @@
-from sqlalchemy import Column, Text, DateTime, Numeric, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
-from app.core.database import Base
+"""
+Part_Master entity — canonical part catalogue with pgvector embeddings and
+PostgreSQL TSVECTOR full-text search tokens.
 
-try:
-    from pgvector.sqlalchemy import Vector
-except ImportError:
-    from sqlalchemy import LargeBinary as Vector  # fallback
+Contract anchors
+----------------
+§2.8  Part_Master
+§11.18 Job: platform.rebuild_part_master_search_vectors
+       (populates ``search_tokens`` + ``embedding`` in place)
 
-class PartMaster(Base):
+Design notes
+------------
+* ``embedding`` is a pgvector VECTOR(1536) column. Index is created in the
+  Alembic migration as either HNSW or IVFFlat (operational choice at deploy
+  time); the ORM mapping is index-agnostic.
+* ``search_tokens`` is a TSVECTOR column; a GIN index is created in Alembic.
+* ``last_updated`` acts as the creation + mutation timestamp (no separate
+  ``created_at``/``updated_at`` per spec §2.8).
+* Part_Master is version-pinned via ``config_version`` (no TTL).
+"""
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import CheckConstraint, Index, Numeric, String, text
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base, CreatedAtMixin, jsonb_object, tstz, uuid_pk
+
+
+class PartMaster(Base, CreatedAtMixin):
+    """Canonical part catalogue entry used by normalization and matching."""
+
     __tablename__ = "part_master"
-    part_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    canonical_name = Column(Text, nullable=False)
-    category = Column(Text, nullable=False, server_default="unknown")
-    commodity_group = Column(Text)
-    taxonomy_code = Column(Text)
-    spec_template = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
-    default_uom = Column(Text)
-    search_tokens = Column(Text)
-    classification_confidence = Column(Numeric(5, 4))
-    manufacturer_part_number = Column(Text)
-    manufacturer = Column(Text)
-    canonical_sku_id = Column(UUID(as_uuid=True))
-    embedding = Column(Vector(384)) if callable(getattr(Vector, "__init__", None)) else Column(Text)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
-    last_updated = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+
+    part_id: Mapped[uuid.UUID] = uuid_pk()
+    canonical_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    category: Mapped[str] = mapped_column(String(128), nullable=False)
+    commodity_group: Mapped[str] = mapped_column(String(128), nullable=False)
+    taxonomy_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    spec_template: Mapped[dict] = jsonb_object()
+    default_uom: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'pc'")
+    )
+    search_tokens: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    classification_confidence: Mapped = mapped_column(Numeric(4, 3), nullable=True)
+    last_updated: Mapped[datetime] = tstz(default_now=True, on_update=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "classification_confidence IS NULL "
+            "OR (classification_confidence >= 0 AND classification_confidence <= 1)",
+            name="classification_confidence_range",
+        ),
+        Index(
+            "ix_part_master_search_tokens",
+            "search_tokens",
+            postgresql_using="gin",
+        ),
+        # Embedding index (HNSW preferred; IVFFlat fallback) is declared in
+        # Alembic so operators can tune ef_construction / lists at runtime.
+        Index("ix_part_master_commodity_group", "commodity_group"),
+        Index("ix_part_master_category", "category"),
+    )
+
+
+__all__ = ["PartMaster"]
